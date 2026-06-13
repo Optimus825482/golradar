@@ -30,7 +30,7 @@ export DATABASE_URL="postgresql://postgres:${PGPASS}@localhost:5432/golradar_db"
 # ── Prisma ──
 cd /app/web
 echo "[DB] Running prisma db push..."
-NODE_ENV=production bunx prisma db push 2>&1 || echo "[WARN] prisma db push skipped"
+NODE_ENV=production bun x prisma db push 2>&1 || echo "[WARN] prisma db push skipped"
 
 # ── Start Next.js ──
 NODE_ENV=production PORT=3000 DATABASE_URL="${DATABASE_URL}" \

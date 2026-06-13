@@ -1,39 +1,29 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "[ENTRYPOINT] Bootstrapping..."
+echo "[ENTRYPOINT] Starting golradar..."
 
-PG_VER="${POSTGRES_MAJOR:-16}"
-PGDATA="${PGDATA:-/var/lib/postgresql/data}"
-PGPASS="${POSTGRES_PASSWORD:-golradar_secret}"
+# ── Wait for PostgreSQL to be ready ──
+DB_HOST="${DATABASE_HOST:-postgres}"
+DB_PORT="${DATABASE_PORT:-5432}"
 
-# ── Initialize data directory on first run ──
-if [ ! -d "${PGDATA}/base" ]; then
-    echo "[DB] Initializing PostgreSQL ${PG_VER}..."
-    mkdir -p "${PGDATA}"
-    chown -R postgres:postgres "${PGDATA}"
-    su - postgres -c "initdb -D '${PGDATA}' -E UTF8 --locale=en_US.UTF-8"
-fi
+echo "[DB] Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
+for i in $(seq 1 60); do
+    if nc -z "${DB_HOST}" "${DB_PORT}" 2>/dev/null; then
+        break
+    fi
+    sleep 1
+done
 
-# ── Start PostgreSQL ──
-echo "[DB] Starting PostgreSQL..."
-su - postgres -c "pg_ctl -D '${PGDATA}' -l /tmp/pg.log -w start"
-sleep 2
-
-# Set password + create DB
-psql -U postgres -c "ALTER USER postgres WITH PASSWORD '${PGPASS}';" &>/dev/null || true
-psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'golradar_db'" | grep -q 1 || \
-    psql -U postgres -c "CREATE DATABASE golradar_db"
-
-export DATABASE_URL="postgresql://postgres:${PGPASS}@localhost:5432/golradar_db"
-
-# ── Prisma ──
-cd /app/web
+# ── Prisma db push (run migrations) ──
 echo "[DB] Running prisma db push..."
+cd /app/web
 NODE_ENV=production ./node_modules/.bin/prisma db push 2>&1 || echo "[WARN] prisma db push skipped"
 
-# ── Start Next.js ──
-NODE_ENV=production PORT=3000 DATABASE_URL="${DATABASE_URL}" \
+# ── Start Next.js via npm start ──
+echo "[WEB] Starting Next.js (npm run start)..."
+NODE_ENV=production PORT=3000 \
+    DATABASE_URL="${DATABASE_URL:-postgresql://postgres:golradar_secret@postgres:5432/golradar_db}" \
     NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-http://localhost:3000}" \
     NEXT_PUBLIC_SOCKET_URL="${NEXT_PUBLIC_SOCKET_URL:-http://localhost:3003}" \
     SOCKET_CORS_ORIGIN="${SOCKET_CORS_ORIGIN:-http://localhost:3000}" \
@@ -46,21 +36,26 @@ NODE_ENV=production PORT=3000 DATABASE_URL="${DATABASE_URL}" \
     GOALOO_API_TIMEOUT="${GOALOO_API_TIMEOUT:-15000}" \
     SCOREMER_API_TIMEOUT="${SCOREMER_API_TIMEOUT:-15000}" \
     NEXT_PUBLIC_PWA_THEME_COLOR="${NEXT_PUBLIC_PWA_THEME_COLOR:-#10b981}" \
-    bun server.js &
-echo "[OK] Next.js started"
+    npm run start &
+WEB_PID=$!
+echo "[OK] Next.js started (PID $WEB_PID)"
 
-# ── Start Nesine-live ──
+# ── Start Nesine-live in background ──
+echo "[NESINE] Starting relay..."
 cd /app/nesine
 CORS_LIST=$(echo "${SOCKET_CORS_ORIGIN:-http://localhost:3000}" | tr ',' ' ')
 NODE_ENV=production SOCKET_CORS_ORIGIN="${CORS_LIST}" bun index.ts &
-echo "[OK] Nesine relay started"
+NESINE_PID=$!
+echo "[OK] Nesine relay started (PID $NESINE_PID)"
 
 # ── Graceful shutdown ──
 cleanup() {
     echo "[SHUTDOWN] Stopping..."
-    kill $WEB_PID $NESINE_PID 2>/dev/null || true
+    kill $NESINE_PID 2>/dev/null || true
+    # Send SIGTERM to npm/node process tree
+    pkill -f "next start" 2>/dev/null || true
+    kill $WEB_PID 2>/dev/null || true
     wait 2>/dev/null || true
-    su - postgres -c "pg_ctl -D '${PGDATA}' stop" 2>/dev/null || true
 }
 trap cleanup SIGINT SIGTERM
 

@@ -1,37 +1,57 @@
 services:
+  # ── PostgreSQL (separate container) ──
+  postgres:
+    image: postgres:16-alpine
+    container_name: golradar-db
+    restart: unless-stopped
+    volumes:
+      - golradar_pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-golradar_secret}
+      POSTGRES_DB: golradar_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d golradar_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - golradar-net
+
+  # ── Web App (Next.js + Nesine relay) ──
   golradar:
     build: .
-    container_name: golradar
+    container_name: golradar-app
     restart: unless-stopped
-    ports:
-      - "3000:3000"
-      - "3003:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
-      # PostgreSQL (bundled, internal)
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-golradar_secret}
-      # Next.js / App
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db
       NODE_ENV: production
+      PORT: 3000
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
-      DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@localhost:5432/golradar_db"
-      # Radar config
+      NESINE_LIVE_PORT: 3003
+      NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:3003}
+      SOCKET_CORS_ORIGIN: ${SOCKET_CORS_ORIGIN:-http://localhost:3000}
       RADAR_THRESHOLD: ${RADAR_THRESHOLD:-65}
       SIGNAL_5MIN_THRESHOLD: ${SIGNAL_5MIN_THRESHOLD:-0.25}
       POISSON_BLEND_WEIGHT: ${POISSON_BLEND_WEIGHT:-0.25}
       MAX_PRESSURE_SNAPSHOTS: ${MAX_PRESSURE_SNAPSHOTS:-540}
-      # API timeouts
       NESINE_API_TIMEOUT: ${NESINE_API_TIMEOUT:-10000}
       FOTMOB_API_TIMEOUT: ${FOTMOB_API_TIMEOUT:-10000}
       GOALOO_API_TIMEOUT: ${GOALOO_API_TIMEOUT:-15000}
       SCOREMER_API_TIMEOUT: ${SCOREMER_API_TIMEOUT:-15000}
-      # Socket.IO / Nesine relay
-      NESINE_LIVE_PORT: 3003
-      NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:3003}
-      SOCKET_CORS_ORIGIN: ${SOCKET_CORS_ORIGIN:-http://localhost:3000}
-      # PWA
       NEXT_PUBLIC_PWA_THEME_COLOR: ${NEXT_PUBLIC_PWA_THEME_COLOR:-#10b981}
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 3000 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 120s
+    networks:
+      - golradar-net
+    ports:
+      - "3000:3000"
+      - "3003:3003"
+
+networks:
+  golradar-net:
+    driver: bridge
+
+volumes:
+  golradar_pgdata:

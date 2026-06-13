@@ -274,7 +274,7 @@ export async function runHistoricalSimulation(
       currentProgress.percentComplete = Math.round((i / matches.length) * 100);
       currentProgress.elapsedMs = Date.now() - startTime;
 
-      const result = simulateSingleMatch(match, signalThreshold);
+      const result = await simulateSingleMatch(match, signalThreshold);
       matchResults.push(result);
 
       if (result.hadStats) {
@@ -364,10 +364,10 @@ export async function runHistoricalSimulation(
 
 // ── Simulate a single match ────────────────────────────────────
 
-function simulateSingleMatch(
+async function simulateSingleMatch(
   match: SimInputMatch,
   signalThreshold: number,
-): MatchSimulationResult {
+): Promise<MatchSimulationResult> {
   const result: MatchSimulationResult = {
     matchCode: match.matchCode,
     homeTeam: match.homeTeam,
@@ -503,7 +503,7 @@ function simulateSingleMatch(
         const factors = [...prob.factors];
         if (oddsFactor) factors.push(oddsFactor);
 
-        const signal = checkAndRecordSignal(
+        const signal = await checkAndRecordSignal(
           match.matchCode,
           match.homeTeam,
           match.awayTeam,
@@ -548,7 +548,7 @@ function simulateSingleMatch(
     }
 
     // Finalize match signals
-    finalizeMatchSignals(match.matchCode, match.homeScore, match.awayScore);
+    await finalizeMatchSignals(match.matchCode, match.homeScore, match.awayScore);
   } catch (err: any) {
     result.error = err.message;
   }

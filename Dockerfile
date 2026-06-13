@@ -20,8 +20,8 @@ LABEL description="golradar — single container with PostgreSQL"
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Install bun (runtime)
-RUN apk add --no-cache curl bash && \
+# Install bun + nodejs (prisma CLI needs node)
+RUN apk add --no-cache curl bash nodejs && \
     curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 

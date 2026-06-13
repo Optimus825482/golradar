@@ -2,7 +2,7 @@
 FROM oven/bun:1-alpine AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # ── Stage 2: Build Next.js ──
 FROM deps AS build
@@ -37,7 +37,7 @@ COPY --from=build /app/node_modules/.prisma /root/.prisma
 WORKDIR /app/nesine
 COPY --from=build /app/mini-services/nesine-live/package.json ./
 COPY --from=build /app/mini-services/nesine-live/bun.lock ./
-RUN bun install --frozen-lockfile
+RUN bun install
 COPY --from=build /app/mini-services/nesine-live/index.ts ./
 COPY --from=build /app/mini-services/shared /app/shared
 

@@ -31,8 +31,10 @@ COPY --from=build /app/.next/static /app/web/.next/static
 COPY --from=build /app/public /app/web/public
 COPY --from=build /app/prisma /app/web/prisma
 
-# Prisma client for runtime
-COPY --from=build /app/node_modules/.prisma /root/.prisma
+# Prisma client + CLI for runtime (pin v6.11.1)
+COPY --from=build /app/node_modules/.prisma /app/web/node_modules/.prisma
+COPY --from=build /app/node_modules/prisma /app/web/node_modules/prisma
+COPY --from=build /app/node_modules/@prisma /app/web/node_modules/@prisma
 
 # Nesine-live relay
 WORKDIR /app/nesine

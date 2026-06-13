@@ -13,6 +13,7 @@
 // Separately from the backtest module.
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'fs';
+import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 
 // ── Server-only check ─────────────────────────────────────────
@@ -148,6 +149,32 @@ function getDayFilePath(date: string): string {
   return join(DATA_DIR, `signals-${date}.json`);
 }
 
+// ── Async file lock (serialize writes per file path) ────────────
+
+const fileLocks = new Map<string, Promise<unknown>>();
+
+/**
+ * Run an async operation under a per-path lock. Concurrent calls for the
+ * same path execute in order; calls for different paths run in parallel.
+ * Prevents lost updates when record + expire run on the same file.
+ */
+async function withFileLock<T>(filePath: string, fn: () => Promise<T> | T): Promise<T> {
+  const prev = fileLocks.get(filePath) ?? Promise.resolve();
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => { release = resolve; });
+  fileLocks.set(filePath, prev.then(() => next));
+  try {
+    await prev;
+    return await fn();
+  } finally {
+    release();
+    // GC: drop the entry if no further waiters
+    if (fileLocks.get(filePath) === next) {
+      fileLocks.delete(filePath);
+    }
+  }
+}
+
 // ── Load / Save ────────────────────────────────────────────────
 
 function loadDaySignals(date: string): GoalSignalRecord[] {
@@ -165,10 +192,29 @@ function loadDaySignals(date: string): GoalSignalRecord[] {
   }
 }
 
+async function loadDaySignalsAsync(date: string): Promise<GoalSignalRecord[]> {
+  const filePath = getDayFilePath(date);
+  try {
+    const data = await readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(data);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object' && parsed.matchCode) return [parsed];
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 function saveDaySignals(date: string, signals: GoalSignalRecord[]) {
   ensureDataDir();
   const filePath = getDayFilePath(date);
   writeFileSync(filePath, JSON.stringify(signals, null, 2), 'utf-8');
+}
+
+async function saveDaySignalsAsync(date: string, signals: GoalSignalRecord[]): Promise<void> {
+  ensureDataDir();
+  const filePath = getDayFilePath(date);
+  await withFileLock(filePath, () => writeFile(filePath, JSON.stringify(signals, null, 2), 'utf-8'));
 }
 
 function updateDaySignal(date: string, matchCode: number, updater: (record: GoalSignalRecord) => boolean): boolean {
@@ -183,6 +229,58 @@ function updateDaySignal(date: string, matchCode: number, updater: (record: Goal
   }
   if (changed) saveDaySignals(date, signals);
   return changed;
+}
+
+/**
+ * Immutable variant: updater returns a new record (or null to skip).
+ * Persists only if any record was replaced.
+ */
+function updateDaySignalImmutable(
+  date: string,
+  matchCode: number,
+  updater: (record: Readonly<GoalSignalRecord>) => GoalSignalRecord | null,
+): boolean {
+  const signals = loadDaySignals(date);
+  let changed = false;
+  const next = signals.map((r) => {
+    if (r.matchCode !== matchCode) return r;
+    const updated = updater(r);
+    if (updated && updated !== r) {
+      changed = true;
+      return updated;
+    }
+    return r;
+  });
+  if (changed) saveDaySignals(date, next);
+  return changed;
+}
+
+/**
+ * Async + locked variant of updateDaySignalImmutable.
+ * Use this from all public write paths (record/expire/finalize) to serialize
+ * concurrent writes to the same date file.
+ */
+async function updateDaySignalImmutableAsync(
+  date: string,
+  matchCode: number,
+  updater: (record: Readonly<GoalSignalRecord>) => GoalSignalRecord | null,
+): Promise<boolean> {
+  const filePath = getDayFilePath(date);
+  return withFileLock(filePath, () => {
+    const signals = loadDaySignals(date);
+    let changed = false;
+    const next = signals.map((r) => {
+      if (r.matchCode !== matchCode) return r;
+      const updated = updater(r);
+      if (updated && updated !== r) {
+        changed = true;
+        return updated;
+      }
+      return r;
+    });
+    if (changed) writeFileSync(filePath, JSON.stringify(next, null, 2), 'utf-8');
+    return changed;
+  });
 }
 
 function updatePendingSignal(
@@ -206,13 +304,57 @@ function updatePendingSignal(
   return changed || changedYesterday;
 }
 
+/**
+ * Immutable twin of updatePendingSignal. Updater returns a new record
+ * (or null to skip). Used by stale/halftime/goal-verify writers to avoid
+ * mutating the records returned from loadDaySignals.
+ */
+function updatePendingSignalImmutable(
+  matchCode: number,
+  side: string | null,
+  updater: (record: Readonly<GoalSignalRecord>) => GoalSignalRecord | null,
+): boolean {
+  const today = getLocalDateString();
+  const yesterday = getLocalDateString(new Date(Date.now() - 86400000));
+  const guard = (r: Readonly<GoalSignalRecord>) =>
+    r.goalHappened !== null
+      ? null
+      : side !== null && r.signalSide !== side
+        ? null
+        : updater(r);
+  const a = updateDaySignalImmutable(today, matchCode, guard);
+  const b = updateDaySignalImmutable(yesterday, matchCode, guard);
+  return a || b;
+}
+
+/**
+ * Async + locked twin. Use from all public writers.
+ */
+async function updatePendingSignalImmutableAsync(
+  matchCode: number,
+  side: string | null,
+  updater: (record: Readonly<GoalSignalRecord>) => GoalSignalRecord | null,
+): Promise<boolean> {
+  const today = getLocalDateString();
+  const yesterday = getLocalDateString(new Date(Date.now() - 86400000));
+  const guard = (r: Readonly<GoalSignalRecord>) =>
+    r.goalHappened !== null
+      ? null
+      : side !== null && r.signalSide !== side
+        ? null
+        : updater(r);
+  const a = await updateDaySignalImmutableAsync(today, matchCode, guard);
+  const b = await updateDaySignalImmutableAsync(yesterday, matchCode, guard);
+  return a || b;
+}
+
 // ── Core tracking functions ───────────────────────────────────
 
 /**
  * Check if a goal probability reading should trigger a signal record.
  * Called every time goalProbability is calculated during live match polling.
  */
-export function checkAndRecordSignal(
+export async function checkAndRecordSignal(
   matchCode: number,
   homeTeam: string,
   awayTeam: string,
@@ -231,7 +373,7 @@ export function checkAndRecordSignal(
   },
   currentHomeGoals: number,
   currentAwayGoals: number,
-): GoalSignalRecord | null {
+): Promise<GoalSignalRecord | null> {
   if (goalProbability.score < SIGNAL_THRESHOLD) return null;
   if (!goalProbability.side || goalProbability.side === 'both') return null;
 
@@ -257,7 +399,7 @@ export function checkAndRecordSignal(
   // Check cooldown
   if (state.lastSignalScore !== null && state.lastSignalSide === signalSide) {
     const lastUnverified = [...state.unverifiedSignals].reverse().find(
-      s => s.signalSide === signalSide && !s.goalVerified
+      s => s.signalSide === signalSide && s.goalHappened === null
     );
     if (lastUnverified && (minNum - lastUnverified.signalMinute) < SIGNAL_COOLDOWN_MINUTES) {
       if (goalProbability.score - state.lastSignalScore < ESCALATION_THRESHOLD) {
@@ -316,10 +458,12 @@ export function checkAndRecordSignal(
     finalAwayScore: null,
   };
 
-  // Persist
-  const daySignals = loadDaySignals(today);
-  daySignals.push(record);
-  saveDaySignals(today, daySignals);
+  // Persist (locked)
+  await withFileLock(getDayFilePath(today), () => {
+    const daySignals = loadDaySignals(today);
+    daySignals.push(record);
+    writeFileSync(getDayFilePath(today), JSON.stringify(daySignals, null, 2), 'utf-8');
+  });
 
   state.unverifiedSignals.push(record);
 
@@ -328,81 +472,94 @@ export function checkAndRecordSignal(
 
 /**
  * Called when a goal is detected during match polling.
+ * Handles both same-minute double goals (home+away in same poll cycle).
  */
-function checkForGoals(
+async function checkForGoals(
   matchCode: number,
   currentHomeGoals: number,
   currentAwayGoals: number,
   currentMinute: number,
   today: string,
-): void {
+): Promise<void> {
   const state = activeMatches.get(matchCode);
   if (!state) return;
 
-  // Determine which side scored (if any)
+  // Determine which side(s) scored
   const homeScored = currentHomeGoals > state.lastKnownHomeGoals;
   const awayScored = currentAwayGoals > state.lastKnownAwayGoals;
-  const goalSide = homeScored ? 'home' : awayScored ? 'away' : null;
-  if (!goalSide) return;
 
   // Update state for next check
   state.lastKnownHomeGoals = currentHomeGoals;
   state.lastKnownAwayGoals = currentAwayGoals;
+
+  if (!homeScored && !awayScored) return;
   state.hasAnyGoalVerification = true;
 
-  // Mark the most recent pending signal for the correct side
-  const pendingForSide = state.unverifiedSignals
-    .filter(s => s.signalSide === goalSide && s.goalHappened === null)
-    .sort((a, b) => b.signalMinute - a.signalMinute); // most recent first
+  const scoredSides: Array<'home' | 'away'> = [];
+  if (homeScored) scoredSides.push('home');
+  if (awayScored) scoredSides.push('away');
 
-  if (pendingForSide.length === 0) return;
+  for (const goalSide of scoredSides) {
+    // Mark the most recent pending signal for the correct side
+    const pendingForSide = state.unverifiedSignals
+      .filter(s => s.signalSide === goalSide && s.goalHappened === null)
+      .sort((a, b) => b.signalMinute - a.signalMinute); // most recent first
 
-  const matched = pendingForSide[0];
-  matched.goalHappened = true;
-  matched.goalMinute = currentMinute;
-  matched.goalSide = goalSide;
-  matched.correctPrediction = matched.signalSide === goalSide;
-  matched.minutesAfterSignal = currentMinute - matched.signalMinute;
-  matched.goalTimestamp = Date.now();
+    if (pendingForSide.length === 0) continue;
 
-  // Persist
-  updatePendingSignal(matchCode, goalSide, (r) => {
-    if (r.signalIndex === matched.signalIndex) {
-      Object.assign(r, {
+    const matched = pendingForSide[0];
+    const signalIndex = matched.signalIndex;
+    const updated = await updatePendingSignalImmutableAsync(matchCode, goalSide, (r) => {
+      if (r.signalIndex !== signalIndex) return null;
+      return {
+        ...r,
         goalHappened: true,
         goalMinute: currentMinute,
         goalSide,
         correctPrediction: r.signalSide === goalSide,
         minutesAfterSignal: currentMinute - r.signalMinute,
         goalTimestamp: Date.now(),
-      });
-      return true;
-    }
-    return false;
-  });
-
-  // Also expire other pending signals for the opposite side
-  const opposite = goalSide === 'home' ? 'away' : 'home';
-  state.unverifiedSignals
-    .filter(s => s.signalSide === opposite && s.goalHappened === null)
-    .forEach(s => {
-      s.goalHappened = false;
-      s.goalSide = goalSide;
-      s.correctPrediction = false;
-      s.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
-      updatePendingSignal(matchCode, opposite, (r) => {
-        if (r.signalIndex === s.signalIndex) {
-          Object.assign(r, {
-            goalHappened: false,
-            goalSide,
-            correctPrediction: false,
-            minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-          });
-          return true;
-        }
-        return false;
-      });
+      };
     });
+    if (updated) {
+      // Mirror to in-memory record (used by expiry/state queries)
+      matched.goalHappened = true;
+      matched.goalMinute = currentMinute;
+      matched.goalSide = goalSide;
+      matched.correctPrediction = matched.signalSide === goalSide;
+      matched.minutesAfterSignal = currentMinute - matched.signalMinute;
+      matched.goalTimestamp = Date.now();
+    }
+  }
+
+  // Opposite-side expiry: only for sides that did NOT score in this cycle.
+  // The scoring side(s) are handled above. We do NOT expire here when both
+  // sides scored simultaneously — let expireStaleSignals own stale cleanup
+  // (single-owner pattern, see task #5).
+  if (scoredSides.length === 1) {
+    const scoringSide = scoredSides[0];
+    const opposite: 'home' | 'away' = scoringSide === 'home' ? 'away' : 'home';
+    for (const s of state.unverifiedSignals) {
+      if (s.signalSide !== opposite || s.goalHappened !== null) continue;
+      const signalIndex = s.signalIndex;
+      const updated = await updatePendingSignalImmutableAsync(matchCode, opposite, (r) => {
+        if (r.signalIndex !== signalIndex) return null;
+        return {
+          ...r,
+          goalHappened: false,
+          goalSide: scoringSide,
+          correctPrediction: false,
+          minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
+        };
+      });
+      if (updated) {
+        s.goalHappened = false;
+        s.goalSide = scoringSide;
+        s.correctPrediction = false;
+        s.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
+      }
+    }
+  }
 }
 
 // ── Signal expiry (10-minute timeout) ─────────────────────────
@@ -410,8 +567,9 @@ function checkForGoals(
 /**
  * Expire any pending signals that have been waiting longer than SIGNAL_EXPIRY_MINUTES.
  * Called by the internal expiry interval.
+ * Single owner of stale expiry — checkForGoals opposite-side path delegates here.
  */
-function expireStaleSignals(): number {
+async function expireStaleSignals(): Promise<number> {
   const now = Date.now();
   const expiryMs = SIGNAL_EXPIRY_MINUTES * 60 * 1000;
   let expired = 0;
@@ -419,18 +577,18 @@ function expireStaleSignals(): number {
   for (const [matchCode, state] of activeMatches.entries()) {
     for (const signal of state.unverifiedSignals) {
       if (signal.goalHappened !== null) continue;
-      if (now - signal.signalTimestamp >= expiryMs) {
+      if (now - signal.signalTimestamp < expiryMs) continue;
+
+      const signalIndex = signal.signalIndex;
+      const updated = await updatePendingSignalImmutableAsync(matchCode, null, (r) => {
+        if (r.signalIndex === signalIndex && r.goalHappened === null) {
+          return { ...r, goalHappened: false, minutesAfterSignal: SIGNAL_EXPIRY_MINUTES };
+        }
+        return null;
+      });
+      if (updated) {
         signal.goalHappened = false;
         signal.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
-        // Persist
-        updatePendingSignal(matchCode, null, (r) => {
-          if (r.signalIndex === signal.signalIndex && r.goalHappened === null) {
-            r.goalHappened = false;
-            r.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
-            return true;
-          }
-          return false;
-        });
         expired++;
       }
     }
@@ -442,24 +600,25 @@ function expireStaleSignals(): number {
  * Immediately expire all pending signals for matches that entered halftime.
  * Returns number of signals expired.
  */
-export function expireSignalsForHalftime(halftimeMatchCodes: Set<number>): number {
+export async function expireSignalsForHalftime(halftimeMatchCodes: Set<number>): Promise<number> {
   let expired = 0;
   for (const matchCode of halftimeMatchCodes) {
     const state = activeMatches.get(matchCode);
     if (!state) continue;
     for (const signal of state.unverifiedSignals) {
       if (signal.goalHappened !== null) continue;
-      signal.goalHappened = false;
-      signal.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
-      updatePendingSignal(matchCode, null, (r) => {
-        if (r.signalIndex === signal.signalIndex && r.goalHappened === null) {
-          r.goalHappened = false;
-          r.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
-          return true;
+      const signalIndex = signal.signalIndex;
+      const updated = await updatePendingSignalImmutableAsync(matchCode, null, (r) => {
+        if (r.signalIndex === signalIndex && r.goalHappened === null) {
+          return { ...r, goalHappened: false, minutesAfterSignal: SIGNAL_EXPIRY_MINUTES };
         }
-        return false;
+        return null;
       });
-      expired++;
+      if (updated) {
+        signal.goalHappened = false;
+        signal.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
+        expired++;
+      }
     }
   }
   return expired;
@@ -472,8 +631,8 @@ export function expireSignalsForHalftime(halftimeMatchCodes: Set<number>): numbe
  * Called manually via UI button.
  * Returns { total, expired, stillPending }
  */
-export function checkPendingSignals(): { total: number; expired: number; stillPending: number } {
-  const total = expireStaleSignals();
+export async function checkPendingSignals(): Promise<{ total: number; expired: number; stillPending: number }> {
+  const total = await expireStaleSignals();
 
   // Also check any pending signals in the in-memory state that are
   // from matches no longer being polled — expire them too
@@ -498,10 +657,16 @@ let expiryInterval: ReturnType<typeof setInterval> | null = null;
 export function startExpiryChecker(): void {
   if (expiryInterval) return;
   if (!isServer) return;
-  expiryInterval = setInterval(() => {
-    const expired = expireStaleSignals();
-    if (expired > 0 && process.env.NODE_ENV === 'development') {
-      console.log(`[SignalTracker] Expired ${expired} stale signal(s)`);
+  expiryInterval = setInterval(async () => {
+    try {
+      const expired = await expireStaleSignals();
+      if (expired > 0 && process.env.NODE_ENV === 'development') {
+        console.log(`[SignalTracker] Expired ${expired} stale signal(s)`);
+      }
+    } catch (err) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[SignalTracker] expireStaleSignals error:', err);
+      }
     }
   }, EXPIRY_CHECK_INTERVAL_MS);
   if (process.env.NODE_ENV === 'development') {
@@ -524,50 +689,44 @@ function stopExpiryChecker(): void {
 /**
  * Called when match ends — finalize all remaining pending signals.
  */
-export function finalizeMatchSignals(
+export async function finalizeMatchSignals(
   matchCode: number,
   homeScore: number,
   awayScore: number,
-): void {
+): Promise<void> {
   const state = activeMatches.get(matchCode);
   if (!state) return;
 
   for (const signal of state.unverifiedSignals) {
     if (signal.goalHappened !== null) continue;
-    signal.goalHappened = false;
-    signal.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
-
-    updatePendingSignal(matchCode, null, (r) => {
-      if (r.signalIndex === signal.signalIndex && r.goalHappened === null) {
-        r.goalHappened = false;
-        r.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
-        r.finalHomeScore = homeScore;
-        r.finalAwayScore = awayScore;
-        return true;
+    const signalIndex = signal.signalIndex;
+    const updated = await updatePendingSignalImmutableAsync(matchCode, null, (r) => {
+      if (r.signalIndex === signalIndex && r.goalHappened === null) {
+        return {
+          ...r,
+          goalHappened: false,
+          minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
+          finalHomeScore: homeScore,
+          finalAwayScore: awayScore,
+        };
       }
-      return false;
+      return null;
     });
+    if (updated) {
+      signal.goalHappened = false;
+      signal.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
+    }
   }
 
-  // Update final scores for all signals
+  // Backfill final scores for already-resolved signals of this match
   const today = getLocalDateString();
-  updateDaySignal(today, matchCode, (r) => {
-    if (r.finalHomeScore == null) {
-      r.finalHomeScore = homeScore;
-      r.finalAwayScore = awayScore;
-      return true;
-    }
-    return false;
-  });
   const yesterday = getLocalDateString(new Date(Date.now() - 86400000));
-  updateDaySignal(yesterday, matchCode, (r) => {
-    if (r.finalHomeScore == null) {
-      r.finalHomeScore = homeScore;
-      r.finalAwayScore = awayScore;
-      return true;
-    }
-    return false;
-  });
+  const backfill = (r: Readonly<GoalSignalRecord>) =>
+    r.finalHomeScore == null
+      ? { ...r, finalHomeScore: homeScore, finalAwayScore: awayScore }
+      : null;
+  await updateDaySignalImmutableAsync(today, matchCode, backfill);
+  await updateDaySignalImmutableAsync(yesterday, matchCode, backfill);
 
   activeMatches.delete(matchCode);
 }
@@ -577,23 +736,39 @@ export function finalizeMatchSignals(
 /**
  * Remove stale matches from active tracking.
  */
-export function cleanupStaleSignals(activeMatchCodes: number[]): void {
+export async function cleanupStaleSignals(activeMatchCodes: number[]): Promise<void> {
   const activeSet = new Set(activeMatchCodes);
   for (const [code] of activeMatches) {
-    if (!activeSet.has(code)) {
-      // Finalize any remaining unverified signals
-      const state = activeMatches.get(code);
-      if (state && state.unverifiedSignals.some(s => s.goalHappened === null)) {
-        // Expire all pending
-        for (const s of state.unverifiedSignals) {
-          if (s.goalHappened !== null) continue;
-          s.goalHappened = false;
-          s.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
-        }
+    if (activeSet.has(code)) continue;
+    // Expire all pending signals of this match on disk before dropping state.
+    await expireStaleSignalsForMatch(code);
+    activeMatches.delete(code);
+  }
+}
+
+/**
+ * Expire all pending signals for a single match. Used by cleanup.
+ */
+async function expireStaleSignalsForMatch(matchCode: number): Promise<number> {
+  const state = activeMatches.get(matchCode);
+  if (!state) return 0;
+  let expired = 0;
+  for (const signal of state.unverifiedSignals) {
+    if (signal.goalHappened !== null) continue;
+    const signalIndex = signal.signalIndex;
+    const updated = await updatePendingSignalImmutableAsync(matchCode, null, (r) => {
+      if (r.signalIndex === signalIndex && r.goalHappened === null) {
+        return { ...r, goalHappened: false, minutesAfterSignal: SIGNAL_EXPIRY_MINUTES };
       }
-      activeMatches.delete(code);
+      return null;
+    });
+    if (updated) {
+      signal.goalHappened = false;
+      signal.minutesAfterSignal = SIGNAL_EXPIRY_MINUTES;
+      expired++;
     }
   }
+  return expired;
 }
 
 // ── Statistics ────────────────────────────────────────────────

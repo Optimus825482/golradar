@@ -17,26 +17,197 @@ startExpiryChecker();
 
 export const dynamic = "force-dynamic";
 
+// ── Naive rate limiter (per-process, per-IP) ───────────────────
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 120; // 120 requests / minute / IP
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const bucket = rateBuckets.get(ip);
+  if (!bucket || bucket.resetAt < now) {
+    rateBuckets.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  if (bucket.count >= RATE_LIMIT_MAX) return false;
+  bucket.count++;
+  return true;
+}
+
+function getClientIp(request: Request): string {
+  const fwd = request.headers.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0]!.trim();
+  return request.headers.get("x-real-ip") || "unknown";
+}
+
+// ── Lightweight validators (no zod dep) ────────────────────────
+const SIGNAL_SIDES = new Set(["home", "away"]);
+const SIGNAL_LEVELS = new Set(["low", "medium", "high", "critical"]);
+
+type ValidationOk<T> = { ok: true; value: T };
+type ValidationErr = { ok: false; error: string };
+type Validation<T> = ValidationOk<T> | ValidationErr;
+
+function fail(msg: string): ValidationErr {
+  return { ok: false, error: msg };
+}
+
+function asInt(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string" && /^-?\d+$/.test(v)) return parseInt(v, 10);
+  return null;
+}
+
+function asFloat(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function asString(v: unknown, max = 256): string | null {
+  if (typeof v !== "string") return null;
+  if (v.length === 0 || v.length > max) return null;
+  return v;
+}
+
+function asNumberArray(v: unknown, max = 2000): number[] | null {
+  if (!Array.isArray(v)) return null;
+  if (v.length > max) return null;
+  const out: number[] = [];
+  for (const item of v) {
+    const n = asInt(item);
+    if (n === null) return null;
+    out.push(n);
+  }
+  return out;
+}
+
+function validateRecordBody(body: unknown): Validation<{
+  matchCode: number;
+  homeTeam: string;
+  awayTeam: string;
+  league: string;
+  matchTime: string;
+  minute: string;
+  score: number;
+  side: "home" | "away";
+  level: "low" | "medium" | "high" | "critical";
+  factors: string[];
+  calibratedP: number;
+  poissonP: number;
+  homeScore: number;
+  awayScore: number;
+  homeGoals: number;
+  awayGoals: number;
+}> {
+  if (!body || typeof body !== "object") return fail("body must be an object");
+  const b = body as Record<string, unknown>;
+
+  const matchCode = asInt(b.matchCode);
+  if (matchCode === null || matchCode <= 0) return fail("matchCode required (positive int)");
+
+  const side = asString(b.side, 16);
+  if (!side || !SIGNAL_SIDES.has(side)) return fail("side must be 'home' or 'away'");
+
+  const score = asInt(b.score);
+  if (score === null || score < 0 || score > 100) return fail("score must be int 0-100");
+
+  const minute = asString(b.minute, 16);
+  if (!minute) return fail("minute required");
+
+  const levelRaw = asString(b.level ?? "medium", 16);
+  const level = (levelRaw && SIGNAL_LEVELS.has(levelRaw) ? levelRaw : "medium") as
+    | "low" | "medium" | "high" | "critical";
+
+  const factorsRaw = Array.isArray(b.factors) ? b.factors : [];
+  const factors: string[] = [];
+  for (const f of factorsRaw.slice(0, 32)) {
+    const s = asString(f, 128);
+    if (s) factors.push(s);
+  }
+
+  const calibratedP = asFloat(b.calibratedP) ?? 0;
+  const poissonP = asFloat(b.poissonP) ?? 0;
+  const homeScore = asInt(b.homeScore) ?? 0;
+  const awayScore = asInt(b.awayScore) ?? 0;
+  const homeGoals = asInt(b.homeGoals) ?? 0;
+  const awayGoals = asInt(b.awayGoals) ?? 0;
+
+  return {
+    ok: true,
+    value: {
+      matchCode,
+      homeTeam: asString(b.homeTeam, 128) ?? "?",
+      awayTeam: asString(b.awayTeam, 128) ?? "?",
+      league: asString(b.league, 128) ?? "?",
+      matchTime: asString(b.matchTime, 64) ?? "",
+      minute,
+      score,
+      side: side as "home" | "away",
+      level,
+      factors,
+      calibratedP,
+      poissonP,
+      homeScore,
+      awayScore,
+      homeGoals,
+      awayGoals,
+    },
+  };
+}
+
+function validateExpireHalftime(body: unknown): Validation<number[]> {
+  if (!body || typeof body !== "object") return fail("body must be an object");
+  const codes = asNumberArray((body as Record<string, unknown>).matchCodes);
+  if (!codes) return fail("matchCodes must be array of ints");
+  return { ok: true, value: codes };
+}
+
+function validateCleanup(body: unknown): Validation<number[]> {
+  if (!body || typeof body !== "object") return fail("body must be an object");
+  const codes = asNumberArray((body as Record<string, unknown>).activeCodes);
+  if (!codes) return fail("activeCodes must be array of ints");
+  return { ok: true, value: codes };
+}
+
+// ── Auth gate ──────────────────────────────────────────────────
+// Removed: API is open by design (internal/local service, runs behind
+// reverse proxy / Caddy in this stack). Rate limit + input validation
+// provide the practical protection layer.
+
+
 // GET /api/goal-signals?action=stats|records|match|dates&date=...&matchCode=...&days=...
 export async function GET(request: Request) {
+  const ip = getClientIp(request);
+  if (!checkRateLimit(ip)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
+
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action") || "stats";
 
   try {
     if (action === "stats") {
-      const days = parseInt(searchParams.get("days") || "30", 10);
+      const daysRaw = asInt(searchParams.get("days"));
+      const days = daysRaw && daysRaw > 0 && daysRaw <= 365 ? daysRaw : 30;
       const stats = calculateSignalStats(days);
       return NextResponse.json(stats);
     }
 
     if (action === "records") {
       const date = searchParams.get("date") || new Date().toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return NextResponse.json({ error: "date must be YYYY-MM-DD" }, { status: 400 });
+      }
       const records = getSignalRecordsForDate(date);
       return NextResponse.json({ date, count: records.length, records });
     }
 
     if (action === "match") {
-      const matchCode = parseInt(searchParams.get("matchCode") || "0", 10);
+      const matchCode = asInt(searchParams.get("matchCode"));
       if (!matchCode) {
         return NextResponse.json({ error: "matchCode required" }, { status: 400 });
       }
@@ -50,91 +221,88 @@ export async function GET(request: Request) {
     }
 
     if (action === "finalize") {
-      const matchCode = parseInt(searchParams.get("matchCode") || "0", 10);
-      const homeScore = parseInt(searchParams.get("homeScore") || "0", 10);
-      const awayScore = parseInt(searchParams.get("awayScore") || "0", 10);
+      const matchCode = asInt(searchParams.get("matchCode"));
       if (!matchCode) {
         return NextResponse.json({ error: "matchCode required" }, { status: 400 });
       }
-      finalizeMatchSignals(matchCode, homeScore, awayScore);
+      const homeScore = asInt(searchParams.get("homeScore"));
+      const awayScore = asInt(searchParams.get("awayScore"));
+      if (homeScore === null || awayScore === null) {
+        return NextResponse.json({ error: "homeScore and awayScore required" }, { status: 400 });
+      }
+      await finalizeMatchSignals(matchCode, homeScore, awayScore);
       return NextResponse.json({ ok: true, matchCode });
     }
 
     return NextResponse.json({ error: "Unknown action. Use: stats, records, match, dates, finalize" }, { status: 400 });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "internal_error";
     console.error("[GoalSignals API] Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 // POST /api/goal-signals — Record a new signal, expire halftime signals, or cleanup
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  if (!checkRateLimit(ip)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
+
+  let body: unknown;
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
 
-    // Expire signals for matches that entered halftime
-    if (body.action === 'expireHalftime') {
-      const matchCodes: number[] = body.matchCodes || [];
-      const expired = expireSignalsForHalftime(new Set(matchCodes));
-      return NextResponse.json({ ok: true, expired });
+  try {
+    if (body && typeof body === "object" && (body as Record<string, unknown>).action) {
+      const action = (body as Record<string, unknown>).action;
+
+      if (action === "expireHalftime") {
+        const v = validateExpireHalftime(body);
+        if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+        const expired = await expireSignalsForHalftime(new Set(v.value));
+        return NextResponse.json({ ok: true, expired });
+      }
+
+      if (action === "cleanup") {
+        const v = validateCleanup(body);
+        if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+        await cleanupStaleSignals(v.value);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (action === "checkPending") {
+        const result = await checkPendingSignals();
+        return NextResponse.json({ ok: true, ...result });
+      }
     }
 
-    // Cleanup stale signal tracking state
-    if (body.action === 'cleanup') {
-      const activeCodes: number[] = body.activeCodes || [];
-      cleanupStaleSignals(activeCodes);
-      return NextResponse.json({ ok: true });
-    }
+    const v = validateRecordBody(body);
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+    const data = v.value;
 
-    // Manual check — expire stale + update pending
-    if (body.action === 'checkPending') {
-      const result = checkPendingSignals();
-      return NextResponse.json({ ok: true, ...result });
-    }
-
-    const {
-      matchCode,
-      homeTeam,
-      awayTeam,
-      league,
-      matchTime,
-      minute,
-      score,
-      side,
-      homeGoals,
-      awayGoals,
-      // Enhanced fields
-      homeScore,
-      awayScore,
-      level,
-      factors,
-      calibratedP,
-      poissonP,
-    } = body;
-
-    if (!matchCode || !side || !score) {
-      return NextResponse.json({ error: "matchCode, side, score required" }, { status: 400 });
-    }
-
-    const result = checkAndRecordSignal(
-      parseInt(matchCode, 10),
-      homeTeam || '?',
-      awayTeam || '?',
-      league || '?',
-      matchTime || '',
-      minute || '0',
+    const result = await checkAndRecordSignal(
+      data.matchCode,
+      data.homeTeam,
+      data.awayTeam,
+      data.league,
+      data.matchTime,
+      data.minute,
       {
-        score: parseInt(score, 10),
-        homeScore: parseInt(homeScore, 10) || 0,
-        awayScore: parseInt(awayScore, 10) || 0,
-        side: side as 'home' | 'away',
-        level: level || 'medium',
-        factors: Array.isArray(factors) ? factors : [],
-        calibratedP: parseFloat(calibratedP) || 0,
-        poissonP: parseFloat(poissonP) || 0,
+        score: data.score,
+        homeScore: data.homeScore,
+        awayScore: data.awayScore,
+        side: data.side,
+        level: data.level,
+        factors: data.factors,
+        calibratedP: data.calibratedP,
+        poissonP: data.poissonP,
       },
-      parseInt(homeGoals, 10) || 0,
-      parseInt(awayGoals, 10) || 0,
+      data.homeGoals,
+      data.awayGoals,
     );
 
     if (result) {
@@ -142,8 +310,9 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ ok: false, message: "Signal below threshold or cooldown" });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "internal_error";
     console.error("[GoalSignals API] POST Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

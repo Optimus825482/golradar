@@ -1,36 +1,33 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "[ENTRYPOINT] Bootstrapping..."
 
-# ── Set PostgreSQL password ──
+PG_VER="${POSTGRES_MAJOR:-16}"
+PGDATA="${PGDATA:-/var/lib/postgresql/data}"
 PGPASS="${POSTGRES_PASSWORD:-golradar_secret}"
 
-# ── Start PostgreSQL (built-in, already running near-entry but ensure) ──
-# PostgreSQL 16 alpine: data directory pre-initialized by image
-# Just configure and wait
-PG_READY=0
-for i in $(seq 1 60); do
-    if pg_isready -q -U postgres; then
-        PG_READY=1
-        break
-    fi
-    sleep 1
-done
-if [ "$PG_READY" -eq 0 ]; then
-    echo "[FATAL] PostgreSQL did not start"
-    exit 1
+# ── Initialize data directory on first run ──
+if [ ! -d "${PGDATA}/base" ]; then
+    echo "[DB] Initializing PostgreSQL ${PG_VER}..."
+    mkdir -p "${PGDATA}"
+    chown -R postgres:postgres "${PGDATA}"
+    su - postgres -c "initdb -D '${PGDATA}' -E UTF8 --locale=en_US.UTF-8"
 fi
-echo "[OK] PostgreSQL ready"
 
-# Set password + create DB (skip if exists)
-psql -U postgres -c "ALTER USER postgres WITH PASSWORD '${PGPASS}';" 2>/dev/null || true
+# ── Start PostgreSQL ──
+echo "[DB] Starting PostgreSQL..."
+su - postgres -c "pg_ctl -D '${PGDATA}' -l /tmp/pg.log -w start"
+sleep 2
+
+# Set password + create DB
+psql -U postgres -c "ALTER USER postgres WITH PASSWORD '${PGPASS}';" &>/dev/null || true
 psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'golradar_db'" | grep -q 1 || \
     psql -U postgres -c "CREATE DATABASE golradar_db"
 
 export DATABASE_URL="postgresql://postgres:${PGPASS}@localhost:5432/golradar_db"
 
-# ── Prisma migrate ──
+# ── Prisma ──
 cd /app/web
 echo "[DB] Running prisma db push..."
 NODE_ENV=production bunx prisma db push 2>&1 || echo "[WARN] prisma db push skipped"
@@ -52,17 +49,18 @@ NODE_ENV=production PORT=3000 DATABASE_URL="${DATABASE_URL}" \
     bun server.js &
 echo "[OK] Next.js started"
 
-# ── Start Nesine-live relay ──
+# ── Start Nesine-live ──
 cd /app/nesine
 CORS_LIST=$(echo "${SOCKET_CORS_ORIGIN:-http://localhost:3000}" | tr ',' ' ')
 NODE_ENV=production SOCKET_CORS_ORIGIN="${CORS_LIST}" bun index.ts &
 echo "[OK] Nesine relay started"
 
-# ── Shutdown hook ──
+# ── Graceful shutdown ──
 cleanup() {
-    echo "[SHUTDOWN] Stopping all services..."
+    echo "[SHUTDOWN] Stopping..."
     kill $WEB_PID $NESINE_PID 2>/dev/null || true
     wait 2>/dev/null || true
+    su - postgres -c "pg_ctl -D '${PGDATA}' stop" 2>/dev/null || true
 }
 trap cleanup SIGINT SIGTERM
 

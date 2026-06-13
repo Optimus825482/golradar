@@ -332,3 +332,47 @@ function formationGoalMultiplier(formation: string | null): {
   // Default
   return { attackMult: 1.0, defenseMult: 1.0, description: '' };
 }
+
+// ── Public Exports for goalRadar Integration ───────────────────────
+export { formationGoalMultiplier };
+
+// ── Form-to-score adjustment (for goalRadar integration) ────────────
+// Returns -8 to +8 score adjustment based on recent form
+export function formScoreAdjustment(
+  form: FormSummary | null,
+): { adj: number; factors: string[] } {
+  if (!form || form.last5.length < 3) return { adj: 0, factors: [] };
+
+  const factors: string[] = [];
+  let adj = 0;
+
+  // Win streak bonus
+  if (form.winStreak >= 3) {
+    adj += 4;
+    factors.push(`${form.winStreak} maçlık galibiyet serisi`);
+  } else if (form.winStreak >= 2) {
+    adj += 2;
+  }
+
+  // Lose streak penalty
+  if (form.loseStreak >= 3) {
+    adj -= 3;
+    factors.push(`${form.loseStreak} maçlık mağlubiyet serisi`);
+  }
+
+  // PPG modifier (above/below average 1.0)
+  if (form.pointsPerGame >= 2.4) {
+    adj += 2;
+  } else if (form.pointsPerGame <= 0.6) {
+    adj -= 2;
+  }
+
+  // Goal scoring form
+  if (form.goalsForAvg >= 2.0) {
+    adj += 1;
+  } else if (form.goalsForAvg <= 0.5 && form.last5.length >= 3) {
+    adj -= 1;
+  }
+
+  return { adj: Math.max(-8, Math.min(8, adj)), factors };
+}

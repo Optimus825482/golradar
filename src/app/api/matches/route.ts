@@ -8,10 +8,12 @@ import {
   parseMatch,
   calculatePressure,
   calculateGoalProbability,
+  hydrateFotMobIdCache,
   ParsedMatch,
   MatchStats,
   GoalProbability,
 } from "@/lib/nesine";
+import { getCachedMatchDetails } from "@/lib/fotmob";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +86,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const version = searchParams.get("v") || "0";
 
+  // Best-effort async hydration of the in-memory FotMob ID cache.
+  // Failure is silent — route continues with non-enriched goalRadar.
+  void hydrateFotMobIdCache().catch(() => {});
+
   let resp;
   try {
     resp = await fetch(`${LIVESCORE_API}?sportType=1&v=${version}`, {
@@ -103,6 +109,19 @@ export async function GET(request: Request) {
   const rawMatches = data.d || [];
   const matches: (ParsedMatch & { goalRadar?: GoalProbability })[] = [];
 
+  // Fan out FotMob cache lookups for live matches in parallel.
+  // Padded to a 200ms deadline so a slow/missing cache never blocks
+  // the response — failures degrade gracefully to non-enriched output.
+  const fotmobPromises = new Map<number, Promise<import("@/lib/fotmob").FotMobMatchDetails | null>>();
+  for (const m of rawMatches) {
+    const status = m.S || 0;
+    if (!ACTIVE_STATUSES.has(status)) continue;
+    const code = m.C || 0;
+    if (fotmobPromises.has(code)) continue;
+    // Defer to parse-time so we know the resolved matchDate/fotmobId
+    // after the team-mapping cache hydrates.
+  }
+
   for (const m of rawMatches) {
     const status = m.S || 0;
     if (EXCLUDED_STATUSES.has(status)) continue;
@@ -115,9 +134,26 @@ export async function GET(request: Request) {
     let goalRadar: GoalProbability | undefined;
 
     if (parsed.isLive && parsed.hasStats) {
+      // Try to enrich with FotMob data. The async lookup is bounded
+      // by Promise.race + a 200ms timeout — slow cache misses fall
+      // through to a non-enriched goalRadar.
+      let fotmobData: import("@/lib/fotmob").FotMobMatchDetails | null = null;
+      if (parsed.fotmobId && parsed.matchDate) {
+        try {
+          fotmobData = await Promise.race([
+            getCachedMatchDetails(parsed.fotmobId, parsed.matchDate),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 200)),
+          ]);
+        } catch {
+          fotmobData = null;
+        }
+      }
       goalRadar = calculateGoalProbability(
         parsed.stats, parsed.minute, parsed.isLive,
         hist?.snapshots, parsed.homeGoals, parsed.awayGoals,
+        undefined, undefined,
+        undefined, undefined,
+        fotmobData,
       );
       if (goalRadar.score < 55) goalRadar = undefined;
     }

@@ -12,7 +12,10 @@
 
 // ── Types ────────────────────────────────────────────────────────
 
-export interface MatchStats {
+export type { MatchStats } from './nesineTypes';
+import type { MatchStats } from './nesineTypes';
+
+export interface _LegacyRemoved {
   [key: string]: { home: number | null; away: number | null }
 }
 
@@ -445,38 +448,16 @@ export interface xGFlowPoint {
   isEstimated: boolean  // Whether xG is estimated (true) or from API (false)
 }
 
+import { estimateXgFromShotsBoth } from './estimateXg';
+
 /**
  * Estimate xG from shot stats when API xG is not available.
  * Uses absolute shot counts, not deltas, so it works even with
  * a single snapshot or after server restart.
+ * Delegates to the shared, research-backed estimateXg module.
  */
 export function estimateXgFromShots(stats: MatchStats): { home: number; away: number } {
-  const sot_h = stats.shots_on_target?.home ?? 0
-  const sot_a = stats.shots_on_target?.away ?? 0
-  const total_h = stats.shots_total?.home ?? 0
-  const total_a = stats.shots_total?.away ?? 0
-  const blocked_h = stats.shots_blocked?.home ?? 0
-  const blocked_a = stats.shots_blocked?.away ?? 0
-
-  // Off-target = total - on_target - blocked
-  const offTarget_h = Math.max(0, total_h - sot_h - blocked_h)
-  const offTarget_a = Math.max(0, total_a - sot_a - blocked_a)
-
-  // Faz 1: Improved xG estimation with corner + DA bonuses
-  const corners_h = stats.corners?.home ?? 0
-  const corners_a = stats.corners?.away ?? 0
-  const da_h = stats.dangerous_attacks?.home ?? 0
-  const da_a = stats.dangerous_attacks?.away ?? 0
-
-  // Weighted xG estimation (Faz 1: improved coefficients)
-  // SOT×0.38 + off_target×0.05 + blocked×0.03 + corners×0.04 + DA×0.01
-  const homeXg = sot_h * 0.38 + offTarget_h * 0.05 + blocked_h * 0.03 + corners_h * 0.04 + da_h * 0.01
-  const awayXg = sot_a * 0.38 + offTarget_a * 0.05 + blocked_a * 0.03 + corners_a * 0.04 + da_a * 0.01
-
-  return {
-    home: Math.round(homeXg * 100) / 100,
-    away: Math.round(awayXg * 100) / 100,
-  }
+  return estimateXgFromShotsBoth(stats);
 }
 
 /**
@@ -770,7 +751,18 @@ export function generateSyntheticSnapshots(
     const baseStats = is1h ? null : htStats
 
     // Interpolate each stat
-    const stats: MatchStats = {}
+    const stats: MatchStats = {
+      shots_on_target: { home: 0, away: 0 },
+      shots_off_target: { home: 0, away: 0 },
+      dangerous_attacks: { home: 0, away: 0 },
+      attacks: { home: 0, away: 0 },
+      possession: { home: 50, away: 50 },
+      corners: { home: 0, away: 0 },
+      yellow_cards: { home: 0, away: 0 },
+      red_cards: { home: 0, away: 0 },
+      shots_blocked: { home: 0, away: 0 },
+      shots_total: { home: 0, away: 0 },
+    }
     for (const key of statKeys) {
       const target = targetStats[key]
       if (!target) continue
@@ -780,9 +772,9 @@ export function generateSyntheticSnapshots(
 
       if (is1h) {
         // 1st half: interpolate from 0 to HT target
-        stats[key] = {
-          home: interpStat(targetHome, halfMin, halfTotal),
-          away: interpStat(targetAway, halfMin, halfTotal),
+        ;(stats as Record<string, { home: number; away: number }>)[key] = {
+          home: interpStat(targetHome, halfMin, halfTotal) ?? 0,
+          away: interpStat(targetAway, halfMin, halfTotal) ?? 0,
         }
       } else {
         // 2nd half: interpolate from HT values to FT values

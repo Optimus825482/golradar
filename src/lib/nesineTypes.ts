@@ -1,7 +1,6 @@
 // ── Shared types used by nesine.ts and goalRadar.ts ──
 
 export interface MatchStats {
-  [key: string]: { home: number; away: number };
   shots_on_target: { home: number; away: number };
   shots_off_target: { home: number; away: number };
   dangerous_attacks: { home: number; away: number };
@@ -10,9 +9,12 @@ export interface MatchStats {
   corners: { home: number; away: number };
   yellow_cards: { home: number; away: number };
   red_cards: { home: number; away: number };
+  two_yellow_red?: { home: number; away: number };
   shots_blocked: { home: number; away: number };
   shots_total: { home: number; away: number };
   xg?: { home: number; away: number };
+  free_kicks?: { home: number; away: number };
+  [key: string]: { home: number; away: number } | undefined;
 }
 
 export function calculatePressure(stats: MatchStats): { home: number; away: number } {

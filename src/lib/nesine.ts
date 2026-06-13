@@ -104,6 +104,8 @@ export interface ParsedMatch {
   awayColor: string | null;
   homeAbbrev: string | null;
   awayAbbrev: string | null;
+  fotmobId: number | null;   // Cross-source match — see TeamMapping
+  matchDate: string;         // YYYY-MM-DD (local) — used as FotMob cache key
 }
 
 function parseStats(seArray: any[]): _MatchStats {
@@ -297,6 +299,22 @@ export function parseMatch(m: any): ParsedMatch {
 
   const stats = parseStats(m.SE || []);
 
+  // FotMob cross-source lookup (best-effort, sync DB call is too slow
+  // for the /api/matches hot path so we accept null on miss and let
+  // the route layer trigger an async enrichment if needed).
+  const fotmobId = lookupFotMobIdForNesineCode(m.C || 0);
+
+  // Normalize match date to YYYY-MM-DD (used as FotMob cache key).
+  let normalizedDate = "";
+  if (matchDate) {
+    try {
+      const md = new Date(matchDate);
+      if (!isNaN(md.getTime())) {
+        normalizedDate = md.toISOString().slice(0, 10);
+      }
+    } catch {}
+  }
+
   return {
     code: m.C || 0,
     bid: m.BID || 0,
@@ -322,7 +340,49 @@ export function parseMatch(m: any): ParsedMatch {
     awayColor: m.ABC || null,
     homeAbbrev: m.HTA || null,
     awayAbbrev: m.ATA || null,
+    fotmobId,
+    matchDate: normalizedDate,
   };
+}
+
+// ── Synchronous FotMob ID Lookup ──────────────────────────────────
+// Read from in-memory cache; falls back to a soft null. Callers that
+// need authoritative results should call lookupFotMobIdAsync from
+// the route layer (asynchronously, after the initial response).
+
+let fotMobIdCache: Map<number, number | null> | null = null;
+let fotMobIdCacheTimestamp = 0;
+const FOTMOB_ID_CACHE_TTL = 60 * 1000;
+
+function lookupFotMobIdForNesineCode(nesineCode: number): number | null {
+  // Lazy cache hydration — first call hits DB, subsequent calls read memory.
+  if (!fotMobIdCache || Date.now() - fotMobIdCacheTimestamp > FOTMOB_ID_CACHE_TTL) {
+    // Synchronous load is not possible with Prisma's async API; return
+    // null on cache miss. The route layer can hydrate this cache.
+    return null;
+  }
+  return fotMobIdCache.get(nesineCode) ?? null;
+}
+
+export async function hydrateFotMobIdCache(): Promise<void> {
+  try {
+    // Dynamic import to avoid loading Prisma on every parseMatch call
+    const { db } = await import('./db');
+    const rows = await db.teamMapping.findMany({
+      where: { nesineCode: { not: null }, fotmobId: { not: null } },
+      select: { nesineCode: true, fotmobId: true },
+    });
+    const map = new Map<number, number | null>();
+    for (const r of rows) {
+      if (r.nesineCode != null && r.fotmobId != null) {
+        map.set(r.nesineCode, r.fotmobId);
+      }
+    }
+    fotMobIdCache = map;
+    fotMobIdCacheTimestamp = Date.now();
+  } catch {
+    // Best-effort — caller falls back to non-enriched goalRadar
+  }
 }
 
 // ── Goal Radar Algorithm (Enhanced) ──

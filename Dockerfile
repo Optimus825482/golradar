@@ -4,12 +4,13 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install
 
-# ── Stage 2: Build Next.js ──
+# ── Stage 2: Build Next.js (memory capped) ──
 FROM deps AS build
 WORKDIR /app
 COPY prisma ./prisma
 RUN bunx prisma generate
 COPY . .
+ENV NODE_OPTIONS=--max-old-space-size=384
 RUN bun run build
 
 # ── Stage 3: All-in-One Runtime (PostgreSQL + Next.js + Nesine) ──
@@ -19,12 +20,12 @@ LABEL description="golradar — single container with PostgreSQL"
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Install bun
+# Install bun (runtime)
 RUN apk add --no-cache curl bash && \
     curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
-# Copy Next.js standalone
+# Next.js standalone output
 COPY --from=build /app/.next/standalone /app/web
 COPY --from=build /app/.next/static /app/web/.next/static
 COPY --from=build /app/public /app/web/public
@@ -33,7 +34,7 @@ COPY --from=build /app/prisma /app/web/prisma
 # Prisma client for runtime
 COPY --from=build /app/node_modules/.prisma /root/.prisma
 
-# Copy Nesine relay
+# Nesine-live relay
 WORKDIR /app/nesine
 COPY --from=build /app/mini-services/nesine-live/package.json ./
 COPY --from=build /app/mini-services/nesine-live/bun.lock ./

@@ -1,0 +1,158 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Gol Radarı: Match Pressure Snapshots ─────────────────────────
+// Stores periodic snapshots of match stats for momentum/trend analysis
+model MatchSnapshot {
+  id          String   @id @default(cuid())
+  matchCode   Int      // Nesine match code
+  minute      Int      // Match minute when snapshot was taken
+  homePressure Int     // Calculated home pressure (0-100)
+  awayPressure Int     // Calculated away pressure (0-100)
+  homeGoals   Int      @default(0)
+  awayGoals   Int      @default(0)
+  statsJson   String   // JSON string of full MatchStats at this moment
+  createdAt   DateTime @default(now())
+
+  @@unique([matchCode, minute])
+  @@index([matchCode, minute])
+  @@index([matchCode, createdAt])
+}
+
+// ── Gol Radarı: Match Events ─────────────────────────────────────
+// Goals, shots, cards, and other key events
+model MatchEvent {
+  id          String   @id @default(cuid())
+  matchCode   Int
+  eventType   String   // "goal", "shot_on_target", "red_card", "yellow_card", etc.
+  side        String   // "home" or "away"
+  minute      Int
+  player      String?  // Player name if available
+  xg          Float?   // xG value for shots
+  createdAt   DateTime @default(now())
+
+  @@index([matchCode, eventType])
+  @@index([matchCode, minute])
+}
+
+// ── Gol Radarı: Prediction Log ───────────────────────────────────
+// Records every prediction for backtesting and calibration
+model PredictionLog {
+  id               String   @id @default(cuid())
+  matchCode        Int
+  minute           Int
+  rawScore         Int      // Raw Goal Radar score (0-100)
+  homeScore        Int      // Home team threat score
+  awayScore        Int      // Away team threat score
+  calibratedP      Float    // Calibrated probability (0-1)
+  side             String   // "home", "away", "both", "none"
+  level            String   // "low", "medium", "high", "critical"
+  factorsJson      String   // JSON array of active factors
+  goalScored       Boolean? // null until match ends and we check
+  minutesToGoal    Int?     // How many minutes after this prediction a goal was scored
+  homeTeam         String
+  awayTeam         String
+  league           String
+  homeElo          Int?     // Elo rating at prediction time
+  awayElo          Int?     // Elo rating at prediction time
+  poissonHomeP     Float?   // Dixon-Coles home goal probability
+  poissonAwayP     Float?   // Dixon-Coles away goal probability
+  createdAt        DateTime @default(now())
+
+  @@index([matchCode, minute])
+  @@index([calibratedP, goalScored])
+  @@index([createdAt])
+}
+
+// ── Gol Radarı: Backtest Runs ────────────────────────────────────
+// Records of automated backtest simulation runs
+model BacktestRun {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  daysBack        Int
+  maxMatches      Int
+  signalThreshold Int      @default(60)
+  totalMatches    Int
+  signalsRecorded Int
+  goalsDetected   Int
+  accuracy        Float?
+  avgTimeToGoal   Float?
+  resultJson      String
+  @@index([createdAt])
+}
+
+// ── Gol Radarı: Team Ratings ─────────────────────────────────────
+// Elo ratings and derived attack/defense strength
+model TeamRating {
+  id              String   @id @default(cuid())
+  teamName        String   @unique // Normalized team name
+  teamNameTr      String?  // Turkish name for lookup
+  elo             Int      @default(1500)
+  attackStrength  Float    @default(1.0)  // α: relative to league avg
+  defenseWeakness Float    @default(1.0)  // β: relative to league avg
+  matchesPlayed   Int      @default(0)
+  wins            Int      @default(0)
+  draws           Int      @default(0)
+  losses          Int      @default(0)
+  goalsFor        Int      @default(0)
+  goalsAgainst    Int      @default(0)
+  xgFor           Float    @default(0)    // Cumulative xG scored
+  xgAgainst       Float    @default(0)    // Cumulative xG conceded
+  formJson        String   @default("[]") // JSON: last 10 results ["W","D","L",...]
+  lastUpdated     DateTime @default(now())
+
+  @@index([teamName])
+  @@index([elo])
+}
+
+// ── Gol Radarı: Cross-Source Team Mapping ────────────────────────
+// Maps team IDs across Nesine, Scoremer, FotMob, NetScores
+model TeamMapping {
+  id              String   @id @default(cuid())
+  nesineCode      Int?     // Nesine match code (not team-specific, but league-level)
+  nesineName      String?  // Team name from Nesine
+  scoremerId      String?  // Scoremer match/team ID
+  scoremerName    String?  // Team name from Scoremer
+  fotmobId        Int?     // FotMob team ID
+  fotmobName      String?  // Team name from FotMob
+  netscoresId     String?  // NetScores team ID
+  netscoresName   String?  // Team name from NetScores
+  canonicalName   String   // Our canonical team name
+  confidence      Float    @default(0) // Mapping confidence score (0-1)
+  lastVerified    DateTime @default(now())
+
+  @@unique([canonicalName])
+  @@index([nesineName])
+  @@index([scoremerId])
+  @@index([fotmobId])
+}
+
+// ── Gol Radarı: Model Metrics ────────────────────────────────────
+// Daily model performance metrics for tracking improvements
+model ModelMetrics {
+  id                String   @id @default(cuid())
+  date              DateTime @unique // YYYY-MM-DD as Date
+  brierScore        Float
+  logLoss           Float
+  accuracy          Float
+  totalPredictions  Int
+  totalGoals        Int
+  avgCalibratedP    Float    // Average predicted probability
+  goalAfterSignalP  Float    // % of signals followed by a goal
+  avgMinutesToGoal  Float    // Average minutes from signal to goal
+  calibrationError  Float    // Mean absolute calibration error
+  poissonBrier      Float?   // Brier score for Poisson component
+  eloBrier          Float?   // Brier score for Elo component
+  createdAt         DateTime @default(now())
+
+  @@index([date])
+}

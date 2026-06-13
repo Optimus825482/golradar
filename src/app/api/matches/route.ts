@@ -1,0 +1,148 @@
+import { NextResponse } from "next/server";
+import {
+  LIVESCORE_API,
+  HEADERS,
+  EXCLUDED_STATUSES,
+  ACTIVE_STATUSES,
+  FINISHED_STATUSES,
+  parseMatch,
+  calculatePressure,
+  calculateGoalProbability,
+  ParsedMatch,
+  MatchStats,
+  GoalProbability,
+} from "@/lib/nesine";
+
+export const dynamic = "force-dynamic";
+
+interface PressureSnapshot {
+  minute: string;
+  timestamp: number;
+  homePressure: number;
+  awayPressure: number;
+  stats: MatchStats;
+  homeGoals: number;
+  awayGoals: number;
+}
+
+interface MatchPressureHistory {
+  homeTeam: string;
+  awayTeam: string;
+  league: string;
+  country: string;
+  snapshots: PressureSnapshot[];
+}
+
+const globalForHistory = globalThis as unknown as {
+  pressureHistory: Map<number, MatchPressureHistory> | undefined;
+};
+if (!globalForHistory.pressureHistory) {
+  globalForHistory.pressureHistory = new Map();
+}
+const pressureHistory = globalForHistory.pressureHistory;
+
+const HALFTIME_STATUSES = new Set([3, 28]);
+
+const emptyResponse = () => NextResponse.json({
+  matches: [], byLeague: {}, version: 0, count: 0, pressureData: {}, goalRadarData: {},
+});
+
+function updatePressureHistory(match: ParsedMatch) {
+  if (!match.hasStats) return;
+  if (HALFTIME_STATUSES.has(match.status)) return;
+
+  let history = pressureHistory.get(match.code);
+  if (!history) {
+    history = {
+      homeTeam: match.home,
+      awayTeam: match.away,
+      league: match.league,
+      country: match.country,
+      snapshots: [],
+    };
+    pressureHistory.set(match.code, history);
+  }
+
+  const pressure = calculatePressure(match.stats);
+  const now = Date.now();
+  const last = history.snapshots[history.snapshots.length - 1];
+  if (last && now - last.timestamp < 3000) return;
+
+  history.snapshots.push({
+    minute: match.minute, timestamp: now,
+    homePressure: pressure.home, awayPressure: pressure.away,
+    stats: { ...match.stats },
+    homeGoals: match.homeGoals, awayGoals: match.awayGoals,
+  });
+
+  if (history.snapshots.length > 540) {
+    history.snapshots = history.snapshots.slice(-540);
+  }
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const version = searchParams.get("v") || "0";
+
+  let resp;
+  try {
+    resp = await fetch(`${LIVESCORE_API}?sportType=1&v=${version}`, {
+      headers: HEADERS, cache: "no-store",
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {
+    return emptyResponse();
+  }
+  if (!resp.ok) return emptyResponse();
+
+  const text = await resp.text();
+  let data;
+  try { data = JSON.parse(text); } catch { return emptyResponse(); }
+  if (!data || data.sc !== 200) return emptyResponse();
+
+  const rawMatches = data.d || [];
+  const matches: (ParsedMatch & { goalRadar?: GoalProbability })[] = [];
+
+  for (const m of rawMatches) {
+    const status = m.S || 0;
+    if (EXCLUDED_STATUSES.has(status)) continue;
+    if (!ACTIVE_STATUSES.has(status) && !FINISHED_STATUSES.has(status)) continue;
+
+    const parsed = parseMatch(m);
+    updatePressureHistory(parsed);
+
+    const hist = pressureHistory.get(parsed.code);
+    let goalRadar: GoalProbability | undefined;
+
+    if (parsed.isLive && parsed.hasStats) {
+      goalRadar = calculateGoalProbability(
+        parsed.stats, parsed.minute, parsed.isLive,
+        hist?.snapshots, parsed.homeGoals, parsed.awayGoals,
+      );
+      if (goalRadar.score < 55) goalRadar = undefined;
+    }
+    matches.push({ ...parsed, goalRadar });
+  }
+
+  matches.sort((a, b) => {
+    const l = a.league.localeCompare(b.league, "tr");
+    return l !== 0 ? l : a.time.localeCompare(b.time);
+  });
+
+  const byLeague: Record<string, ParsedMatch[]> = {};
+  const pressureData: Record<number, PressureSnapshot[]> = {};
+  const goalRadarData: Record<number, GoalProbability> = {};
+
+  for (const m of matches) {
+    if (!byLeague[m.league]) byLeague[m.league] = [];
+    byLeague[m.league].push(m);
+    const hist = pressureHistory.get(m.code);
+    if (hist?.snapshots.length) pressureData[m.code] = hist.snapshots;
+    if (m.goalRadar) goalRadarData[m.code] = m.goalRadar;
+  }
+
+  return NextResponse.json({
+    matches, byLeague, version: data.v || 0,
+    count: matches.length, pressureData, goalRadarData,
+  });
+}

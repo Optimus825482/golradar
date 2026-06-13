@@ -1,5 +1,5 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 echo "[ENTRYPOINT] Starting golradar..."
 
@@ -9,7 +9,7 @@ DB_PORT="${DATABASE_PORT:-5432}"
 
 echo "[DB] Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
 for i in $(seq 1 60); do
-    if nc -z "${DB_HOST}" "${DB_PORT}" 2>/dev/null; then
+    if node -e "require('net').createConnection({host:'${DB_HOST}',port:${DB_PORT}}).on('connect',()=>process.exit(0)).on('error',()=>{})" 2>/dev/null; then
         break
     fi
     sleep 1
@@ -36,7 +36,7 @@ NODE_ENV=production PORT=3000 \
     GOALOO_API_TIMEOUT="${GOALOO_API_TIMEOUT:-15000}" \
     SCOREMER_API_TIMEOUT="${SCOREMER_API_TIMEOUT:-15000}" \
     NEXT_PUBLIC_PWA_THEME_COLOR="${NEXT_PUBLIC_PWA_THEME_COLOR:-#10b981}" \
-    npm run start &
+    bun server.js &
 WEB_PID=$!
 echo "[OK] Next.js started (PID $WEB_PID)"
 
@@ -52,8 +52,6 @@ echo "[OK] Nesine relay started (PID $NESINE_PID)"
 cleanup() {
     echo "[SHUTDOWN] Stopping..."
     kill $NESINE_PID 2>/dev/null || true
-    # Send SIGTERM to npm/node process tree
-    pkill -f "next start" 2>/dev/null || true
     kill $WEB_PID 2>/dev/null || true
     wait 2>/dev/null || true
 }

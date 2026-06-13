@@ -13,25 +13,23 @@ COPY . .
 ENV NODE_OPTIONS=--max-old-space-size=384
 RUN bun run build
 
-# ── Stage 3: All-in-One Runtime (PostgreSQL + Next.js + Nesine) ──
-FROM postgres:16-alpine
-LABEL description="golradar — single container with PostgreSQL"
+# ── Stage 3: App Runtime Container (no postgres, separate container) ──
+FROM oven/bun:1-alpine
+LABEL description="golradar — web app + nesine relay"
 
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Install bun + nodejs (prisma CLI needs node)
-RUN apk add --no-cache curl bash nodejs && \
-    curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:${PATH}"
+# nodejs for prisma CLI
+RUN apk add --no-cache nodejs
 
-# Next.js standalone output
+# Next.js standalone
 COPY --from=build /app/.next/standalone /app/web
 COPY --from=build /app/.next/static /app/web/.next/static
 COPY --from=build /app/public /app/web/public
 COPY --from=build /app/prisma /app/web/prisma
 
-# Prisma client + CLI + bin for runtime (pin v6.11.1)
+# Prisma CLI + client
 COPY --from=build /app/node_modules/.prisma /app/web/node_modules/.prisma
 COPY --from=build /app/node_modules/prisma /app/web/node_modules/prisma
 COPY --from=build /app/node_modules/@prisma /app/web/node_modules/@prisma
@@ -45,11 +43,10 @@ RUN bun install
 COPY --from=build /app/mini-services/nesine-live/index.ts ./
 COPY --from=build /app/mini-services/shared /app/shared
 
-# Entrypoint
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
 WORKDIR /app/web
 EXPOSE 3000 3003
 
-ENTRYPOINT ["docker-entrypoint.sh"]
+# Graceful start — wait for postgres, then start both
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+CMD ["/docker-entrypoint.sh"]

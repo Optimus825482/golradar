@@ -28,6 +28,7 @@ import {
   estimateXgFromShots,
   generateSyntheticSnapshots,
 } from '@/lib/advancedAnalytics'
+import { playGoalSound } from '@/lib/playGoalSound'
 import SignalStatsPanel from '@/components/SignalStatsPanel'
 import BacktestPanel from '@/components/BacktestPanel'
 import SignalHistoryPanel from '@/components/SignalHistoryPanel'
@@ -446,6 +447,8 @@ export default function OptimusGolRadariPage() {
         }
 
         if (favorites.has(m.code)) {
+          playGoalSound()
+
           const notification: GoalNotification = {
             id: `${m.code}-${now}`,
             matchCode: m.code,

@@ -219,18 +219,34 @@ export async function findRecent(days: number): Promise<GoalSignalRecord[]> {
 // ── Writes ──────────────────────────────────────────────────────
 
 /**
- * Create a new signal record. The (matchCode, date, signalIndex) unique
- * constraint prevents duplicate writes if the same signal is posted
- * twice. Returns the created record (or null on unique violation).
+ * Idempotent insert: create a new signal record, or update the existing
+ * one if (matchCode, date, signalIndex) already exists. The composite
+ * unique key prevents duplicate writes when relay workers race or
+ * reconnect storms replay the same payload. Returns the persisted
+ * record; if a duplicate was overwritten, returns the post-update row.
+ *
+ * Why upsert over create+catch-P2002: catches the race window between
+ * concurrent workers where both pass the existence check and one fails
+ * late. Upsert collapses that to a single round-trip.
  */
 export async function createSignal(
   record: GoalSignalRecord,
 ): Promise<GoalSignalRecord | null> {
+  const data = fromGoalSignalRecord(record);
   try {
-    const row = await db.signal.create({ data: fromGoalSignalRecord(record) });
+    const row = await db.signal.upsert({
+      where: {
+        matchCode_date_signalIndex: {
+          matchCode: record.matchCode,
+          date: record.date,
+          signalIndex: record.signalIndex,
+        },
+      },
+      create: data,
+      update: data,
+    });
     return toGoalSignalRecord(row);
   } catch (err: unknown) {
-    // P2002 = unique constraint violation → treat as a no-op duplicate
     if (isPrismaUniqueViolation(err)) return null;
     throw err;
   }

@@ -16,9 +16,13 @@ for i in $(seq 1 60); do
 done
 
 # ── Prisma db push (run migrations) ──
+# Run prisma via node directly — node_modules/.bin/prisma is a binlink
+# that may not be present after the standalone copy.
 echo "[DB] Running prisma db push..."
 cd /app/web
-NODE_ENV=production ./node_modules/.bin/prisma db push 2>&1 || echo "[WARN] prisma db push skipped"
+NODE_ENV=production node ./node_modules/prisma/build/index.js db push 2>&1 || echo "[WARN] prisma db push skipped"
+
+# Signal table is empty on first deploy — tracker writes start from 0.
 
 # ── Start Next.js via npm start ──
 echo "[WEB] Starting Next.js (npm run start)..."

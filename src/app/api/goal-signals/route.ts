@@ -17,19 +17,19 @@ startExpiryChecker();
 
 export const dynamic = "force-dynamic";
 
-// ── Naive rate limiter (per-process, per-IP) ───────────────────
+// ── Naive rate limiter (per-process, per-IP, per-bucket) ───────
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 120; // 120 requests / minute / IP
+const WRITE_LIMIT_MAX = 600; // 600 writes / minute / IP — live pollers + backtest
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
-function checkRateLimit(ip: string): boolean {
+function checkWriteRateLimit(ip: string): boolean {
   const now = Date.now();
   const bucket = rateBuckets.get(ip);
   if (!bucket || bucket.resetAt < now) {
     rateBuckets.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
     return true;
   }
-  if (bucket.count >= RATE_LIMIT_MAX) return false;
+  if (bucket.count >= WRITE_LIMIT_MAX) return false;
   bucket.count++;
   return true;
 }
@@ -102,14 +102,21 @@ function validateRecordBody(body: unknown): Validation<{
   awayScore: number;
   homeGoals: number;
   awayGoals: number;
-}> {
+} | null> {
   if (!body || typeof body !== "object") return fail("body must be an object");
   const b = body as Record<string, unknown>;
 
   const matchCode = asInt(b.matchCode);
   if (matchCode === null || matchCode <= 0) return fail("matchCode required (positive int)");
 
-  const side = asString(b.side, 16);
+  // side: accept 'home' | 'away' for recording. 'both' / null / missing
+  // are valid probability outputs (no dominant side) — signal is dropped
+  // server-side. Anything else is malformed.
+  const sideRaw = b.side;
+  if (sideRaw === null || sideRaw === undefined || sideRaw === "both") {
+    return { ok: true, value: null };
+  }
+  const side = asString(sideRaw, 16);
   if (!side || !SIGNAL_SIDES.has(side)) return fail("side must be 'home' or 'away'");
 
   const score = asInt(b.score);
@@ -181,11 +188,6 @@ function validateCleanup(body: unknown): Validation<number[]> {
 
 // GET /api/goal-signals?action=stats|records|match|dates&date=...&matchCode=...&days=...
 export async function GET(request: Request) {
-  const ip = getClientIp(request);
-  if (!checkRateLimit(ip)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-  }
-
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action") || "stats";
 
@@ -193,7 +195,7 @@ export async function GET(request: Request) {
     if (action === "stats") {
       const daysRaw = asInt(searchParams.get("days"));
       const days = daysRaw && daysRaw > 0 && daysRaw <= 365 ? daysRaw : 30;
-      const stats = calculateSignalStats(days);
+      const stats = await calculateSignalStats(days);
       return NextResponse.json(stats);
     }
 
@@ -202,7 +204,7 @@ export async function GET(request: Request) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return NextResponse.json({ error: "date must be YYYY-MM-DD" }, { status: 400 });
       }
-      const records = getSignalRecordsForDate(date);
+      const records = await getSignalRecordsForDate(date);
       return NextResponse.json({ date, count: records.length, records });
     }
 
@@ -211,12 +213,12 @@ export async function GET(request: Request) {
       if (!matchCode) {
         return NextResponse.json({ error: "matchCode required" }, { status: 400 });
       }
-      const records = getSignalForMatch(matchCode);
+      const records = await getSignalForMatch(matchCode);
       return NextResponse.json({ matchCode, count: records.length, records });
     }
 
     if (action === "dates") {
-      const dates = getAvailableDates();
+      const dates = await getAvailableDates();
       return NextResponse.json({ dates });
     }
 
@@ -245,7 +247,7 @@ export async function GET(request: Request) {
 // POST /api/goal-signals — Record a new signal, expire halftime signals, or cleanup
 export async function POST(request: Request) {
   const ip = getClientIp(request);
-  if (!checkRateLimit(ip)) {
+  if (!checkWriteRateLimit(ip)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
@@ -282,6 +284,11 @@ export async function POST(request: Request) {
 
     const v = validateRecordBody(body);
     if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+    if (v.value === null) {
+      // side was 'both' / null / missing — valid probability output but not
+      // recordable. Drop silently so the poller isn't punished for it.
+      return NextResponse.json({ ok: false, dropped: "side" });
+    }
     const data = v.value;
 
     const result = await checkAndRecordSignal(

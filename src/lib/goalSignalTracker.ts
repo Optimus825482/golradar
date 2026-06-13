@@ -159,6 +159,10 @@ const fileLocks = new Map<string, Promise<unknown>>();
  * Prevents lost updates when record + expire run on the same file.
  */
 async function withFileLock<T>(filePath: string, fn: () => Promise<T> | T): Promise<T> {
+  // Ensure parent dir exists BEFORE acquiring the lock — avoids ENOENT
+  // when the directory has not been created yet (fresh container, deleted
+  // volume, etc.). mkdirSync with recursive:true is idempotent.
+  ensureDataDir();
   const prev = fileLocks.get(filePath) ?? Promise.resolve();
   let release!: () => void;
   const next = new Promise<void>((resolve) => { release = resolve; });

@@ -8,10 +8,10 @@
 //
 // Each feature is normalized to [0, 1] range for ML model compatibility.
 
-import type { MatchStats } from './advancedAnalytics';
+import type { MatchStats } from './nesineTypes';
+import { estimateXgFromShots as estimateXgShared } from './estimateXg';
 import { predictFromElo, getFormIndex, getRating } from './eloRating';
 import { getTimeBasedGoalMultiplier } from './dixonColes';
-import { calibrateScore } from './calibration';
 
 // ── Feature Vector Definition ──────────────────────────────────────
 
@@ -247,20 +247,8 @@ export function extractFeatures(input: FeatureExtractionInput): MatchFeatures {
     const lookback = Math.min(4, pressureHistory.length - 1);
     const previous = pressureHistory[pressureHistory.length - 1 - lookback];
 
-    const estXg = (s: MatchStats, side: 'home' | 'away'): number => {
-      const sot = s.shots_on_target?.[side] ?? 0;
-      const total = s.shots_total?.[side] ?? 0;
-      const blk = s.shots_blocked?.[side] ?? 0;
-      const off = Math.max(0, total - sot - blk);
-      const crn = s.corners?.[side] ?? 0;
-      const da = s.dangerous_attacks?.[side] ?? 0;
-      const apiVal = s.xg?.[side];
-      if (apiVal != null && apiVal > 0) return apiVal;
-      return sot * 0.38 + off * 0.05 + blk * 0.03 + crn * 0.04 + da * 0.01;
-    };
-
-    const homeDelta = Math.max(0, estXg(current.stats, 'home') - estXg(previous.stats, 'home'));
-    const awayDelta = Math.max(0, estXg(current.stats, 'away') - estXg(previous.stats, 'away'));
+    const homeDelta = Math.max(0, estimateXgShared(current.stats, 'home') - estimateXgShared(previous.stats, 'home'));
+    const awayDelta = Math.max(0, estimateXgShared(current.stats, 'away') - estimateXgShared(previous.stats, 'away'));
     xgSpike = normLinear(Math.max(homeDelta, awayDelta), 0, 1.0);
   }
 

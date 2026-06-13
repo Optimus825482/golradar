@@ -3,6 +3,14 @@
 
 import type { MatchStats } from './nesineTypes';
 import { calculatePressure } from './nesineTypes';
+import { estimateXgFromShots, computeXgDelta } from './estimateXg';
+import { eloGoalAdjustment, getRating } from './eloRating';
+import {
+  extractMatchIntelligence,
+  formationGoalMultiplier,
+  formScoreAdjustment,
+  type MatchIntelligence,
+} from './fotmobIntelligence';
 
 export interface PressureSnapshotLite {
   homePressure: number;
@@ -40,6 +48,7 @@ export function calculateGoalProbability(
   awayTeam?: string,
   oddsMovementBoost?: { homeBoost: number; awayBoost: number; significance: string } | null,
   leagueId?: number | null,
+  fotmobData?: import('./fotmob').FotMobMatchDetails | null,
 ): GoalProbability {
   const emptyResult: GoalProbability = {
     score: 0, homeScore: 0, awayScore: 0, side: null, level: 'low', factors: [],
@@ -137,9 +146,10 @@ export function calculateGoalProbability(
     awayScore += pts; if (pts >= 5) awayFactors.push(`${shotsOnTarget.away} isabetli şut (xGOT: ${awaySotRate.toFixed(1)}/15dk)`);
   }
 
-  // Factor 4: xG accumulation + velocity
-  if (xg.home > 0.3) { const xgPts = Math.min(10, Math.round(xg.home * 7)); const xgRate = (xg.home / Math.max(1, minNum)) * 15; const velocityPts = xgRate > 0.3 ? Math.min(4, Math.round(xgRate * 4)) : 0; homeScore += xgPts + velocityPts; homeFactors.push(`xG ${xg.home.toFixed(2)} (${xgRate.toFixed(2)}/15dk)`); }
-  if (xg.away > 0.3) { const xgPts = Math.min(10, Math.round(xg.away * 7)); const xgRate = (xg.away / Math.max(1, minNum)) * 15; const velocityPts = xgRate > 0.3 ? Math.min(4, Math.round(xgRate * 4)) : 0; awayScore += xgPts + velocityPts; awayFactors.push(`xG ${xg.away.toFixed(2)} (${xgRate.toFixed(2)}/15dk)`); }
+  // Factor 4: Attack accumulation (consolidated: F4 + F11)
+  // Replaces: old F4 (xG accumulation) + old F11 (xG dominance ratio)
+  if (xg.home > 0.3) { const xgPts = Math.min(10, Math.round(xg.home * 7)); const xgRate = (xg.home / Math.max(1, minNum)) * 15; const velocityPts = xgRate > 0.3 ? Math.min(4, Math.round(xgRate * 4)) : 0; homeScore += xgPts + velocityPts; homeFactors.push(`xG birikim ${xg.home.toFixed(2)} (${xgRate.toFixed(2)}/15dk)`); }
+  if (xg.away > 0.3) { const xgPts = Math.min(10, Math.round(xg.away * 7)); const xgRate = (xg.away / Math.max(1, minNum)) * 15; const velocityPts = xgRate > 0.3 ? Math.min(4, Math.round(xgRate * 4)) : 0; awayScore += xgPts + velocityPts; awayFactors.push(`xG birikim ${xg.away.toFixed(2)} (${xgRate.toFixed(2)}/15dk)`); }
 
   // Factor 5: Stat spike detection
   if (pressureHistory && pressureHistory.length >= 3) {
@@ -230,15 +240,17 @@ export function calculateGoalProbability(
     const current = pressureHistory[pressureHistory.length - 1];
     const lookback = Math.min(4, pressureHistory.length - 1);
     const previous = pressureHistory[pressureHistory.length - 1 - lookback];
-    const estimateXg = (s: MatchStats) => { const sot = s.shots_on_target?.home ?? 0; const total = s.shots_total?.home ?? 0; const blk = s.shots_blocked?.home ?? 0; const off = Math.max(0, total - sot - blk); const crn = s.corners?.home ?? 0; const da = s.dangerous_attacks?.home ?? 0; const apiVal = s.xg?.home; if (apiVal != null && apiVal > 0) return apiVal; return sot * 0.38 + off * 0.05 + blk * 0.03 + crn * 0.04 + da * 0.01; };
-    const estimateXgAway = (s: MatchStats) => { const sot = s.shots_on_target?.away ?? 0; const total = s.shots_total?.away ?? 0; const blk = s.shots_blocked?.away ?? 0; const off = Math.max(0, total - sot - blk); const crn = s.corners?.away ?? 0; const da = s.dangerous_attacks?.away ?? 0; const apiVal = s.xg?.away; if (apiVal != null && apiVal > 0) return apiVal; return sot * 0.38 + off * 0.05 + blk * 0.03 + crn * 0.04 + da * 0.01; };
-    const currentHomeXg = current.stats.xg?.home != null && current.stats.xg.home > 0 ? current.stats.xg.home : estimateXg(current.stats);
-    const prevHomeXg = previous.stats.xg?.home != null && previous.stats.xg.home > 0 ? previous.stats.xg.home : estimateXg(previous.stats);
-    const currentAwayXg = current.stats.xg?.away != null && current.stats.xg.away > 0 ? current.stats.xg.away : estimateXgAway(current.stats);
-    const prevAwayXg = previous.stats.xg?.away != null && previous.stats.xg.away > 0 ? previous.stats.xg.away : estimateXgAway(previous.stats);
+    const currentHomeXg = current.stats.xg?.home ?? estimateXgFromShots(current.stats, 'home', minNum);
+    const prevHomeXg = previous.stats.xg?.home ?? estimateXgFromShots(previous.stats, 'home', minNum);
+    const currentAwayXg = current.stats.xg?.away ?? estimateXgFromShots(current.stats, 'away', minNum);
+    const prevAwayXg = previous.stats.xg?.away ?? estimateXgFromShots(previous.stats, 'away', minNum);
     const homeXgDelta = Math.max(0, currentHomeXg - prevHomeXg), awayXgDelta = Math.max(0, currentAwayXg - prevAwayXg);
-    if (homeXgDelta >= 0.10) { const pts = Math.min(10, Math.round(homeXgDelta * 40)); homeScore += pts; homeFactors.push(`xG sıçraması +${homeXgDelta.toFixed(2)}`); }
-    if (awayXgDelta >= 0.10) { const pts = Math.min(10, Math.round(awayXgDelta * 40)); awayScore += pts; awayFactors.push(`xG sıçraması +${awayXgDelta.toFixed(2)}`); }
+    const homeDeltaInfo = computeXgDelta(current.stats, previous.stats, 'home', minNum);
+    const awayDeltaInfo = computeXgDelta(current.stats, previous.stats, 'away', minNum);
+    const effectiveHomeDelta = homeDeltaInfo.isSignificant ? homeXgDelta : 0;
+    const effectiveAwayDelta = awayDeltaInfo.isSignificant ? awayXgDelta : 0;
+    if (effectiveHomeDelta >= 0.10) { const pts = Math.min(10, Math.round(effectiveHomeDelta * 40)); homeScore += pts; homeFactors.push(`xG sıçraması +${effectiveHomeDelta.toFixed(2)}`); }
+    if (effectiveAwayDelta >= 0.10) { const pts = Math.min(10, Math.round(effectiveAwayDelta * 40)); awayScore += pts; awayFactors.push(`xG sıçraması +${effectiveAwayDelta.toFixed(2)}`); }
   }
 
   // Factor 11: xG dominance ratio
@@ -249,41 +261,68 @@ export function calculateGoalProbability(
     if (awayXgRatio > 0.65 && xg.away > 0.4) { const pts = Math.min(8, Math.round((awayXgRatio - 0.5) * 30)); awayScore += pts; if (pts >= 4) awayFactors.push(`xG üstünlük %${Math.round(awayXgRatio * 100)}`); }
   }
 
-  // Factor 12: Threat index
+  // Factor 12: Composite Threat (consolidated from old F12 80-pt formula → 30-pt)
+  // Removes double-counting: ShotQ already in F3, Momentum in F6, SetPieces in F9
+  // Now only covers the unique part: composite territory + attack flow
   {
-    const homeShotQ = Math.min(25, xg.home * 12), awayShotQ = Math.min(25, xg.away * 12);
     const elapsed15 = Math.max(1, minNum / 15);
-    let homeAtkRate5min = (stats.dangerous_attacks?.home ?? 0) / elapsed15, awayAtkRate5min = (stats.dangerous_attacks?.away ?? 0) / elapsed15;
+    let homeAtkRate5min = (stats.dangerous_attacks?.home ?? 0) / elapsed15;
+    let awayAtkRate5min = (stats.dangerous_attacks?.away ?? 0) / elapsed15;
     if (pressureHistory && pressureHistory.length >= 6) {
       const window5min = pressureHistory.slice(-60);
-      if (window5min.length >= 3) { const firstDA_h = window5min[0].stats.dangerous_attacks?.home ?? 0; const lastDA_h = window5min[window5min.length - 1].stats.dangerous_attacks?.home ?? 0; const firstDA_a = window5min[0].stats.dangerous_attacks?.away ?? 0; const lastDA_a = window5min[window5min.length - 1].stats.dangerous_attacks?.away ?? 0; homeAtkRate5min = Math.max(homeAtkRate5min, ((lastDA_h - firstDA_h) / 5) * 15); awayAtkRate5min = Math.max(awayAtkRate5min, ((lastDA_a - firstDA_a) / 5) * 15); }
+      if (window5min.length >= 3) {
+        const firstDA_h = window5min[0].stats.dangerous_attacks?.home ?? 0;
+        const lastDA_h = window5min[window5min.length - 1].stats.dangerous_attacks?.home ?? 0;
+        const firstDA_a = window5min[0].stats.dangerous_attacks?.away ?? 0;
+        const lastDA_a = window5min[window5min.length - 1].stats.dangerous_attacks?.away ?? 0;
+        homeAtkRate5min = Math.max(homeAtkRate5min, ((lastDA_h - firstDA_h) / 5) * 15);
+        awayAtkRate5min = Math.max(awayAtkRate5min, ((lastDA_a - firstDA_a) / 5) * 15);
+      }
     }
-    const homeAtkP = Math.min(25, homeAtkRate5min * 4), awayAtkP = Math.min(25, awayAtkRate5min * 4);
-    const sp2hBoost = minNum >= 45 ? 1.2 : 1.0;
-    const homeSP = Math.min(15, ((stats.corners?.home ?? 0) * 1.5 + (stats.free_kicks?.home ?? 0) * 0.3) * sp2hBoost);
-    const awaySP = Math.min(15, ((stats.corners?.away ?? 0) * 1.5 + (stats.free_kicks?.away ?? 0) * 0.3) * sp2hBoost);
-    const homePoss = stats.possession?.home ?? 50, awayPoss = stats.possession?.away ?? 50;
-    let homeTerrBase = Math.max(0, (homePoss - 52) * 0.75), awayTerrBase = Math.max(0, (awayPoss - 52) * 0.75);
+    const homeAtkP = Math.min(15, homeAtkRate5min * 2.5);
+    const awayAtkP = Math.min(15, awayAtkRate5min * 2.5);
+
+    // Territory: possession + recent trend (combined proxy)
+    const homePoss = stats.possession?.home ?? 50;
+    const awayPoss = stats.possession?.away ?? 50;
+    let homeTerrBase = Math.max(0, (homePoss - 52) * 0.5);
+    let awayTerrBase = Math.max(0, (awayPoss - 52) * 0.5);
     if (pressureHistory && pressureHistory.length >= 3) {
       const last3 = pressureHistory.slice(-3);
       const homePossCount = last3.filter(s => (s.stats.possession?.home ?? 50) > 52).length;
       const awayPossCount = last3.filter(s => (s.stats.possession?.away ?? 50) > 52).length;
-      if (homePossCount < 2) homeTerrBase *= 0.5; if (awayPossCount < 2) awayTerrBase *= 0.5;
+      if (homePossCount < 2) homeTerrBase *= 0.5;
+      if (awayPossCount < 2) awayTerrBase *= 0.5;
     }
-    const homeTerr = Math.min(15, homeTerrBase), awayTerr = Math.min(15, awayTerrBase);
-    let homeMom = 0, awayMom = 0;
-    if (pressureHistory && pressureHistory.length >= 6) {
-      const r3 = pressureHistory.slice(-3), o3 = pressureHistory.slice(-6, -3);
-      if (o3.length >= 2) {
-        const rHP = r3.reduce((s, p) => s + p.homePressure, 0) / r3.length, oHP = o3.reduce((s, p) => s + p.homePressure, 0) / o3.length;
-        const rAP = r3.reduce((s, p) => s + p.awayPressure, 0) / r3.length, oAP = o3.reduce((s, p) => s + p.awayPressure, 0) / o3.length;
-        homeMom = Math.min(20, Math.max(0, (rHP - oHP) * 0.8)); awayMom = Math.min(20, Math.max(0, (rAP - oAP) * 0.8));
+    const homeTerr = Math.min(10, homeTerrBase);
+    const awayTerr = Math.min(10, awayTerrBase);
+
+    // Recent attack flow trend (unique signal, not in F6 momentum)
+    let homeFlow = 0, awayFlow = 0;
+    if (pressureHistory && pressureHistory.length >= 4) {
+      const r2 = pressureHistory.slice(-2);
+      const o2 = pressureHistory.slice(-4, -2);
+      if (o2.length >= 1) {
+        const rDAh = r2.reduce((s, p) => s + (p.stats.dangerous_attacks?.home ?? 0), 0) / r2.length;
+        const oDAh = o2.reduce((s, p) => s + (p.stats.dangerous_attacks?.home ?? 0), 0) / o2.length;
+        const rDAa = r2.reduce((s, p) => s + (p.stats.dangerous_attacks?.away ?? 0), 0) / r2.length;
+        const oDAa = o2.reduce((s, p) => s + (p.stats.dangerous_attacks?.away ?? 0), 0) / o2.length;
+        homeFlow = Math.min(5, Math.max(0, (rDAh - oDAh) * 1.2));
+        awayFlow = Math.min(5, Math.max(0, (rDAa - oDAa) * 1.2));
       }
     }
-    const homeThreatIdx = Math.min(100, homeShotQ + homeAtkP + homeSP + homeTerr + homeMom);
-    const awayThreatIdx = Math.min(100, awayShotQ + awayAtkP + awaySP + awayTerr + awayMom);
-    if (homeThreatIdx > 50) { const pts = Math.min(10, Math.round((homeThreatIdx - 50) * 0.20)); homeScore += pts; if (pts >= 3) homeFactors.push(`Tehdit indeksi ${Math.round(homeThreatIdx)}`); }
-    if (awayThreatIdx > 50) { const pts = Math.min(10, Math.round((awayThreatIdx - 50) * 0.20)); awayScore += pts; if (pts >= 3) awayFactors.push(`Tehdit indeksi ${Math.round(awayThreatIdx)}`); }
+    const homeThreatIdx = Math.min(30, homeAtkP + homeTerr + homeFlow);
+    const awayThreatIdx = Math.min(30, awayAtkP + awayTerr + awayFlow);
+    if (homeThreatIdx > 15) {
+      const pts = Math.min(8, Math.round((homeThreatIdx - 15) * 0.5));
+      homeScore += pts;
+      if (pts >= 3) homeFactors.push(`Tehdit ${Math.round(homeThreatIdx)}`);
+    }
+    if (awayThreatIdx > 15) {
+      const pts = Math.min(8, Math.round((awayThreatIdx - 15) * 0.5));
+      awayScore += pts;
+      if (pts >= 3) awayFactors.push(`Tehdit ${Math.round(awayThreatIdx)}`);
+    }
     const threatGap = homeThreatIdx - awayThreatIdx;
     if (threatGap > 20) { homeScore += Math.min(3, Math.round(threatGap * 0.08)); if (threatGap > 30) homeFactors.push('Tehdit üstünlüğü'); }
     else if (threatGap < -20) { awayScore += Math.min(3, Math.round(Math.abs(threatGap) * 0.08)); if (threatGap < -30) awayFactors.push('Tehdit üstünlüğü'); }
@@ -292,20 +331,10 @@ export function calculateGoalProbability(
   // Factor 13: xG flow momentum
   if (pressureHistory && pressureHistory.length >= 6) {
     const recent = pressureHistory.slice(-3), older = pressureHistory.slice(-6, -3);
-    const estimateXgForSnap = (s: PressureSnapshotLite, side: 'home' | 'away') => {
-      const apiKey = side === 'home' ? s.stats.xg?.home : s.stats.xg?.away;
-      if (apiKey != null && apiKey > 0) return apiKey;
-      const sot = side === 'home' ? (s.stats.shots_on_target?.home ?? 0) : (s.stats.shots_on_target?.away ?? 0);
-      const total = side === 'home' ? (s.stats.shots_total?.home ?? 0) : (s.stats.shots_total?.away ?? 0);
-      const blk = side === 'home' ? (s.stats.shots_blocked?.home ?? 0) : (s.stats.shots_blocked?.away ?? 0);
-      const off = Math.max(0, total - sot - blk); const crn = side === 'home' ? (s.stats.corners?.home ?? 0) : (s.stats.corners?.away ?? 0);
-      const da = side === 'home' ? (s.stats.dangerous_attacks?.home ?? 0) : (s.stats.dangerous_attacks?.away ?? 0);
-      return sot * 0.38 + off * 0.05 + blk * 0.03 + crn * 0.04 + da * 0.01;
-    };
-    const recentHomeXg = recent.reduce((s, p) => s + estimateXgForSnap(p, 'home'), 0) / recent.length;
-    const olderHomeXg = older.reduce((s, p) => s + estimateXgForSnap(p, 'home'), 0) / older.length;
-    const recentAwayXg = recent.reduce((s, p) => s + estimateXgForSnap(p, 'away'), 0) / recent.length;
-    const olderAwayXg = older.reduce((s, p) => s + estimateXgForSnap(p, 'away'), 0) / older.length;
+    const recentHomeXg = recent.reduce((s, p) => s + (p.stats.xg?.home ?? estimateXgFromShots(p.stats, 'home', minNum)), 0) / recent.length;
+    const olderHomeXg = older.reduce((s, p) => s + (p.stats.xg?.home ?? estimateXgFromShots(p.stats, 'home', minNum)), 0) / older.length;
+    const recentAwayXg = recent.reduce((s, p) => s + (p.stats.xg?.away ?? estimateXgFromShots(p.stats, 'away', minNum)), 0) / recent.length;
+    const olderAwayXg = older.reduce((s, p) => s + (p.stats.xg?.away ?? estimateXgFromShots(p.stats, 'away', minNum)), 0) / older.length;
     const homeXgFlowTrend = recentHomeXg - olderHomeXg, awayXgFlowTrend = recentAwayXg - olderAwayXg;
     if (homeXgFlowTrend > 0.05) { const pts = Math.min(6, Math.round(homeXgFlowTrend * 20)); homeScore += pts; if (pts >= 3) homeFactors.push(`xG yükselişi +${homeXgFlowTrend.toFixed(2)}`); }
     if (awayXgFlowTrend > 0.05) { const pts = Math.min(6, Math.round(awayXgFlowTrend * 20)); awayScore += pts; if (pts >= 3) awayFactors.push(`xG yükselişi +${awayXgFlowTrend.toFixed(2)}`); }
@@ -390,8 +419,8 @@ export function calculateGoalProbability(
 
   // Factor 17: Card advantage
   const homeYellowCards = stats.yellow_cards?.home ?? 0, awayYellowCards = stats.yellow_cards?.away ?? 0;
-  const homeRedCards = (stats.red_cards?.home ?? 0) + ((stats as any).two_yellow_red?.home ?? 0);
-  const awayRedCards = (stats.red_cards?.away ?? 0) + ((stats as any).two_yellow_red?.away ?? 0);
+  const homeRedCards = (stats.red_cards?.home ?? 0) + (stats.two_yellow_red?.home ?? 0);
+  const awayRedCards = (stats.red_cards?.away ?? 0) + (stats.two_yellow_red?.away ?? 0);
   if (awayRedCards > 0) { homeScore += 18; homeFactors.push(`Rakip kırmızı kart! (+18)`); }
   if (homeRedCards > 0) { awayScore += 18; awayFactors.push(`Rakip kırmızı kart! (+18)`); }
   if (homeRedCards > 0) { homeScore = Math.max(0, homeScore - 22); homeFactors.push(`Kırmızı kart dezavantajı (-22)`); }
@@ -416,7 +445,6 @@ export function calculateGoalProbability(
 
   // Poisson anchor
   {
-    const tRemaining = Math.max(1, 90 - minNum) / 90;
     const homeLambda = xg.home / Math.max(1, minNum), awayLambda = xg.away / Math.max(1, minNum);
     const homePoissonP = 1 - Math.exp(-homeLambda * (90 - minNum));
     const awayPoissonP = 1 - Math.exp(-awayLambda * (90 - minNum));
@@ -438,14 +466,48 @@ export function calculateGoalProbability(
     awayScore += Math.round(awayWinAdj * 0.30);
   }
 
-  // Elo rating adjustment
+  // Elo rating adjustment (live prior — always evaluated)
+  // Combines team strength + recent form trend (matchesPlayed proxy)
   let eloAdj: { homeAdj: number; awayAdj: number } | null = null;
   if (homeTeam && awayTeam) {
     try {
-      const { eloGoalAdjustment } = require('./eloRating');
       eloAdj = eloGoalAdjustment(homeTeam, awayTeam);
-      if (eloAdj) { homeScore += eloAdj.homeAdj; awayScore += eloAdj.awayAdj; if (Math.abs(eloAdj.homeAdj) >= 4) homeFactors.push(`Elo ${eloAdj.homeAdj > 0 ? '+' : ''}${eloAdj.homeAdj}`); if (Math.abs(eloAdj.awayAdj) >= 4) awayFactors.push(`Elo ${eloAdj.awayAdj > 0 ? '+' : ''}${eloAdj.awayAdj}`); }
-    } catch { /* Elo module not available yet */ }
+      if (eloAdj) {
+        // Base adjustment
+        homeScore += eloAdj.homeAdj;
+        awayScore += eloAdj.awayAdj;
+        if (Math.abs(eloAdj.homeAdj) >= 4) homeFactors.push(`Elo ${eloAdj.homeAdj > 0 ? '+' : ''}${eloAdj.homeAdj}`);
+        if (Math.abs(eloAdj.awayAdj) >= 4) awayFactors.push(`Elo ${eloAdj.awayAdj > 0 ? '+' : ''}${eloAdj.awayAdj}`);
+
+        // Form boost: teams with many matches played (provisional phase done)
+        // have more reliable ratings — slight confidence boost in extreme diff
+        const homeRating = getRating(homeTeam);
+        const awayRating = getRating(awayTeam);
+        const PROVISIONAL_THRESHOLD = 10;
+        const homeReliable = homeRating && homeRating.matchesPlayed > PROVISIONAL_THRESHOLD;
+        const awayReliable = awayRating && awayRating.matchesPlayed > PROVISIONAL_THRESHOLD;
+        if (homeReliable && eloAdj.homeAdj >= 5) {
+          homeScore += 2;
+          homeFactors.push('Form güçlü');
+        }
+        if (awayReliable && eloAdj.awayAdj >= 5) {
+          awayScore += 2;
+          awayFactors.push('Form güçlü');
+        }
+        // Penalty for provisional (low-match-count) teams when Elo disagrees with shot data
+        if (!homeReliable && eloAdj.homeAdj < -4) {
+          homeScore = Math.max(0, homeScore - 1);
+        }
+        if (!awayReliable && eloAdj.awayAdj < -4) {
+          awayScore = Math.max(0, awayScore - 1);
+        }
+      }
+    } catch (err) {
+      // Elo data not yet available (first matches / no DB) — silent fallback
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[GoalRadar] Elo prior unavailable:', (err as Error).message);
+      }
+    }
   }
 
   // Threshold + side determination
@@ -521,6 +583,87 @@ export function calculateGoalProbability(
     goalProbability5min = Math.min(0.95, goalProbability5min);
   } catch { /* fallback */ }
 
+  // ── FotMob Intelligence Integration ─────────────────────────────
+  // Applies weather, squad, H2H, form, and formation adjustments
+  // to the final score. This is the LAST adjustment before clamping,
+  // so it has full influence on side/level determination.
+  if (fotmobData) {
+    try {
+      const intel: MatchIntelligence = extractMatchIntelligence(fotmobData);
+
+      // Weather multiplier (affects total score scaling)
+      if (intel.weatherImpact.multiplier !== 1.0) {
+        const weatherFactor = intel.weatherImpact.multiplier;
+        homeScore = Math.round(homeScore * weatherFactor);
+        awayScore = Math.round(awayScore * weatherFactor);
+        if (intel.weatherImpact.factors.length > 0) {
+          sharedFactors.push(...intel.weatherImpact.factors);
+        }
+      }
+
+      // Squad impact: missing players, lineup rating diff
+      if (intel.squadImpact.homeAdj !== 0 || intel.squadImpact.awayAdj !== 0) {
+        homeScore = Math.max(0, Math.min(85, homeScore + intel.squadImpact.homeAdj));
+        awayScore = Math.max(0, Math.min(85, awayScore + intel.squadImpact.awayAdj));
+        if (intel.squadImpact.factors.length > 0) {
+          homeFactors.push(...intel.squadImpact.factors.filter(f => f.includes('Ev')));
+          awayFactors.push(...intel.squadImpact.factors.filter(f => f.includes('Dep')));
+        }
+      }
+
+      // H2H baseline: high-scoring H2H → bump both sides
+      if (intel.h2h && intel.h2h.avgGoals >= 3.0 && intel.h2h.recentMatches >= 3) {
+        homeScore += 2;
+        awayScore += 2;
+        sharedFactors.push(`H2H yüksek gol (${intel.h2h.avgGoals.toFixed(1)}/maç)`);
+      } else if (intel.h2h && intel.h2h.avgGoals <= 1.5 && intel.h2h.recentMatches >= 3) {
+        homeScore = Math.max(0, homeScore - 1);
+        awayScore = Math.max(0, awayScore - 1);
+        sharedFactors.push(`H2H düşük gol (${intel.h2h.avgGoals.toFixed(1)}/maç)`);
+      }
+
+      // Form adjustment: recent win/loss streaks + PPG
+      if (intel.form) {
+        const homeFormAdj = formScoreAdjustment(intel.form.home);
+        const awayFormAdj = formScoreAdjustment(intel.form.away);
+        if (homeFormAdj.adj !== 0) {
+          homeScore = Math.max(0, Math.min(85, homeScore + homeFormAdj.adj));
+          if (homeFormAdj.factors.length > 0) homeFactors.push(...homeFormAdj.factors);
+        }
+        if (awayFormAdj.adj !== 0) {
+          awayScore = Math.max(0, Math.min(85, awayScore + awayFormAdj.adj));
+          if (awayFormAdj.factors.length > 0) awayFactors.push(...awayFormAdj.factors);
+        }
+      }
+
+      // Formation impact: attacking formations amplify team's xG
+      if (intel.squad) {
+        const homeForm = intel.squad.homeFormation;
+        const awayForm = intel.squad.awayFormation;
+        if (homeForm) {
+          const fm = formationGoalMultiplier(homeForm);
+          if (fm.attackMult !== 1.0) {
+            const xgDelta = Math.round((fm.attackMult - 1) * 10);
+            homeScore = Math.max(0, Math.min(85, homeScore + xgDelta));
+            if (fm.description) homeFactors.push(fm.description);
+          }
+        }
+        if (awayForm) {
+          const fm = formationGoalMultiplier(awayForm);
+          if (fm.attackMult !== 1.0) {
+            const xgDelta = Math.round((fm.attackMult - 1) * 10);
+            awayScore = Math.max(0, Math.min(85, awayScore + xgDelta));
+            if (fm.description) awayFactors.push(fm.description);
+          }
+        }
+      }
+    } catch (err) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[GoalRadar] FotMob intel processing failed:', (err as Error).message);
+      }
+    }
+  }
+
   const SIGNAL_5MIN_THRESHOLD = 0.25;
   if (goalProbability5min < SIGNAL_5MIN_THRESHOLD && level !== 'critical') {
     level = 'low'; side = null;
@@ -531,4 +674,38 @@ export function calculateGoalProbability(
     score: finalScore, homeScore: finalHomeScore, awayScore: finalAwayScore, side, level,
     factors: allFactors, calibratedP, poissonP, eloAdj, overUnder25, btts: bttsP, timeMultiplier, goalProbability5min,
   };
+}
+
+// ── FotMob-enriched convenience wrapper ─────────────────────────────
+// Callers with FotMob data available can use this instead of calling
+// calculateGoalProbability directly. The FotMob intel (weather, squad,
+// H2H, form, formation) is applied as the final adjustment layer.
+
+export interface FotMobEnrichedResult {
+  goalRadar: GoalProbability;
+  intelligence: MatchIntelligence;
+}
+
+export function calculateGoalProbabilityWithFotMob(
+  stats: MatchStats,
+  minute: string,
+  isLive: boolean,
+  pressureHistory: PressureSnapshotLite[] | undefined,
+  currentHomeGoals: number | undefined,
+  currentAwayGoals: number | undefined,
+  homeTeam: string | undefined,
+  awayTeam: string | undefined,
+  fotmobData: import('./fotmob').FotMobMatchDetails | null,
+  oddsMovementBoost?: { homeBoost: number; awayBoost: number; significance: string } | null,
+  leagueId?: number | null,
+): FotMobEnrichedResult {
+  const goalRadar = calculateGoalProbability(
+    stats, minute, isLive,
+    pressureHistory, currentHomeGoals, currentAwayGoals,
+    homeTeam, awayTeam,
+    oddsMovementBoost, leagueId,
+    fotmobData,
+  );
+  const intelligence = extractMatchIntelligence(fotmobData);
+  return { goalRadar, intelligence };
 }

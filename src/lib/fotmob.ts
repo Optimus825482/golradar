@@ -1,6 +1,8 @@
 // FotMob API types and helpers
 // Provides enriched match data: lineups, events, stats (1H/2H), weather, H2H, form
 
+import { getOrFetchFotMobDetails, getCachedFotMobDetails } from './fotmobCache';
+
 const FOTMOB_BASE = "https://www.fotmob.com/api/data";
 
 const FOTMOB_HEADERS = {
@@ -483,4 +485,31 @@ function getPositionName(positionId: number): string {
     15: "LM",
   };
   return positions[positionId] || "";
+}
+
+// ── Cached Fetch Wrapper ──────────────────────────────────────────
+// Reads through PostgreSQL cache; refreshes on TTL expiry. Use this
+// from any hot path (goalRadar enrichment, API routes) instead of
+// `fetchMatchDetails` directly.
+
+export async function getCachedMatchDetails(
+  fotmobId: number,
+  matchDate: string,
+): Promise<FotMobMatchDetails | null> {
+  const result = await getOrFetchFotMobDetails(fotmobId, matchDate, () =>
+    fetchMatchDetails(fotmobId),
+  );
+  return result.data;
+}
+
+/**
+ * Cache-only read (no fallback to network). Returns null on miss or
+ * stale entry without trying to refresh. Useful when the caller wants
+ * to skip the network roundtrip entirely (e.g. aggregator fan-out).
+ */
+export async function peekCachedMatchDetails(
+  fotmobId: number,
+  matchDate: string,
+): Promise<FotMobMatchDetails | null> {
+  return getCachedFotMobDetails(fotmobId, matchDate);
 }

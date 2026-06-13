@@ -210,3 +210,27 @@ model Signal {
   @@index([signalSide])
   @@index([calibratedP])
 }
+
+// ── Gol Radarı: FotMob Match Cache ───────────────────────────────
+// Cached FotMob match details (weather, squad, H2H, form) for the
+// goalRadar FotMob intelligence layer. TTL default 5 min; refresh
+// is lazy on read. Single row per (fotmobId, matchDate) so the
+// last successful fetch wins. JSONB payload keeps schema flexible
+// as FotMob's response shape evolves.
+model FotMobCache {
+  id              String   @id @default(cuid())
+  fotmobId        Int      // FotMob match ID
+  matchDate       String   // YYYY-MM-DD — partitions by day, supports cleanup
+  payload         Json     // Full FotMobMatchDetails as JSON
+  fetchStatus     Int      @default(200) // HTTP status of the source fetch
+  fetchError      String?  // Error message if fetch failed
+  fetchedAt       DateTime @default(now()) // When we last hit FotMob
+  expiresAt       DateTime // TTL boundary — soft expiry for read-time check
+  hitCount        Int      @default(0) // How many reads served from this row
+  lastHitAt       DateTime?
+
+  @@unique([fotmobId, matchDate])
+  @@index([fotmobId])
+  @@index([matchDate])
+  @@index([expiresAt])
+}

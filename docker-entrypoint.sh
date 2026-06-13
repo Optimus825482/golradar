@@ -8,24 +8,35 @@ DB_HOST="${DATABASE_HOST:-postgres}"
 DB_PORT="${DATABASE_PORT:-5432}"
 
 echo "[DB] Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
-for i in $(seq 1 60); do
+DB_READY=0
+for i in $(seq 1 90); do
     if node -e "require('net').createConnection({host:'${DB_HOST}',port:${DB_PORT}}).on('connect',()=>process.exit(0)).on('error',()=>{})" 2>/dev/null; then
+        echo "[DB] PostgreSQL ready after ${i}s"
+        DB_READY=1
         break
     fi
     sleep 1
 done
+if [ "$DB_READY" -ne 1 ]; then
+    echo "[FATAL] PostgreSQL not reachable after 90s at ${DB_HOST}:${DB_PORT}"
+    exit 1
+fi
 
-# ── Prisma db push (run migrations) ──
-# Run prisma via node directly — node_modules/.bin/prisma is a binlink
-# that may not be present after the standalone copy.
-echo "[DB] Running prisma db push..."
+# ── Prisma db push (REQUIRED — non-destructive schema sync) ──
+# Every deploy may include schema changes (e.g. new FotMobCache model).
+# We MUST push before the app starts or the new queries will fail.
+# On failure (drift detection, destructive change) prisma exits non-zero
+# and we crash the container so the operator can intervene.
+echo "[DB] Running prisma db push (REQUIRED)..."
 cd /app/web
-NODE_ENV=production node ./node_modules/prisma/build/index.js db push 2>&1 || echo "[WARN] prisma db push skipped"
-
-# Signal table is empty on first deploy — tracker writes start from 0.
+if ! NODE_ENV=production node ./node_modules/prisma/build/index.js db push --accept-data-loss 2>&1; then
+    echo "[FATAL] prisma db push failed — refusing to start app"
+    exit 1
+fi
+echo "[DB] Schema in sync"
 
 # ── Start Next.js via npm start ──
-echo "[WEB] Starting Next.js (npm run start)..."
+echo "[WEB] Starting Next.js (bun server.js)..."
 NODE_ENV=production PORT=3000 \
     DATABASE_URL="${DATABASE_URL:-postgresql://postgres:golradar_secret@postgres:5432/golradar_db}" \
     NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-http://localhost:3000}" \

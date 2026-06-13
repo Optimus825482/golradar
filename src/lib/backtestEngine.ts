@@ -1,6 +1,7 @@
 // ── Backtest Engine ────────────────────────────────────────────────
 import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import * as path from 'path';
 
 import type {
   SignalRecord, QuickBacktestSummary,
@@ -17,12 +18,19 @@ import {
   computeFalsePositivePatterns, computeFactorImportance,
 } from './backtestHelpers';
 
+// Re-export to keep type import side-effect (used in runBacktest signature)
+export type { BrierDecomposition };
+
 export type * from './backtestTypes';
 
 // ── Data Loading ────────────────────────────────────────────────
 
-const DATA_DIR = '/home/z/my-project/data/signal-logs';
-const BACKTEST_DIR = '/home/z/my-project/data/backtest-results';
+const DATA_DIR = typeof window === 'undefined' && path
+  ? path.join(process.cwd(), 'data', 'signal-logs')
+  : '';
+const BACKTEST_DIR = typeof window === 'undefined' && path
+  ? path.join(process.cwd(), 'data', 'backtest-results')
+  : '';
 
 function ensureDirs() {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });

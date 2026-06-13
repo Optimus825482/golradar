@@ -185,6 +185,52 @@ export async function fetchTeamMatches(teamSlug: string): Promise<ScoremerMatch[
   return matches;
 }
 
+// ── Date-range fixture fetch (replaces single-date lookups) ────────
+// Iterates a window of days (default 7) and returns unique matches.
+// Critical for matching yesterday/tomorrow Nesine fixtures that
+// the default 3-day scan in fetchScoremerMatchList can miss.
+
+export async function getScoremerMatchesForDateRange(
+  startDate: Date,
+  endDate: Date,
+): Promise<ScoremerMatch[]> {
+  const matches: ScoremerMatch[] = [];
+  const seenIds = new Set<string>();
+  const day = 24 * 60 * 60 * 1000;
+
+  for (let t = startDate.getTime(); t <= endDate.getTime(); t += day) {
+    const d = new Date(t);
+    const dateStr = d.toISOString().slice(0, 10);
+    const url = `${SCOREMER_TR_BASE}/fixtures?date=${dateStr}`;
+    const html = await fetchDirectHttp(url);
+    if (!html) continue;
+    parseFixturesHtml(html, matches, seenIds);
+  }
+
+  // Always include recently finished matches
+  const lastUrl = `${SCOREMER_TR_BASE}/fixtures/last`;
+  const lastHtml = await fetchDirectHttp(lastUrl);
+  if (lastHtml) parseFixturesHtml(lastHtml, matches, seenIds);
+
+  return matches;
+}
+
+// ── Filter Scoremer matches by status (finished vs upcoming) ────────
+
+export function filterScoremerMatchesByStatus(
+  matches: ScoremerMatch[],
+  status: 'finished' | 'upcoming' | 'all' = 'all',
+): ScoremerMatch[] {
+  if (status === 'all') return matches;
+  return matches.filter((m) => {
+    // Finished: status field marked (e.g. "MS", "Bitti") OR FT score present and non-zero
+    const statusSaysFinished = /^(MS|Bitti|FT|FT$|Finished|Ended)/i.test(m.status || '');
+    const hasFullTimeScore = (m.homeScore > 0 || m.awayScore > 0) && m.status !== 'VS';
+    const isFinished = statusSaysFinished || hasFullTimeScore;
+    return status === 'finished' ? isFinished : !isFinished;
+  });
+}
+
 // ── Shared HTML parser for fixtures tables ──
 
 function parseFixturesHtml(html: string, matches: ScoremerMatch[], seenIds: Set<string>) {

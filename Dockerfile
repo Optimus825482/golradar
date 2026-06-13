@@ -1,39 +1,51 @@
-# ── Stage 1: Dependencies ──
-FROM oven/bun:1 AS deps
+# ── Stage 1: Install deps ──
+FROM oven/bun:1-alpine AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-# ── Stage 2: Build ──
-FROM deps AS builder
+# ── Stage 2: Build Next.js ──
+FROM deps AS build
 WORKDIR /app
-
-# Prisma schema (needed for generate)
 COPY prisma ./prisma
 RUN bunx prisma generate
-
-# Source code
 COPY . .
-
-# Build standalone
 RUN bun run build
 
-# ── Stage 3: Production Runner ──
-FROM oven/bun:1 AS runner
-WORKDIR /app
+# ── Stage 3: All-in-One Runtime (PostgreSQL + Next.js + Nesine) ──
+FROM postgres:16-alpine
+LABEL description="golradar — single container with PostgreSQL"
 
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Prisma client needs to be available at runtime
-COPY --from=builder /app/node_modules/.prisma /app/node_modules/.prisma
-COPY --from=builder /app/prisma ./prisma
+# Install bun
+RUN apk add --no-cache curl bash && \
+    curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
 
-# Standalone output
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+# Copy Next.js standalone
+COPY --from=build /app/.next/standalone /app/web
+COPY --from=build /app/.next/static /app/web/.next/static
+COPY --from=build /app/public /app/web/public
+COPY --from=build /app/prisma /app/web/prisma
 
-EXPOSE 3000
+# Prisma client for runtime
+COPY --from=build /app/node_modules/.prisma /root/.prisma
 
-CMD ["bun", "server.js"]
+# Copy Nesine relay
+WORKDIR /app/nesine
+COPY --from=build /app/mini-services/nesine-live/package.json ./
+COPY --from=build /app/mini-services/nesine-live/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY --from=build /app/mini-services/nesine-live/index.ts ./
+COPY --from=build /app/mini-services/shared /app/shared
+
+# Entrypoint
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+WORKDIR /app/web
+EXPOSE 3000 3003
+
+ENTRYPOINT ["docker-entrypoint.sh"]

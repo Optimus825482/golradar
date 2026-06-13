@@ -32,15 +32,45 @@ function getScraplingScript(): string {
 
 // Cache for Scrapling availability check
 let scraplingAvailable: boolean | null = null;
-
-function getPythonPath(): string {
-  return process.env.PYTHON_PATH || (process.platform === 'win32' ? 'python' : 'python3');
+// fallbacks. Cache the first one that exists so we don't stat() on every
+// request. Returns null when no Python runtime is installed.
+function resolvePython(): string | null {
+  if (_pythonPath !== undefined) return _pythonPath;
+  const candidates: string[] = [];
+  if (process.env.PYTHON_PATH) candidates.push(process.env.PYTHON_PATH);
+  if (process.platform === 'win32') {
+    candidates.push('python', 'python3', 'py');
+  } else {
+    candidates.push('python3', 'python');
+  }
+  const fs = require('fs') as typeof import('fs');
+  for (const c of candidates) {
+    try {
+      // PATH-resolved binaries: stat fails; absolute paths: stat works.
+      // existsSync returns true for both cases on most platforms.
+      if (fs.existsSync(c)) {
+        _pythonPath = c;
+        return c;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  _pythonPath = null;
+  return null;
 }
+let _pythonPath: string | null | undefined = undefined;
 
 // Fetch via Scrapling Python script (bypasses Cloudflare)
 function fetchViaScrapling(url: string, timeoutMs: number = 20000): Promise<any> {
   return new Promise((resolve) => {
-    const python = getPythonPath();
+    const python = resolvePython();
+    if (!python) {
+      console.error("Scrapling disabled: no python interpreter on PATH. Set PYTHON_PATH to enable.");
+      scraplingAvailable = false;
+      resolve(null);
+      return;
+    }
     const args = [getScraplingScript(), url, "--timeout", String(timeoutMs)];
     const timeout = setTimeout(() => {
       resolve(null); // Timeout - don't crash
@@ -49,6 +79,11 @@ function fetchViaScrapling(url: string, timeoutMs: number = 20000): Promise<any>
     execFile(python, args, { timeout: timeoutMs + 10000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       clearTimeout(timeout);
       if (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') {
+          // Binary vanished between resolve and exec — invalidate cache.
+          _pythonPath = undefined;
+        }
         console.error("Scrapling exec error:", error.message);
         scraplingAvailable = false; // Mark as unavailable
         resolve(null);
@@ -127,13 +162,19 @@ async function fetchWithCFBypass(url: string): Promise<any> {
   const directResult = await fetchDirect(url);
   if (directResult) return directResult;
 
-  // Try Scrapling Python script
+  // Try Scrapling Python script — skip entirely when no Python on PATH
+  // to avoid spawning a process that will ENOENT on us.
   if (scraplingAvailable === null) {
-    try {
-      const fs = await import("fs");
-      scraplingAvailable = fs.existsSync(getScraplingScript());
-    } catch {
+    const python = resolvePython();
+    if (!python) {
       scraplingAvailable = false;
+    } else {
+      try {
+        const fs = await import("fs");
+        scraplingAvailable = fs.existsSync(getScraplingScript());
+      } catch {
+        scraplingAvailable = false;
+      }
     }
   }
 
@@ -142,9 +183,12 @@ async function fetchWithCFBypass(url: string): Promise<any> {
     if (scraplingResult) return scraplingResult;
   }
 
-  // Last resort: Python bridge (curl_cffi with TLS fingerprint)
-  const bridgeResult = scrapeUrl(url, { type: 'json', referer: 'https://www.netscores.com/', timeout: 20000 });
-  if (bridgeResult.ok && bridgeResult.data) return bridgeResult.data;
+  // Last resort: Python bridge (curl_cffi with TLS fingerprint) — also
+  // requires a Python runtime, so skip when missing.
+  if (resolvePython()) {
+    const bridgeResult = scrapeUrl(url, { type: 'json', referer: 'https://www.netscores.com/', timeout: 20000 });
+    if (bridgeResult.ok && bridgeResult.data) return bridgeResult.data;
+  }
 
   return null;
 }

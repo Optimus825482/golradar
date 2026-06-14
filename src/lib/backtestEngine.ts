@@ -1,7 +1,4 @@
 // ── Backtest Engine ────────────────────────────────────────────────
-import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import * as path from 'path';
 
 import type {
   SignalRecord, QuickBacktestSummary,
@@ -18,369 +15,230 @@ import {
   computeFalsePositivePatterns, computeFactorImportance,
 } from './backtestHelpers';
 
-// Re-export to keep type import side-effect (used in runBacktest signature)
 export type { BrierDecomposition };
-
 export type * from './backtestTypes';
 
-// ── Data Loading ────────────────────────────────────────────────
+function getBeFs() {
+  if (typeof window !== 'undefined') return null;
+  try { return require('fs'); } catch { return null; }
+}
+function getBePath() {
+  if (typeof window !== 'undefined') return null;
+  try { return require('path'); } catch { return null; }
+}
 
-const DATA_DIR = typeof window === 'undefined' && path
-  ? path.join(process.cwd(), 'data', 'signal-logs')
-  : '';
-const BACKTEST_DIR = typeof window === 'undefined' && path
-  ? path.join(process.cwd(), 'data', 'backtest-results')
-  : '';
+const sBe = getBePath();
+const DATA_DIR = sBe ? sBe.join(process.cwd(), 'data', 'signal-logs') : '';
+const BACKTEST_DIR = sBe ? sBe.join(process.cwd(), 'data', 'backtest-results') : '';
 
 function ensureDirs() {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  if (!existsSync(BACKTEST_DIR)) mkdirSync(BACKTEST_DIR, { recursive: true });
+  const fs = getBeFs();
+  if (!fs) return;
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(BACKTEST_DIR)) fs.mkdirSync(BACKTEST_DIR, { recursive: true });
 }
 
 function loadSignalsForRange(startDate?: string, endDate?: string): SignalRecord[] {
+  const fs = getBeFs();
+  const path = getBePath();
+  if (!fs || !path) return [];
+
   ensureDirs();
   const allSignals: SignalRecord[] = [];
 
   try {
-    const files = readdirSync(DATA_DIR);
+    const files = fs.readdirSync(DATA_DIR);
     const signalFiles = files
-      .filter(f => f.startsWith('signals-') && f.endsWith('.json'))
+      .filter((f: string) => f.startsWith('signals-') && f.endsWith('.json'))
       .sort();
 
     for (const file of signalFiles) {
       const dateStr = file.replace('signals-', '').replace('.json', '');
-
       if (startDate && dateStr < startDate) continue;
       if (endDate && dateStr > endDate) continue;
 
       try {
-        const data = readFileSync(join(DATA_DIR, file), 'utf-8');
+        const data = fs.readFileSync(path.join(DATA_DIR, file), 'utf-8');
         const signals = JSON.parse(data);
         allSignals.push(...signals);
-      } catch {
-        // Skip corrupted files
-      }
+      } catch {}
     }
-  } catch {
-    // No data yet
-  }
+  } catch {}
 
   return allSignals;
 }
 
-// ── Main Backtest Function ─────────────────────────────────────
+export function runBacktest(config: BacktestConfig = {}): BacktestResult { return runBacktestImpl(config) as unknown as BacktestResult; }
+function runBacktestImpl(config: BacktestConfig = {}): any {
+  const { minSignals = 10, thresholdRange = [55, 60, 65, 70, 75, 80], bucketCount = 10 } = config;
 
-export function runBacktest(config: BacktestConfig = {}): BacktestResult {
-  const {
-    minSignals = 10,
-    thresholdRange = [55, 60, 65, 70, 75, 80],
-    bucketCount = 10,
-  } = config;
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _ = minSignals;
-  void _;
-
-  const allSignals = loadSignalsForRange(config.startDate, config.endDate);
-  const resolved = allSignals.filter(s => s.goalHappened !== null) as Array<SignalRecord & { goalHappened: boolean }>;
-
-  const dates = allSignals.map(s => s.date).sort();
-  const dateRange = {
-    start: dates[0] || new Date().toISOString().slice(0, 10),
-    end: dates[dates.length - 1] || new Date().toISOString().slice(0, 10),
-  };
-
-  const goals = resolved.filter(s => s.goalHappened);
-  const noGoals = resolved.filter(s => !s.goalHappened);
-  const correct = resolved.filter(s => s.correctPrediction === true);
-
-  const brierScore = computeBrierScore(resolved);
-  const brierDecomposition = computeBrierDecomposition(resolved, bucketCount);
-
-  let logLossSum = 0;
-  for (const s of resolved) {
-    const p = Math.max(0.001, Math.min(0.999, s.calibratedP));
-    const y = s.goalHappened ? 1 : 0;
-    logLossSum += -(y * Math.log(p) + (1 - y) * Math.log(1 - p));
-  }
-  const logLoss = resolved.length > 0
-    ? Math.round((logLossSum / resolved.length) * 10000) / 10000
-    : 0;
-
-  const precision = resolved.length > 0
-    ? Math.round((goals.length / resolved.length) * 1000) / 10
-    : 0;
-
-  const recall = precision;
-
-  const f1Score = precision > 0 && recall > 0
-    ? Math.round((2 * precision * recall / (precision + recall)) * 10) / 10
-    : 0;
-
-  const specificity = resolved.length > 0
-    ? Math.round((noGoals.length / resolved.length) * 1000) / 10
-    : 0;
-
-  const accuracy = resolved.length > 0
-    ? Math.round(((correct.length + noGoals.length) / resolved.length) * 1000) / 10
-    : 0;
-
-  const thresholdAnalysis: ThresholdAnalysis[] = thresholdRange.map(threshold => {
-    const aboveThreshold = resolved.filter(s => s.signalScore >= threshold);
-    const aboveGoals = aboveThreshold.filter(s => s.goalHappened);
-    const aboveCorrect = aboveGoals.filter(s => s.correctPrediction);
-    const aboveFP = aboveThreshold.filter(s => !s.goalHappened);
-    const times = aboveGoals.filter(s => s.minutesAfterSignal != null).map(s => s.minutesAfterSignal!);
-
-    const tPrecision = aboveThreshold.length > 0
-      ? Math.round((aboveGoals.length / aboveThreshold.length) * 1000) / 10 : 0;
-    const tRecall = goals.length > 0
-      ? Math.round((aboveGoals.length / goals.length) * 1000) / 10 : 0;
-
+  const signals: any[] = loadSignalsForRange(config.startDate, config.endDate);
+  if (signals.length === 0) {
     return {
-      threshold,
-      signalCount: aboveThreshold.length,
-      goalCount: aboveGoals.length,
-      precision: tPrecision,
-      avgMinutesToGoal: times.length > 0
-        ? Math.round(times.reduce((a, b) => a + b, 0) / times.length * 10) / 10 : 0,
-      correctSideRate: aboveGoals.length > 0
-        ? Math.round((aboveCorrect.length / aboveGoals.length) * 1000) / 10 : 0,
-      falsePositiveRate: aboveThreshold.length > 0
-        ? Math.round((aboveFP.length / aboveThreshold.length) * 1000) / 10 : 0,
-      f1Score: tPrecision > 0 && tRecall > 0
-        ? Math.round((2 * tPrecision * tRecall / (tPrecision + tRecall)) * 10) / 10 : 0,
+      totalSignals: 0,
+      truePositives: 0, falsePositives: 0, trueNegatives: 0, falseNegatives: 0,
+      precision: 0, recall: 0, f1Score: 0, accuracy: 0,
+      avgScoreCorrect: 0, avgScoreIncorrect: 0,
+      thresholds: [], buckets: [], calibrationCurve: [],
+      timeDistribution: { histogram: [], percentiles: { p25: 0, p50: 0, p75: 0, p90: 0 } }, signalDecay: [], scoreDiffAccuracy: [],
+      falsePositivePatterns: [], factorImportance: [],
+      brierScore: 0, brierDecomposition: { refinement: 0, calibration: 0, uncertainty: 0 },
+      sideAccuracy: { home: { correct: 0, total: 0, accuracy: 0 }, away: { correct: 0, total: 0, accuracy: 0 } },
+      escalation: { early: { correct: 0, total: 0, accuracy: 0 }, late: { correct: 0, total: 0, accuracy: 0 } },
+      dailyPerformance: [],
+    };
+  }
+
+  let tp = 0, fp = 0, tn = 0, fn = 0;
+  let scoreSumCorrect = 0, scoreSumIncorrect = 0, scoreCorrectN = 0, scoreIncorrectN = 0;
+
+  for (const s of signals) {
+    const outcome = s.goalScored;
+    const isPos = s.score >= 60;
+    if (isPos && outcome) { tp++; scoreSumCorrect += s.score; scoreCorrectN++; }
+    else if (isPos && !outcome) { fp++; scoreSumIncorrect += s.score; scoreIncorrectN++; }
+    else if (!isPos && !outcome) tn++;
+    else fn++;
+  }
+
+  const total = tp + fp + tn + fn;
+  const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
+  const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
+  const f1Score = precision + recall > 0 ? 2 * precision * recall / (precision + recall) : 0;
+  const accuracy = total > 0 ? (tp + tn) / total : 0;
+
+  const thresholds: any = thresholdRange.map(threshold => {
+    let ttp = 0, tfp = 0, ttn = 0, tfn = 0;
+    for (const s of signals) {
+      if (s.score >= threshold && s.goalScored) ttp++;
+      else if (s.score >= threshold && !s.goalScored) tfp++;
+      else if (s.score < threshold && !s.goalScored) ttn++;
+      else tfn++;
+    }
+    const tprec = ttp + tfp > 0 ? ttp / (ttp + tfp) : 0;
+    const trec = ttp + tfn > 0 ? ttp / (ttp + tfn) : 0;
+    return {
+      threshold, tp: ttp, fp: tfp, tn: ttn, fn: tfn,
+      precision: Math.round(tprec * 1000) / 1000,
+      recall: Math.round(trec * 1000) / 1000,
+      f1: tprec + trec > 0 ? Math.round(2 * tprec * trec / (tprec + trec) * 1000) / 1000 : 0,
+      accuracy: ttp + tfp + ttn + tfn > 0 ? Math.round((ttp + ttn) / (ttp + tfp + ttn + tfn) * 1000) / 1000 : 0,
     };
   });
 
-  const calibrationCurve = computeCalibrationCurve(resolved, bucketCount);
-
-  let eceSum = 0;
-  let eceTotal = 0;
-  for (const cp of calibrationCurve) {
-    eceSum += Math.abs(cp.predictedP - cp.observedP) * cp.count;
-    eceTotal += cp.count;
-  }
-  const calibrationError = eceTotal > 0
-    ? Math.round((eceSum / eceTotal) * 10000) / 10000
-    : 0;
-
-  const avgPredicted = resolved.length > 0
-    ? resolved.reduce((s, r) => s + r.calibratedP, 0) / resolved.length : 0;
-  const avgObserved = resolved.length > 0 ? goals.length / resolved.length : 0;
-  const overconfidence = Math.round((avgPredicted - avgObserved) * 1000) / 10;
-
-  const timeDistribution = computeTimeDistribution(goals);
-  const signalDecayByMinute = computeSignalDecay(resolved);
-
-  const bucketRanges = [
-    { range: '55-59%', minP: 55, maxP: 59 },
-    { range: '60-64%', minP: 60, maxP: 64 },
-    { range: '65-69%', minP: 65, maxP: 69 },
-    { range: '70-74%', minP: 70, maxP: 74 },
-    { range: '75-79%', minP: 75, maxP: 79 },
-    { range: '80-84%', minP: 80, maxP: 84 },
-    { range: '85-89%', minP: 85, maxP: 89 },
-    { range: '90-100%', minP: 90, maxP: 100 },
-  ];
-
-  const buckets: BacktestBucket[] = bucketRanges.map(br => {
-    const bSignals = resolved.filter(s => s.signalScore >= br.minP && s.signalScore <= br.maxP);
-    const bGoals = bSignals.filter(s => s.goalHappened);
-    const bCorrect = bGoals.filter(s => s.correctPrediction);
-    const bTimes = bGoals.filter(s => s.minutesAfterSignal != null).map(s => s.minutesAfterSignal!);
-    const bCalibAvg = bSignals.length > 0
-      ? bSignals.reduce((s, r) => s + r.calibratedP, 0) / bSignals.length : 0;
-
-    let brierContrib = 0;
-    for (const s of bSignals) {
-      brierContrib += (s.calibratedP - (s.goalHappened ? 1 : 0)) ** 2;
-    }
-
-    return {
-      range: br.range,
-      minP: br.minP,
-      maxP: br.maxP,
-      total: bSignals.length,
-      goals: bGoals.length,
-      goalRate: bSignals.length > 0
-        ? Math.round((bGoals.length / bSignals.length) * 1000) / 10 : 0,
-      correctSide: bCorrect.length,
-      correctSideRate: bGoals.length > 0
-        ? Math.round((bCorrect.length / bGoals.length) * 1000) / 10 : 0,
-      avgMinutesToGoal: bTimes.length > 0
-        ? Math.round(bTimes.reduce((a, b) => a + b, 0) / bTimes.length * 10) / 10 : 0,
-      avgCalibratedP: Math.round(bCalibAvg * 1000) / 10,
-      brierContribution: Math.round(brierContrib * 10000) / 10000,
-    };
-  });
-
-  const homeSignals = goals.filter(s => s.signalSide === 'home');
-  const awaySignals = goals.filter(s => s.signalSide === 'away');
-  const homeCorrect = homeSignals.filter(s => s.correctPrediction);
-  const awayCorrect = awaySignals.filter(s => s.correctPrediction);
-
-  const sideAccuracy: SideAccuracyAnalysis = {
-    overall: goals.length > 0
-      ? Math.round((correct.length / goals.length) * 1000) / 10 : 0,
-    homeOnly: homeSignals.length > 0
-      ? Math.round((homeCorrect.length / homeSignals.length) * 1000) / 10 : 0,
-    awayOnly: awaySignals.length > 0
-      ? Math.round((awayCorrect.length / awaySignals.length) * 1000) / 10 : 0,
-    byScoreDifference: computeScoreDifferenceAccuracy(resolved),
-  };
-
-  const falsePositivePatterns = computeFalsePositivePatterns(noGoals);
-
-  const levelAnalysis: Record<string, LevelStats> = {};
-  for (const level of ['low', 'medium', 'high', 'critical']) {
-    const lSignals = resolved.filter(s => s.signalLevel === level);
-    const lGoals = lSignals.filter(s => s.goalHappened);
-    const lCorrect = lGoals.filter(s => s.correctPrediction);
-    const lTimes = lGoals.filter(s => s.minutesAfterSignal != null).map(s => s.minutesAfterSignal!);
-
-    levelAnalysis[level] = {
-      total: lSignals.length,
-      goals: lGoals.length,
-      goalRate: lSignals.length > 0
-        ? Math.round((lGoals.length / lSignals.length) * 1000) / 10 : 0,
-      correctSideRate: lGoals.length > 0
-        ? Math.round((lCorrect.length / lGoals.length) * 1000) / 10 : 0,
-      avgMinutesToGoal: lTimes.length > 0
-        ? Math.round(lTimes.reduce((a, b) => a + b, 0) / lTimes.length * 10) / 10 : 0,
-    };
-  }
-
-  const factorImportance = computeFactorImportance(resolved);
-
-  const dailyMap = new Map<string, SignalRecord[]>();
-  for (const s of resolved) {
-    if (!dailyMap.has(s.date)) dailyMap.set(s.date, []);
-    dailyMap.get(s.date)!.push(s);
-  }
-  const dailyPerformance: DailyPerformance[] = [];
-  for (const [date, daySignals] of dailyMap) {
-    const dGoals = daySignals.filter(s => s.goalHappened);
-    const dCorrect = dGoals.filter(s => s.correctPrediction);
-    const dTimes = dGoals.filter(s => s.minutesAfterSignal != null).map(s => s.minutesAfterSignal!);
-    let dBrier = 0;
-    for (const s of daySignals) {
-      dBrier += (s.calibratedP - (s.goalHappened ? 1 : 0)) ** 2;
-    }
-
-    dailyPerformance.push({
-      date,
-      totalSignals: daySignals.length,
-      goals: dGoals.length,
-      goalRate: daySignals.length > 0
-        ? Math.round((dGoals.length / daySignals.length) * 1000) / 10 : 0,
-      correctSideRate: dGoals.length > 0
-        ? Math.round((dCorrect.length / dGoals.length) * 1000) / 10 : 0,
-      avgMinutesToGoal: dTimes.length > 0
-        ? Math.round(dTimes.reduce((a, b) => a + b, 0) / dTimes.length * 10) / 10 : 0,
-      brierScore: daySignals.length > 0
-        ? Math.round((dBrier / daySignals.length) * 10000) / 10000 : 0,
+  const buckets: any = [];
+  const bucketSize = 100 / bucketCount;
+  for (let i = 0; i < bucketCount; i++) {
+    const lo = Math.round(i * bucketSize);
+    const hi = Math.round((i + 1) * bucketSize);
+    const bin = signals.filter(s => s.score >= lo && s.score < hi);
+    buckets.push({
+      scoreRange: [lo, hi] as [number, number],
+      count: bin.length,
+      goalCount: bin.filter(s => s.goalScored).length,
+      observedRate: bin.length > 0 ? bin.filter(s => s.goalScored).length / bin.length : 0,
     });
   }
-  dailyPerformance.sort((a, b) => b.date.localeCompare(a.date));
 
-  const escalated = resolved.filter(s => s.isEscalation);
-  const nonEscalated = resolved.filter(s => !s.isEscalation);
-  const escGoals = escalated.filter(s => s.goalHappened);
-  const nonEscGoals = nonEscalated.filter(s => s.goalHappened);
-  const escGoalRate = escalated.length > 0
-    ? Math.round((escGoals.length / escalated.length) * 1000) / 10 : 0;
-  const nonEscGoalRate = nonEscalated.length > 0
-    ? Math.round((nonEscGoals.length / nonEscalated.length) * 1000) / 10 : 0;
-
-  const escalationPerformance: EscalationAnalysis = {
-    totalEscalations: escalated.length,
-    goalRateEscalated: escGoalRate,
-    goalRateNonEscalated: nonEscGoalRate,
-    escalationLift: nonEscGoalRate > 0
-      ? Math.round((escGoalRate / nonEscGoalRate) * 100) / 100 : 0,
-    avgScoreIncrease: escalated.length > 0
-      ? Math.round(
-        escalated.reduce((s, r) => s + (r.signalScore - (r.previousSignalScore ?? r.signalScore)), 0) / escalated.length * 10
-      ) / 10 : 0,
-  };
-
-  const allTimesToGoal = goals
-    .filter(s => s.minutesAfterSignal != null && s.minutesAfterSignal > 0)
-    .map(s => s.minutesAfterSignal!);
-  const earlyWarningValue = allTimesToGoal.length > 0
-    ? Math.round(allTimesToGoal.reduce((a, b) => a + b, 0) / allTimesToGoal.length * 10) / 10
-    : 0;
-
-  const result: BacktestResult = {
-    config,
-    generatedAt: new Date().toISOString(),
-    signalCount: resolved.length,
-    dateRange,
-    brierScore,
-    brierDecomposition,
-    logLoss,
-    accuracy,
-    precision,
-    recall,
-    f1Score,
-    specificity,
-    thresholdAnalysis,
-    calibrationCurve,
-    calibrationError,
-    overconfidence,
-    timeDistribution,
-    earlyWarningValue,
-    signalDecayByMinute,
+  return {
+    totalSignals: signals.length,
+    truePositives: tp, falsePositives: fp, trueNegatives: tn, falseNegatives: fn,
+    precision: Math.round(precision * 1000) / 1000,
+    recall: Math.round(recall * 1000) / 1000,
+    f1Score: Math.round(f1Score * 1000) / 1000,
+    accuracy: Math.round(accuracy * 1000) / 1000,
+    avgScoreCorrect: scoreCorrectN > 0 ? Math.round(scoreSumCorrect / scoreCorrectN * 10) / 10 : 0,
+    avgScoreIncorrect: scoreIncorrectN > 0 ? Math.round(scoreSumIncorrect / scoreIncorrectN * 10) / 10 : 0,
+    thresholds,
     buckets,
-    sideAccuracy,
-    falsePositivePatterns,
-    levelAnalysis,
-    factorImportance,
-    dailyPerformance,
-    escalationPerformance,
+    calibrationCurve: computeCalibrationCurve(signals, bucketCount),
+    timeDistribution: computeTimeDistribution(signals),
+    signalDecay: computeSignalDecay(signals),
+    scoreDiffAccuracy: computeScoreDifferenceAccuracy(signals),
+    falsePositivePatterns: computeFalsePositivePatterns(signals),
+    factorImportance: computeFactorImportance(signals),
+    brierScore: Math.round(computeBrierScore(signals) * 10000) / 10000,
+    brierDecomposition: (computeBrierDecomposition as any)(signals as any),
+    sideAccuracy: computeSideAccuracy(signals),
+    escalation: computeEscalationAccuracy(signals),
+    dailyPerformance: computeDailyPerformance(signals),
   };
-
-  try {
-    ensureDirs();
-    const resultDate = new Date().toISOString().slice(0, 10);
-    const resultTime = new Date().toISOString().slice(11, 19).replace(/:/g, '');
-    const resultFile = join(BACKTEST_DIR, `backtest-${resultDate}-${resultTime}.json`);
-    writeFileSync(resultFile, JSON.stringify(result, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[Backtest] Failed to save result:', err);
-  }
-
-  return result;
 }
 
-export function getQuickSummary(): QuickBacktestSummary {
-  const result = runBacktest({});
-  const bestThreshold = result.thresholdAnalysis.reduce(
-    (best, t) => t.f1Score > best.f1Score ? t : best,
-    result.thresholdAnalysis[0],
-  );
+function computeSideAccuracy(signals: any[]): { home: { correct: number; total: number; accuracy: number }; away: { correct: number; total: number; accuracy: number } } {
+  let hc = 0, ht = 0, ac = 0, at = 0;
+  for (const s of signals) {
+    if (s.side === 'home') { ht++; if (s.goalScored) hc++; }
+    else if (s.side === 'away') { at++; if (s.goalScored) ac++; }
+  }
   return {
-    totalSignals: result.signalCount,
-    resolvedSignals: result.signalCount,
-    goalRate: result.precision,
-    brierScore: result.brierScore,
-    calibrationError: result.calibrationError,
-    earlyWarningValue: result.earlyWarningValue,
-    bestThreshold: bestThreshold?.threshold ?? 60,
-    bestThresholdPrecision: bestThreshold?.precision ?? 0,
-    topFactors: result.factorImportance.slice(0, 5).map(f => f.factor),
+    home: { correct: hc, total: ht, accuracy: ht > 0 ? Math.round(hc / ht * 1000) / 1000 : 0 },
+    away: { correct: ac, total: at, accuracy: at > 0 ? Math.round(ac / at * 1000) / 1000 : 0 },
   };
+}
+
+function computeEscalationAccuracy(signals: any[]): { early: { correct: number; total: number; accuracy: number }; late: { correct: number; total: number; accuracy: number } } {
+  let ec = 0, et = 0, lc = 0, lt = 0;
+  for (const s of signals) {
+    if (s.score < 70) { et++; if (s.goalScored) ec++; }
+    else { lt++; if (s.goalScored) lc++; }
+  }
+  return {
+    early: { correct: ec, total: et, accuracy: et > 0 ? Math.round(ec / et * 1000) / 1000 : 0 },
+    late: { correct: lc, total: lt, accuracy: lt > 0 ? Math.round(lc / lt * 1000) / 1000 : 0 },
+  };
+}
+
+function computeDailyPerformance(signals: any[]): DailyPerformance[] {
+  const byDate = new Map<string, any[]>();
+  for (const s of signals) {
+    const d = s.timestamp ? new Date(s.timestamp).toISOString().slice(0, 10) : 'unknown';
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d)!.push(s);
+  }
+  const result: DailyPerformance[] = [];
+  for (const [date, daySignals] of byDate) {
+    let tp = 0, fp = 0;
+    for (const s of daySignals) {
+      if (s.score >= 60 && s.goalScored) tp++;
+      else if (s.score >= 60 && !s.goalScored) fp++;
+    }
+    result.push({
+      date, totalSignals: daySignals.length, correct: tp, incorrect: fp,
+      accuracy: tp + fp > 0 ? Math.round(tp / (tp + fp) * 1000) / 1000 : 0,
+    });
+  }
+  return result.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export function listBacktestResults(): string[] {
-  ensureDirs();
+  const fs = getBeFs();
+  const path = getBePath();
+  if (!fs || !path) return [];
   try {
-    return readdirSync(BACKTEST_DIR)
-      .filter(f => f.startsWith('backtest-') && f.endsWith('.json'))
+    return fs.readdirSync(BACKTEST_DIR)
+      .filter((f: string) => f.endsWith('.json'))
       .sort()
-      .reverse();
-  } catch {
-    return [];
-  }
+      .reverse()
+      .slice(0, 100);
+  } catch { return []; }
+}
+
+export function getQuickSummary(): QuickBacktestSummary {
+  const signals: any[] = loadSignalsForRange();
+  const result = runBacktest();
+  return {
+    totalSignals: signals.length,
+    lastUpdated: signals.length > 0 ? signals[signals.length - 1].timestamp : 0,
+    accuracy: result.accuracy,
+    precision: result.precision,
+    recall: result.recall,
+    f1Score: result.f1Score,
+    brierScore: result.brierScore,
+    totalTruePositives: (result as any).truePositives,
+    totalFalsePositives: (result as any).falsePositives,
+    totalMatches: 0,
+    avgScoreCorrect: (result as any).avgScoreCorrect,
+    avgScoreIncorrect: (result as any).avgScoreIncorrect,
+  } as any;
 }

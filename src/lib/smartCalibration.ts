@@ -14,14 +14,12 @@
 // vary significantly by league due to tactical styles, pressing intensity,
 // and defensive organization.
 
-// File system imports - only used server-side
-let fs: any;
-let path: any;
-if (typeof window === 'undefined') {
-  try {
-    fs = require('fs');
-    path = require('path');
-  } catch {}
+let _fs_sc: any = undefined, _path_sc: any = undefined;
+function getFsSc(): { fs: any; path: any } | null {
+  if (typeof window === 'undefined' && _fs_sc === undefined) {
+    try { _fs_sc = require('fs'); _path_sc = require('path'); } catch { _fs_sc = null; }
+  }
+  return _fs_sc ? { fs: _fs_sc, path: _path_sc } : null;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -146,30 +144,31 @@ const DEFAULT_MODE: CalibrationMode = {
 // PERSISTENCE
 // ════════════════════════════════════════════════════════════════
 
-const DATA_DIR = typeof window === 'undefined' && path ? path.join(process.cwd(), 'data', 'smart-calibration') : '';
-const PROFILES_FILE = DATA_DIR ? path.join(DATA_DIR, 'league-profiles.json') : '';
-const MODE_FILE = DATA_DIR ? path.join(DATA_DIR, 'mode.json') : '';
+const sSc = getFsSc();
+const DATA_DIR = sSc ? sSc.path.join(process.cwd(), 'data', 'smart-calibration') : '';
+const PROFILES_FILE = DATA_DIR ? sSc!.path.join(DATA_DIR, 'league-profiles.json') : '';
+const MODE_FILE = DATA_DIR ? sSc!.path.join(DATA_DIR, 'mode.json') : '';
 
 function ensureDataDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  const s2 = getFsSc();
+  if (!s2) return;
+  if (!s2.fs.existsSync(DATA_DIR)) {
+    s2.fs.mkdirSync(DATA_DIR, { recursive: true });
   }
 }
 
 function loadLeagueProfiles(): Map<number, LeagueGoalProfile> {
   const map = new Map<number, LeagueGoalProfile>();
-  // Load defaults first
   for (const p of LEAGUE_DEFAULTS) {
     map.set(p.leagueId, p);
   }
-  // Override with persisted data
   try {
+    const s2 = getFsSc();
+    if (!s2) return map;
     ensureDataDir();
-    if (fs.existsSync(PROFILES_FILE)) {
-      const persisted: LeagueGoalProfile[] = JSON.parse(fs.readFileSync(PROFILES_FILE, 'utf-8'));
-      for (const p of persisted) {
-        map.set(p.leagueId, p);
-      }
+    if (s2.fs.existsSync(PROFILES_FILE)) {
+      const persisted: LeagueGoalProfile[] = JSON.parse(s2.fs.readFileSync(PROFILES_FILE, 'utf-8'));
+      for (const p of persisted) map.set(p.leagueId, p);
     }
   } catch { /* ignore */ }
   return map;
@@ -177,9 +176,10 @@ function loadLeagueProfiles(): Map<number, LeagueGoalProfile> {
 
 function saveLeagueProfiles(profiles: Map<number, LeagueGoalProfile>): void {
   try {
+    const s2 = getFsSc();
+    if (!s2) return;
     ensureDataDir();
-    const arr = Array.from(profiles.values());
-    fs.writeFileSync(PROFILES_FILE, JSON.stringify(arr, null, 2));
+    s2.fs.writeFileSync(PROFILES_FILE, JSON.stringify(Array.from(profiles.values()), null, 2));
   } catch (e) {
     console.error('[SmartCalibration] Failed to save profiles:', e);
   }
@@ -187,9 +187,11 @@ function saveLeagueProfiles(profiles: Map<number, LeagueGoalProfile>): void {
 
 export function loadCalibrationMode(): CalibrationMode {
   try {
+    const s2 = getFsSc();
+    if (!s2) return { ...DEFAULT_MODE };
     ensureDataDir();
-    if (fs.existsSync(MODE_FILE)) {
-      return { ...DEFAULT_MODE, ...JSON.parse(fs.readFileSync(MODE_FILE, 'utf-8')) };
+    if (s2.fs.existsSync(MODE_FILE)) {
+      return { ...DEFAULT_MODE, ...JSON.parse(s2.fs.readFileSync(MODE_FILE, 'utf-8')) };
     }
   } catch { /* ignore */ }
   return { ...DEFAULT_MODE };
@@ -197,8 +199,10 @@ export function loadCalibrationMode(): CalibrationMode {
 
 export function saveCalibrationMode(mode: CalibrationMode): void {
   try {
+    const s2 = getFsSc();
+    if (!s2) return;
     ensureDataDir();
-    fs.writeFileSync(MODE_FILE, JSON.stringify(mode, null, 2));
+    s2.fs.writeFileSync(MODE_FILE, JSON.stringify(mode, null, 2));
   } catch (e) {
     console.error('[SmartCalibration] Failed to save mode:', e);
   }

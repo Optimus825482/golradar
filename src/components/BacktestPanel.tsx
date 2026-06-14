@@ -15,7 +15,7 @@ import { BucketsTab } from '@/components/backtest/BucketsTab'
 import { FactorsTab } from '@/components/backtest/FactorsTab'
 import { TimeTab } from '@/components/backtest/TimeTab'
 
-function BacktestPanel() {
+export default function BacktestPanel() {
   const [backtestData, setBacktestData] = useState<BacktestResult | null>(null)
   const [signalStats, setSignalStats] = useState<SignalAccuracyStats | null>(null)
   const [recentSignals, setRecentSignals] = useState<GoalSignalRecord[]>([])

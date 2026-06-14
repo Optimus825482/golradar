@@ -114,8 +114,8 @@ function parseStats(seArray: any[]): _MatchStats {
     const et = e.ET as number;
     const key = ET_MAP[et];
     if (!key) continue;
-    const h = e.H != null && e.H !== "-" ? Number(e.H) : null;
-    const a = e.A != null && e.A !== "-" ? Number(e.A) : null;
+    const h = e.H != null && e.H !== "-" ? Number(e.H) : 0;
+    const a = e.A != null && e.A !== "-" ? Number(e.A) : 0;
     stats[key] = { home: h, away: a };
   }
   return stats;

@@ -29,7 +29,7 @@ export const ET_MAP: Record<number, string> = {
   122: "rcs",
 };
 
-function parseStats(seArray: any[]): Record<string, { home: number | null; away: number | null }> {
+export function parseStats(seArray: any[]): Record<string, { home: number | null; away: number | null }> {
   const stats: Record<string, { home: number | null; away: number | null }> = {};
   for (const e of seArray || []) {
     const et = e.ET as number;

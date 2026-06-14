@@ -60,10 +60,10 @@ export function TimeTab({ bt }: { bt: BacktestResult }) {
                 <span className="text-gray-500 font-mono">{dp.date}</span>
                 <div className="flex items-center gap-3">
                   <span>{dp.totalSignals} sinyal</span>
-                  <span className={dp.goalRate >= 30 ? 'text-emerald-600' : 'text-amber-500'}>
-                    {dp.goalRate}% gol
+                  <span className={(dp.goalRate ?? 0) >= 30 ? 'text-emerald-600' : 'text-amber-500'}>
+                    {dp.goalRate ?? 0}% gol
                   </span>
-                  <span>{dp.correctSideRate}% dogru</span>
+                  <span>{dp.correctSideRate ?? 0}% dogru</span>
                 </div>
               </div>
             ))}

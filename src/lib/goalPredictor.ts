@@ -46,24 +46,23 @@ interface GBDTModel {
   };
 }
 
-// ── File Persistence ───────────────────────────────────────────────
-
-let fs: any;
-let path: any;
-if (typeof window === 'undefined') {
+function getServerFs(): { fs: any; path: any } | null {
+  if (typeof window !== 'undefined') return null;
   try {
-    fs = require('fs');
-    path = require('path');
-  } catch {}
+    return { fs: require('fs'), path: require('path') };
+  } catch { return null; }
 }
 
-const DATA_DIR = typeof window === 'undefined' && path ? path.join(process.cwd(), 'data', 'ml-models') : '';
-const MODEL_FILE = DATA_DIR ? path.join(DATA_DIR, 'goal-predictor.json') : '';
-const TRAINING_DATA_FILE = DATA_DIR ? path.join(DATA_DIR, 'training-data.json') : '';
+const sGp = getServerFs();
+const DATA_DIR = sGp ? sGp.path.join(process.cwd(), 'data', 'ml-models') : '';
+const MODEL_FILE = DATA_DIR ? sGp!.path.join(DATA_DIR, 'goal-predictor.json') : '';
+const TRAINING_DATA_FILE = DATA_DIR ? sGp!.path.join(DATA_DIR, 'training-data.json') : '';
 
 function ensureDataDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  const s2 = getServerFs();
+  if (!s2) return;
+  if (!s2.fs.existsSync(DATA_DIR)) {
+    s2.fs.mkdirSync(DATA_DIR, { recursive: true });
   }
 }
 
@@ -348,8 +347,10 @@ let cachedModel: GBDTModel | null = null;
 
 function saveModel(model: GBDTModel): void {
   try {
+    const s2 = getServerFs();
+    if (!s2) return;
     ensureDataDir();
-    fs.writeFileSync(MODEL_FILE, JSON.stringify(model));
+    s2.fs.writeFileSync(MODEL_FILE, JSON.stringify(model));
     cachedModel = model;
     devLog(`[ML] Model saved: ${model.trees.length} trees, Brier=${model.trainingMeta.brierScore.toFixed(4)}`);
   } catch (e) {
@@ -360,9 +361,11 @@ function saveModel(model: GBDTModel): void {
 export function loadModel(): GBDTModel | null {
   if (cachedModel) return cachedModel;
   try {
+    const s2 = getServerFs();
+    if (!s2) return null;
     ensureDataDir();
-    if (fs.existsSync(MODEL_FILE)) {
-      const data = JSON.parse(fs.readFileSync(MODEL_FILE, 'utf-8'));
+    if (s2.fs.existsSync(MODEL_FILE)) {
+      const data = JSON.parse(s2.fs.readFileSync(MODEL_FILE, 'utf-8'));
       cachedModel = data;
       devLog(`[ML] Model loaded: ${data.trees.length} trees, trained ${new Date(data.trainingMeta.trainedAt).toISOString()}`);
       return data;
@@ -377,17 +380,16 @@ export function loadModel(): GBDTModel | null {
 
 export function saveTrainingRecord(record: TrainingRecord): void {
   try {
+    const s2 = getServerFs();
+    if (!s2) return;
     ensureDataDir();
     let records: TrainingRecord[] = [];
-    if (fs.existsSync(TRAINING_DATA_FILE)) {
-      records = JSON.parse(fs.readFileSync(TRAINING_DATA_FILE, 'utf-8'));
+    if (s2.fs.existsSync(TRAINING_DATA_FILE)) {
+      records = JSON.parse(s2.fs.readFileSync(TRAINING_DATA_FILE, 'utf-8'));
     }
     records.push(record);
-    // Keep last 50,000 records
-    if (records.length > 50000) {
-      records = records.slice(-50000);
-    }
-    fs.writeFileSync(TRAINING_DATA_FILE, JSON.stringify(records, null, 2));
+    if (records.length > 50000) records = records.slice(-50000);
+    s2.fs.writeFileSync(TRAINING_DATA_FILE, JSON.stringify(records, null, 2));
   } catch (e) {
     devError('[ML] Failed to save training record:', e);
   }
@@ -395,9 +397,11 @@ export function saveTrainingRecord(record: TrainingRecord): void {
 
 function loadTrainingData(): TrainingRecord[] {
   try {
+    const s2 = getServerFs();
+    if (!s2) return [];
     ensureDataDir();
-    if (fs.existsSync(TRAINING_DATA_FILE)) {
-      return JSON.parse(fs.readFileSync(TRAINING_DATA_FILE, 'utf-8'));
+    if (s2.fs.existsSync(TRAINING_DATA_FILE)) {
+      return JSON.parse(s2.fs.readFileSync(TRAINING_DATA_FILE, 'utf-8'));
     }
   } catch (e) {
     devError('[ML] Failed to load training data:', e);

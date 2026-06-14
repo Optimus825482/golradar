@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     }
 
     if (action === 'batch' && Array.isArray(matches)) {
-      const { importMatchResults } = require('@/lib/eloRating');
+      const { importMatchResults } = await import('@/lib/eloRating');
       importMatchResults(matches);
       return NextResponse.json({ success: true, count: matches.length });
     }

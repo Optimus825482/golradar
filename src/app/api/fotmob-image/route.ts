@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   const cacheKey = `${type}/${id}`
   const cached = IMAGE_CACHE.get(cacheKey)
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return new NextResponse(cached.data, {
+    return new NextResponse(new Uint8Array(cached.data), {
       headers: {
         'Content-Type': cached.contentType,
         'Cache-Control': 'public, max-age=86400',

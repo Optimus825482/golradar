@@ -27,8 +27,24 @@ LABEL description="golradar — web app + nesine relay"
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# nodejs for prisma CLI
-RUN apk add --no-cache nodejs
+# nodejs for prisma CLI; python3 + build tooling for Scrapling (curl_cffi
+# compiles a C extension at install time). libstdc++ is needed for the
+# prebuilt wheels too. Keep the package set minimal.
+RUN apk add --no-cache \
+      nodejs \
+      python3 \
+      py3-pip \
+      gcc \
+      musl-dev \
+      libstdc++ \
+      openssl-dev \
+      cargo
+
+# Pre-install Scrapling at image-build time so the runtime container does
+# not need network or a working compiler. The wheels come from the same
+# lockstep as the dev image.
+RUN pip3 install --no-cache-dir --break-system-packages \
+      'scrapling[all]'
 
 # Next.js standalone
 COPY --from=build /app/.next/standalone /app/web
@@ -47,6 +63,11 @@ COPY --from=build /app/node_modules/.bin /app/web/node_modules/.bin
 # node entry.
 RUN ls -la /app/web/node_modules/prisma/build/index.js && \
     chmod +x /app/web/node_modules/prisma/build/index.js
+
+# Scrapling fetch scripts — copied into the runtime so the bridge + netscores
+# paths resolve. Without these, resolvePython() in netscores.ts finds a
+# runtime but execFile fails on a missing script.
+COPY --from=build /app/scripts /app/web/scripts
 
 # Nesine-live relay
 WORKDIR /app/nesine

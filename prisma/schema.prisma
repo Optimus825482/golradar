@@ -66,11 +66,17 @@ model PredictionLog {
   awayElo          Int?     // Elo rating at prediction time
   poissonHomeP     Float?   // Dixon-Coles home goal probability
   poissonAwayP     Float?   // Dixon-Coles away goal probability
+  // ML pipeline additions
+  modelVariant     String   @default("champion") // "champion" | "shadow:<name>:<version>"
+  featuresJson     String?  // Serialized 47-feature array at prediction time
+  goalTimestamp    DateTime? // When the goal happened (for exact label alignment)
   createdAt        DateTime @default(now())
 
   @@index([matchCode, minute])
   @@index([calibratedP, goalScored])
   @@index([createdAt])
+  @@index([modelVariant])
+  @@index([matchCode, createdAt])
 }
 
 // ── Gol Radarı: Backtest Runs ────────────────────────────────────
@@ -152,6 +158,13 @@ model ModelMetrics {
   calibrationError  Float    // Mean absolute calibration error
   poissonBrier      Float?   // Brier score for Poisson component
   eloBrier          Float?   // Brier score for Elo component
+  // ML pipeline additions
+  gbdtBrier         Float?   // Champion GBDT Brier
+  xgbBrier          Float?   // XGBoost model Brier (when active)
+  teamStrengthBrier Float?  // Kalman team-strength Brier
+  inPlayBrier       Float?  // Live in-play 5-min model Brier
+  shadowBrierDelta  Float?  // Signed delta: best shadow - champion. Negative = shadow wins.
+  nShadowSamples    Int      @default(0)  // How many predictions contributed to shadowBrierDelta today
   createdAt         DateTime @default(now())
 
   @@index([date])
@@ -233,4 +246,56 @@ model FotMobCache {
   @@index([fotmobId])
   @@index([matchDate])
   @@index([expiresAt])
+}
+
+// ── Gol Radarı: ML Training Dataset ──────────────────────────────
+// Records each training-data export run. One row per (horizon, date)
+// JSONL file. Consumed by the Python sidecar trainer to fit
+// gradient-boosted models. SHA256 lets the trainer detect partial
+// writes / corruption. Status transitions: ready → consumed → failed.
+model TrainingDataset {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  horizonMin  Int      // 5 | 10 | 15
+  rowCount    Int
+  brier       Float?   // Brier on the export's own labels (sanity)
+  logLoss     Float?
+  path        String   // data/ml-training/5min-20260613.jsonl
+  sha256      String
+  status      String   @default("ready") // "ready" | "consumed" | "failed"
+  errorMsg    String?
+  // Bounding the export — old data may be dropped, recent data always kept.
+  dataStart   DateTime? // Earliest createdAt included in this export
+  dataEnd     DateTime? // Latest createdAt included
+
+  @@index([createdAt])
+  @@index([horizonMin, status])
+  @@index([status, createdAt])
+}
+
+// ── Gol Radarı: Model Artifact Registry ──────────────────────────
+// Versioned model files. Exactly one row per (name) is the champion
+// (isChampion=true). Shadow models have isChampion=false and
+// accumulate PredictionLog rows with modelVariant=shadow:<name>:<ver>
+// for A/B comparison in the backtest pipeline.
+model ModelArtifact {
+  id            String   @id @default(cuid())
+  name          String   // "gbdt" | "xgb" | "inplay" | "team-strength" | "xt-grid"
+  version       String   // semver: "1.0.0"
+  createdAt     DateTime @default(now())
+  metricsJson   String   // {brier, logLoss, accuracy, calibrationError, n, trainRows, trainHorizon}
+  artifactPath  String   // data/ml-models/<name>-v<version>.json
+  sha256        String
+  // Champion lifecycle
+  promotedAt    DateTime?
+  supersededBy  String?  // name of the row that replaced this as champion
+  isChampion    Boolean  @default(false)
+  // Audit
+  notes         String?  // Free-form: "shadow-only 7d", "promoted via admin", etc.
+  bytes         Int?     // Artifact file size for budget tracking
+
+  @@unique([name, version])
+  @@index([name, isChampion])
+  @@index([name, createdAt])
+  @@index([isChampion, name])
 }

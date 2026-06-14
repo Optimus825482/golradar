@@ -4,13 +4,40 @@
 
 const NETSCORES_BASE = "https://www.netscores.com";
 
-const NETSCORES_HEADERS: Record<string, string> = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+// User-Agent pool — rotating reduces Cloudflare's fingerprint score for
+// repeated requests from the same egress IP. Picked per request from a
+// small set of recent desktop Chrome builds.
+const NETSCORES_UA_POOL: string[] = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+];
+
+function pickUserAgent(): string {
+  return NETSCORES_UA_POOL[Math.floor(Math.random() * NETSCORES_UA_POOL.length)];
+}
+
+const NETSCORES_BASE_HEADERS = {
   Accept: "application/json, text/javascript, */*; q=0.01",
   "Accept-Language": "en-US,en;q=0.9,tr-TR;q=0.8,tr;q=0.7",
   Referer: "https://www.netscores.com/",
   Origin: "https://www.netscores.com",
-};
+} as const;
+
+function buildHeaders(extra?: Record<string, string>): Record<string, string> {
+  return {
+    ...NETSCORES_BASE_HEADERS,
+    "User-Agent": pickUserAgent(),
+    ...extra,
+  };
+}
+
+// Backoff schedule (ms) for CF-blocked retries. Cap at 3 attempts total —
+// beyond that the source is rate-limiting us, not transiently failing.
+const CF_RETRY_DELAYS_MS = [800, 2000] as const;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ── Scrapling-based Cloudflare bypass ──
 // Uses Scrapling's StealthyFetcher to bypass Cloudflare challenges.
@@ -121,10 +148,11 @@ async function fetchDirect(url: string): Promise<any> {
   try {
     const resp = await fetch(url, {
       headers: {
-        ...NETSCORES_HEADERS,
-        "Accept-Language": "en-US,en;q=0.9",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
+        ...buildHeaders({
+          "Accept-Language": "en-US,en;q=0.9",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        }),
       },
       cache: "no-store",
       signal: AbortSignal.timeout(8000),
@@ -144,6 +172,11 @@ async function fetchDirect(url: string): Promise<any> {
         }
       }
     }
+    // Detect a CF challenge page even when status is 200/403 with HTML
+    // body — common when CF returns a JS challenge in plain text.
+    if (resp.status === 403 || resp.status === 503) {
+      return null;
+    }
   } catch (err: any) {
     if (err?.name !== 'AbortError') {
       console.error("Direct fetch error:", err?.message || err);
@@ -152,14 +185,17 @@ async function fetchDirect(url: string): Promise<any> {
   return null;
 }
 
-// Smart fetch: try direct first, fall back to Scrapling, then bridge
+// Smart fetch: try direct first, fall back to Scrapling, then bridge.
+// Retries on CF-block with a small backoff schedule. Each attempt uses a
+// fresh User-Agent from the pool so consecutive challenges look like
+// different browsers.
 async function fetchWithCFBypass(url: string): Promise<any> {
   if (scraplingAvailable === false) {
-    return await fetchDirect(url);
+    return await fetchWithCFRetry(url);
   }
 
   // Try direct fetch first (fastest)
-  const directResult = await fetchDirect(url);
+  const directResult = await fetchWithCFRetry(url);
   if (directResult) return directResult;
 
   // Try Scrapling Python script — skip entirely when no Python on PATH
@@ -190,6 +226,19 @@ async function fetchWithCFBypass(url: string): Promise<any> {
     if (bridgeResult.ok && bridgeResult.data) return bridgeResult.data;
   }
 
+  return null;
+}
+
+// Retries the direct Node.js path with exponential-ish backoff. The CF
+// challenge cache lives ~30s on the edge; spacing requests with a fresh
+// UA gives a meaningful chance of slipping past a sticky challenge.
+async function fetchWithCFRetry(url: string): Promise<any> {
+  for (let attempt = 0; attempt <= CF_RETRY_DELAYS_MS.length; attempt++) {
+    const result = await fetchDirect(url);
+    if (result) return result;
+    if (attempt >= CF_RETRY_DELAYS_MS.length) break;
+    await sleep(CF_RETRY_DELAYS_MS[attempt]);
+  }
   return null;
 }
 

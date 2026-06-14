@@ -226,7 +226,7 @@ async function fetchWithCFBypass(url: string): Promise<any> {
   // Last resort: Python bridge (curl_cffi with TLS fingerprint) — also
   // requires a Python runtime, so skip when missing.
   if (resolvePython()) {
-    const bridgeResult = scrapeUrl(url, { type: 'json', referer: 'https://www.netscores.com/', timeout: 20000 });
+    const bridgeResult = await scrapeUrl(url, { type: 'json', referer: 'https://www.netscores.com/', timeout: 20000 });
     if (bridgeResult.ok && bridgeResult.data) return bridgeResult.data;
   }
 

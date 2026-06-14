@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rateLimit, RATE_LIMIT_DEFAULTS } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -6,6 +7,16 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action") || "matches";
+
+  // Rate limit all goaloo requests
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  const rl = rateLimit(`goaloo:${ip}`, RATE_LIMIT_DEFAULTS.relaxed);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'rate-limited', retryMs: rl.resetMs },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.resetMs / 1000)) } },
+    );
+  }
 
   try {
     const {
@@ -87,8 +98,8 @@ export async function GET(request: Request) {
     if (action === "backtestMatches") {
       // Fetch Goaloo matches for multiple dates and enrich with momentum/events/odds
       // Used by the backtest simulation to get real data instead of synthetic
-      const daysBack = parseInt(searchParams.get("daysBack") || "3", 10);
-      const maxMatches = parseInt(searchParams.get("maxMatches") || "20", 10);
+      const daysBack = Math.min(30, Math.max(1, parseInt(searchParams.get("daysBack") || "3", 10)));
+      const maxMatches = Math.min(200, Math.max(1, parseInt(searchParams.get("maxMatches") || "20", 10)));
       const enrich = searchParams.get("enrich") === "true"; // Fetch momentum+events+odds for each match
 
       const { fetchGoalooMatchesRecent, enrichGoalooMatch } = await import("@/lib/goaloo");

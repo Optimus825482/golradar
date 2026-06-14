@@ -73,7 +73,7 @@ async function fetchDirectHttp(url: string): Promise<string | null> {
   } catch { /* fall through to bridge */ }
 
   // Step 2: Try Python bridge (bypasses Cloudflare via curl_cffi)
-  const result = scrapeUrl(url, { type: 'html', referer: 'https://www.scoremer.com/', timeout: 25000 });
+  const result = await scrapeUrl(url, { type: 'html', referer: 'https://www.scoremer.com/', timeout: 25000 });
   if (result.ok && result.data && result.data.length > 1000) return result.data;
   warn(`[Scoremer] Bridge failed for ${url}: ${result.error || 'too short'}`);
   return null;

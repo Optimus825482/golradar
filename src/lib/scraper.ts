@@ -47,11 +47,11 @@ function getNetScoresScript(): string | null {
 /**
  * Fetch a URL using the Python scraping bridge.
  */
-export function scrapeUrl(url: string, options?: {
+export async function scrapeUrl(url: string, options?: {
   type?: 'html' | 'json';
   referer?: string;
   timeout?: number;
-}): ScrapeResult {
+}): Promise<ScrapeResult> {
   const python = getPython();
   const bridge = getBridgePath();
   if (!python || !bridge) {
@@ -63,27 +63,37 @@ export function scrapeUrl(url: string, options?: {
 
   const { type = 'html', referer = '', timeout = 20000 } = options || {};
 
-  try {
-    const { execFileSync } = require('child_process') as typeof import('child_process');
-    const args = [bridge, '--url', url, '--type', type, '--timeout', String(timeout)];
-    if (referer) args.push('--referer', referer);
+  return new Promise((resolve) => {
+    try {
+      const { execFile } = require('child_process') as typeof import('child_process');
+      const args = [bridge, '--url', url, '--type', type, '--timeout', String(timeout)];
+      if (referer) args.push('--referer', referer);
 
-    const stdout = execFileSync(python, args, {
-      encoding: 'utf-8',
-      timeout,
-      maxBuffer: 10 * 1024 * 1024,
-    });
-
-    return JSON.parse(stdout);
-  } catch (err: any) {
-    return { ok: false, error: err.message?.substring(0, 200) || String(err) };
-  }
+      execFile(python, args, {
+        encoding: 'utf-8',
+        timeout,
+        maxBuffer: 10 * 1024 * 1024,
+      }, (err: any, stdout: string) => {
+        if (err) {
+          resolve({ ok: false, error: err.message?.substring(0, 200) || String(err) });
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout));
+        } catch {
+          resolve({ ok: false, error: 'invalid JSON from scraper' });
+        }
+      });
+    } catch (err: any) {
+      resolve({ ok: false, error: err.message?.substring(0, 200) || String(err) });
+    }
+  });
 }
 
 /**
  * NetScores-specific fetch using the existing Scrapling script (curl_cffi).
  */
-function fetchNetScoresViaPython(url: string, timeoutMs = 20000): ScrapeResult {
+async function fetchNetScoresViaPython(url: string, timeoutMs = 20000): Promise<ScrapeResult> {
   const python = getPython();
   const script = getNetScoresScript();
   if (!python || !script) {
@@ -93,15 +103,26 @@ function fetchNetScoresViaPython(url: string, timeoutMs = 20000): ScrapeResult {
     return { ok: false, error: 'fetchNetScoresViaPython is server-only' };
   }
 
-  try {
-    const { execFileSync } = require('child_process') as typeof import('child_process');
-    const stdout = execFileSync(python, [script, url, '--timeout', String(timeoutMs)], {
-      encoding: 'utf-8',
-      timeout: timeoutMs,
-      maxBuffer: 5 * 1024 * 1024,
-    });
-    return JSON.parse(stdout);
-  } catch (err: any) {
-    return { ok: false, error: err.message?.substring(0, 200) || String(err) };
-  }
+  return new Promise((resolve) => {
+    try {
+      const { execFile } = require('child_process') as typeof import('child_process');
+      execFile(python, [script, url, '--timeout', String(timeoutMs)], {
+        encoding: 'utf-8',
+        timeout: timeoutMs,
+        maxBuffer: 5 * 1024 * 1024,
+      }, (err: any, stdout: string) => {
+        if (err) {
+          resolve({ ok: false, error: err.message?.substring(0, 200) || String(err) });
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout));
+        } catch {
+          resolve({ ok: false, error: 'invalid JSON from netscores scraper' });
+        }
+      });
+    } catch (err: any) {
+      resolve({ ok: false, error: err.message?.substring(0, 200) || String(err) });
+    }
+  });
 }

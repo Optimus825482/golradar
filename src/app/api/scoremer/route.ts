@@ -74,7 +74,16 @@ export async function GET(request: Request) {
         );
       }
 
-      const nesineMatches = JSON.parse(matchesJson);
+      let nesineMatches: any[];
+      try {
+        nesineMatches = JSON.parse(matchesJson);
+        if (!Array.isArray(nesineMatches)) throw new Error('expected array');
+      } catch {
+        return NextResponse.json(
+          { error: "Invalid matches JSON — expected a JSON array" },
+          { status: 400 }
+        );
+      }
       const mappings = await buildScoremerMappingsCached(nesineMatches);
 
       const mappingMap = new Map<number, { scoremerId: string; scoremerUrl: string; confidence: number }>();

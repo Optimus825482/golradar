@@ -9,13 +9,11 @@
 import { NextResponse } from 'next/server';
 import { getFotMobCacheStats } from '@/lib/fotmobCache';
 import { getMaintenanceStatus } from '@/lib/fotmobCacheMaintenance';
+import { adminRoute } from '@/lib/adminRoute';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
-  if (typeof window !== 'undefined') {
-    return NextResponse.json({ error: 'server-only' }, { status: 503 });
-  }
+export const GET = adminRoute(async (_request, _auth) => {
 
   try {
     const [stats, maintenance] = await Promise.all([
@@ -57,7 +55,7 @@ export async function GET() {
       { status: 500 },
     );
   }
-}
+});
 
 function humanizeMs(ms: number): string {
   const sec = Math.floor(ms / 1000);

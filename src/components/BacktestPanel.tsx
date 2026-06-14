@@ -279,7 +279,7 @@ export default function BacktestPanel() {
           {!simulating && !simProgress && (
             <div className="bg-white/60 rounded-lg p-2.5 border border-indigo-100">
               <div className="text-[9px] text-indigo-600 space-y-1">
-                <div className="font-bold mb-1">Nasil calisir?</div>
+                <div className="font-bold mb-1">Nasıl çalışır?</div>
                 <div className="flex items-start gap-1.5">
                   <span className="text-indigo-400">1.</span>
                   <span>Biten maclarin istatistiklerini cek</span>

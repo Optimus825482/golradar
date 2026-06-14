@@ -2,17 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-// Proxy FotMob images to avoid DNS resolution issues on client
 const IMAGE_CACHE = new Map<string, { data: Buffer; contentType: string; timestamp: number }>()
-const CACHE_TTL = 24 * 60 * 60 * 1000 // 24 hours
+const CACHE_TTL = 24 * 60 * 60 * 1000
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const type = searchParams.get('type') || 'team' // team | player
+  const type = searchParams.get('type') || 'team'
   const id = searchParams.get('id')
 
-  if (!id) {
-    return NextResponse.json({ error: 'Missing id parameter' }, { status: 400 })
+  if (!id || !/^\d+$/.test(id)) {
+    return NextResponse.json({ error: 'Missing or invalid id parameter' }, { status: 400 })
+  }
+
+  if (type !== 'team' && type !== 'player') {
+    return NextResponse.json({ error: 'Invalid type. Use team or player.' }, { status: 400 })
   }
 
   const cacheKey = `${type}/${id}`

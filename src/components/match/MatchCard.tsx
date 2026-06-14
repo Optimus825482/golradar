@@ -22,6 +22,9 @@ export function MatchCard({ match, onClick, showLeague, goalProb, isSelected, is
   return (
     <div
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
       className={`px-3 py-2.5 cursor-pointer border-b border-gray-50 last:border-0 transition-all duration-150 hover:bg-orange-50/40 active:bg-orange-50 relative ${
         isSelected ? 'bg-orange-50/60 border-l-4 border-l-emerald-500' :
         isRadarAlert ? 'bg-red-50/50' : ''

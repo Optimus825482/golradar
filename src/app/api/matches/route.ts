@@ -43,6 +43,32 @@ if (!globalForHistory.pressureHistory) {
 }
 const pressureHistory = globalForHistory.pressureHistory;
 
+// Eviction: cap at 500 matches, remove stale entries (>6h old)
+const MAX_HISTORY_ENTRIES = 500;
+const HISTORY_TTL_MS = 6 * 60 * 60 * 1000;
+function evictStaleHistory() {
+  if (pressureHistory.size <= MAX_HISTORY_ENTRIES) return;
+  const now = Date.now();
+  for (const [code, hist] of pressureHistory) {
+    const lastSnap = hist.snapshots[hist.snapshots.length - 1];
+    if (lastSnap && now - lastSnap.timestamp > HISTORY_TTL_MS) {
+      pressureHistory.delete(code);
+    }
+  }
+  // If still over limit, remove oldest entries
+  if (pressureHistory.size > MAX_HISTORY_ENTRIES) {
+    const entries = [...pressureHistory.entries()];
+    entries.sort((a, b) => {
+      const aTime = a[1].snapshots[a[1].snapshots.length - 1]?.timestamp ?? 0;
+      const bTime = b[1].snapshots[b[1].snapshots.length - 1]?.timestamp ?? 0;
+      return aTime - bTime;
+    });
+    const toRemove = entries.slice(0, pressureHistory.size - MAX_HISTORY_ENTRIES);
+    for (const [code] of toRemove) pressureHistory.delete(code);
+  }
+}
+evictStaleHistory();
+
 const HALFTIME_STATUSES = new Set([3, 28]);
 
 const emptyResponse = () => NextResponse.json({

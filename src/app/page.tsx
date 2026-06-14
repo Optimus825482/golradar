@@ -43,10 +43,6 @@ import { CountryFlag, MatchStatusBadge, GoalRadarIcon, StatBar } from '@/compone
 import { MatchCard } from '@/components/match/MatchCard'
 import { FinishedMatchCard } from '@/components/match/FinishedMatchCard'
 import { MatchDetailContent } from '@/components/match/MatchDetailContent'
-import { MomentumChart } from '@/components/charts/MomentumChart'
-import { StatsLineChart } from '@/components/charts/StatsLineChart'
-import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomentumChart'
-import { FotMobSection } from '@/components/fotmob/FotMobSection'
 import { FinishedMatchesView } from '@/components/match/FinishedMatchesView'
 import { BottomNavBar } from '@/components/match/BottomNavBar'
 import { GoalRadarSection } from '@/components/match/GoalRadarSection'
@@ -950,7 +946,7 @@ export default function OptimusGolRadariPage() {
                 <MatchStatusBadge match={selectedMatch!} />
               </div>
             </DrawerHeader>
-            <div className="overflow-y-auto -webkit-overflow-scrolling-touch" style={{ maxHeight: 'calc(92dvh - 80px)' }}>
+            <div className="overflow-y-auto" style={{ maxHeight: 'calc(92dvh - 80px)' }}>
               {selectedMatch && detailProps && <MatchDetailContent {...(detailProps as any)} />}
             </div>
           </DrawerContent>

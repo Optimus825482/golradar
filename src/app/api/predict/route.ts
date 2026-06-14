@@ -5,6 +5,7 @@ import { extractFeatures, featuresToArray, type TrainingRecord } from '@/lib/fea
 import { extractMatchIntelligence } from '@/lib/fotmobIntelligence';
 import { fetchMatchDetails } from '@/lib/fotmob';
 import { rateLimit, RATE_LIMIT_DEFAULTS } from '@/lib/rateLimit';
+import type { MatchStats } from '@/lib/nesineTypes';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,13 +25,13 @@ export async function GET(request: Request) {
           return NextResponse.json({ error: 'home and away team names required' }, { status: 400 });
         }
 
-        const stats: Record<string, { home: number | null; away: number | null }> = {};
+        const stats: MatchStats = {} as MatchStats;
         const statsParam = searchParams.get('stats');
         if (statsParam) {
           try {
             const parsed = JSON.parse(statsParam);
             for (const [key, val] of Object.entries(parsed)) {
-              stats[key] = val as { home: number | null; away: number | null };
+              stats[key] = val as { home: number; away: number };
             }
           } catch {}
         }
@@ -38,7 +39,7 @@ export async function GET(request: Request) {
         const homeGoals = parseInt(searchParams.get('hg') || '0');
         const awayGoals = parseInt(searchParams.get('ag') || '0');
 
-        let intelligence = null;
+        let intelligence: ReturnType<typeof extractMatchIntelligence> | null = null;
         const fotmobId = searchParams.get('fotmobId');
         if (fotmobId) {
           try {
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
             ruleBasedScore: ruleScore || undefined,
             weather: intelligence?.weather ?? undefined,
           };
-          result = predictEnsemble(input);
+          result = await predictEnsemble(input);
         } catch (e: any) {
           console.error('[Predict] Ensemble failed:', e?.message || e);
           // Fallback to simple calibrated score
@@ -148,18 +149,18 @@ export async function GET(request: Request) {
         const awayTeam = searchParams.get('away') || '';
         const minute = searchParams.get('minute') || '45';
 
-        const stats: Record<string, { home: number | null; away: number | null }> = {};
+        const stats: MatchStats = {} as MatchStats;
         const statsParam = searchParams.get('stats');
         if (statsParam) {
           try {
             const parsed = JSON.parse(statsParam);
             for (const [key, val] of Object.entries(parsed)) {
-              stats[key] = val as { home: number | null; away: number | null };
+              stats[key] = val as { home: number; away: number };
             }
           } catch {}
         }
 
-        const features = extractFeatures({
+        const features = await extractFeatures({
           stats,
           minute,
           isLive: true,
@@ -213,7 +214,7 @@ export async function POST(request: Request) {
     if (action === 'predict-full') {
       const { stats, minute, homeGoals, awayGoals, homeTeam, awayTeam, ruleBasedScore, fotmobId } = body;
 
-      let intelligence = null;
+      let intelligence: ReturnType<typeof extractMatchIntelligence> | null = null;
       if (fotmobId) {
         try {
           const fotmobData = await fetchMatchDetails(parseInt(fotmobId));
@@ -237,7 +238,7 @@ export async function POST(request: Request) {
         weather: intelligence?.weather ?? undefined,
       };
 
-      const result = predictEnsemble(input);
+      const result = await predictEnsemble(input);
 
       if (intelligence && intelligence.totalGoalPAdjust !== 0) {
         result.probability = Math.max(0, Math.min(1, result.probability + intelligence.totalGoalPAdjust));

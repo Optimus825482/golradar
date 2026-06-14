@@ -299,3 +299,26 @@ model ModelArtifact {
   @@index([name, createdAt])
   @@index([isChampion, name])
 }
+
+// ── Gol Radarı: Team History (Kalman backfill) ───────────────────
+// Historical finished matches used to fit the per-team Kalman
+// attack/defense state. Backfilled from Scoremer/Goaloo/NetScores
+// HTML scrapers. One row per (date, homeTeam, awayTeam). The
+// raw HTML response is NOT stored — only the parsed scores.
+model TeamHistoryMatch {
+  id          String   @id @default(cuid())
+  matchDate   String   // YYYY-MM-DD
+  homeTeam    String   // Normalized team name (lowercase, trimmed)
+  awayTeam    String
+  homeGoals   Int
+  awayGoals   Int
+  league      String?  // "Süper Lig", "Premier League", etc.
+  source      String   // "scoremer" | "goaloo" | "netscores" | "manual"
+  fetchedAt   DateTime @default(now())
+
+  @@unique([matchDate, homeTeam, awayTeam])
+  @@index([matchDate])
+  @@index([homeTeam, matchDate])
+  @@index([awayTeam, matchDate])
+  @@index([source, fetchedAt])
+}

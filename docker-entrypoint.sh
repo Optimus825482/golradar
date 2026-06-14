@@ -22,16 +22,28 @@ if [ "$DB_READY" -ne 1 ]; then
     exit 1
 fi
 
-# ── Prisma db push (REQUIRED — non-destructive schema sync) ──
-# Every deploy may include schema changes (e.g. new FotMobCache model).
-# We MUST push before the app starts or the new queries will fail.
-# On failure (drift detection, destructive change) prisma exits non-zero
-# and we crash the container so the operator can intervene.
-echo "[DB] Running prisma db push (REQUIRED)..."
+# ── Prisma schema sync ─────────────────────────────────────────
+# Production: use prisma migrate deploy (safe, no data loss).
+# CI/dev: set PRISMA_ACCEPT_DATA_LOSS=1 to use db push (may drop columns).
+echo "[DB] Syncing schema..."
 cd /app/web
-if ! NODE_ENV=production node ./node_modules/prisma/build/index.js db push --accept-data-loss 2>&1; then
-    echo "[FATAL] prisma db push failed — refusing to start app"
-    exit 1
+if [ "${PRISMA_ACCEPT_DATA_LOSS:-}" = "1" ]; then
+    echo "[DB] WARNING: --accept-data-loss is SET. Destructive changes WILL be applied."
+    echo "[DB] Running prisma db push --accept-data-loss..."
+    if ! NODE_ENV=production node ./node_modules/prisma/build/index.js db push --accept-data-loss 2>&1; then
+        echo "[FATAL] prisma db push failed — refusing to start app"
+        exit 1
+    fi
+else
+    echo "[DB] Running prisma migrate deploy..."
+    if ! NODE_ENV=production node ./node_modules/prisma/build/index.js migrate deploy 2>&1; then
+        echo "[WARN] prisma migrate deploy failed. Trying db push as fallback..."
+        echo "[WARN] Set PRISMA_ACCEPT_DATA_LOSS=1 to skip this warning."
+        if ! NODE_ENV=production node ./node_modules/prisma/build/index.js db push 2>&1; then
+            echo "[FATAL] prisma schema sync failed — refusing to start app"
+            exit 1
+        fi
+    fi
 fi
 echo "[DB] Schema in sync"
 

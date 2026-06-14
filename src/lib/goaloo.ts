@@ -10,7 +10,7 @@
 //   - SoccerAjax?type=4&id={matchId}     → Live odds movements
 //   - gettextlivedetail?scheduleId={id}  → Match events (goals, cards, subs)
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { devLog, devWarn, devError } from './devLog';
 import { scrapeUrl } from './scraper';
 
@@ -120,18 +120,15 @@ function goalooFetch(url: string): string | null {
 
   // Step 2: Fallback — try curl (works on some environments)
   try {
-    const sep = process.platform === 'win32' ? '"' : "'";
-    const q = (s: string) => `${sep}${s.replace(/'/g, "'\\''")}${sep}`;
-    const result = execSync(
-      `curl -s -L --max-time 15 ` +
-      `-H ${q('User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36')} ` +
-      `-H ${q('Accept: application/json, text/javascript, */*; q=0.01')} ` +
-      `-H ${q('Accept-Language: en-US,en;q=0.9')} ` +
-      `-H ${q('X-Requested-With: XMLHttpRequest')} ` +
-      `-H ${q('Referer: https://www.goaloo.com/')} ` +
-      `--compressed ${q(url)}`,
-      { encoding: 'utf-8', timeout: 20000, maxBuffer: 5 * 1024 * 1024 }
-    );
+    const result = execFileSync('curl', [
+      '-s', '-L', '--max-time', '15',
+      '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+      '-H', 'Accept: application/json, text/javascript, */*; q=0.01',
+      '-H', 'Accept-Language: en-US,en;q=0.9',
+      '-H', 'X-Requested-With: XMLHttpRequest',
+      '-H', 'Referer: https://www.goaloo.com/',
+      '--compressed', url,
+    ], { encoding: 'utf-8', timeout: 20000, maxBuffer: 5 * 1024 * 1024 });
     if (result) return result;
   } catch { /* both failed */ }
 

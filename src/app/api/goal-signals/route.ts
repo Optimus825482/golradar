@@ -11,28 +11,12 @@ import {
   checkPendingSignals,
   startExpiryChecker,
 } from "@/lib/goalSignalTracker";
+import { rateLimit, RATE_LIMIT_DEFAULTS } from "@/lib/rateLimit";
 
 // Start background expiry checker for pending signals
 startExpiryChecker();
 
 export const dynamic = "force-dynamic";
-
-// ── Naive rate limiter (per-process, per-IP, per-bucket) ───────
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const WRITE_LIMIT_MAX = 600; // 600 writes / minute / IP — live pollers + backtest
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
-
-function checkWriteRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const bucket = rateBuckets.get(ip);
-  if (!bucket || bucket.resetAt < now) {
-    rateBuckets.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return true;
-  }
-  if (bucket.count >= WRITE_LIMIT_MAX) return false;
-  bucket.count++;
-  return true;
-}
 
 function getClientIp(request: Request): string {
   const fwd = request.headers.get("x-forwarded-for");
@@ -247,7 +231,8 @@ export async function GET(request: Request) {
 // POST /api/goal-signals — Record a new signal, expire halftime signals, or cleanup
 export async function POST(request: Request) {
   const ip = getClientIp(request);
-  if (!checkWriteRateLimit(ip)) {
+  const rl = rateLimit(`goal-signals:${ip}`, RATE_LIMIT_DEFAULTS.relaxed);
+  if (!rl.allowed) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 

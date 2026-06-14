@@ -36,6 +36,7 @@ export interface BacktestResult {
   factorImportance: FactorImportance[];
   dailyPerformance: DailyPerformance[];
   escalationPerformance: EscalationAnalysis;
+  avgMinutesAfterSignal?: number | null;
 }
 
 export interface BrierDecomposition {
@@ -123,11 +124,14 @@ export interface FactorImportance {
 export interface DailyPerformance {
   date: string;
   totalSignals: number;
-  goals: number;
-  goalRate: number;
-  correctSideRate: number;
-  avgMinutesToGoal: number;
-  brierScore: number;
+  correct?: number;
+  incorrect?: number;
+  accuracy?: number;
+  goals?: number;
+  goalRate?: number;
+  correctSideRate?: number;
+  avgMinutesToGoal?: number;
+  brierScore?: number;
 }
 
 export interface EscalationAnalysis {
@@ -180,4 +184,7 @@ export interface QuickBacktestSummary {
   bestThreshold: number;
   bestThresholdPrecision: number;
   topFactors: string[];
+  accuracy?: number;
+  precision?: number;
+  lastUpdated?: string;
 }

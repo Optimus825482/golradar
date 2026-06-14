@@ -35,3 +35,31 @@ services:
       timeout: 5s
       retries: 10
       start_period: 120s
+
+  # ML Trainer (opt-in via --profile ml)
+  # FastAPI sidecar for XGBoost + Kalman training jobs. Off by
+  # default — the TS runtime trains via shipped JSON artifacts.
+  # Bring up with: docker compose --profile ml up
+  ml-trainer:
+    build:
+      context: .
+      dockerfile: mini-services/ml-trainer/Dockerfile
+    container_name: golradar-ml-trainer
+    restart: "no"
+    profiles: ["ml"]
+    environment:
+      ML_DATA_ROOT: /data
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db
+    volumes:
+      - golradar_ml_data:/data
+    networks:
+      - golradar-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9100/healthz')\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  golradar_ml_data:

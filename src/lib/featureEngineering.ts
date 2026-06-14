@@ -81,6 +81,17 @@ export interface MatchFeatures {
   xg_rate_away: number;            // xG per 15 min away, normalized
   xg_dominance_ratio: number;      // home_xg / (home_xg + away_xg) (0-1)
   xg_spike: number;                // Recent xG delta, normalized (0-1)
+
+  // xT advanced features (3) — from W5 grid + recent event stream
+  xt_home_recent: number;          // Avg xT delta of last 5 home actions (0-1, norm of 0-0.06)
+  xt_away_recent: number;          // Avg xT delta of last 5 away actions (0-1)
+  xt_dominance: number;            // xt_home_recent - xt_away_recent, [-1, +1]
+
+  // Live in-play features (4) — for W6 5-min ahead model
+  last_5min_pressure_growth: number; // Δ pressure over last 5 snapshots, [-1, +1]
+  last_5min_xg_delta_home: number;   // xG added by home in last 5 min, normalized [0, 1]
+  last_5min_xg_delta_away: number;   // xG added by away in last 5 min, normalized [0, 1]
+  consecutive_shots_on_target_home: number; // SOT count last 10 min home, normalized [0, 1]
 }
 
 // ── Feature extraction function ────────────────────────────────────
@@ -100,6 +111,16 @@ export interface FeatureExtractionInput {
     homeGoals?: number;
     awayGoals?: number;
   }>;
+  /** Recent event stream for xT deltas (W5). Optional. */
+  recentEvents?: Array<{
+    startXPct: number;  // 0..100 — pitch position (length axis)
+    startYPct: number;  // 0..100 — width axis
+    side: 'home' | 'away';
+  }>;
+  /** Skip the xT grid lazy load. When true, the three xT features
+   * fall back to neutral 0.5 / 0 — used in hot paths where the
+   * grid hasn't been registered yet. */
+  skipXtGrid?: boolean;
   weather?: {
     temperature: number;
     windSpeed: number;
@@ -116,7 +137,7 @@ function normRate(per15min: number, maxExpected: number = 10): number {
   return Math.max(0, Math.min(1, per15min / maxExpected));
 }
 
-export function extractFeatures(input: FeatureExtractionInput): MatchFeatures {
+export async function extractFeatures(input: FeatureExtractionInput): Promise<MatchFeatures> {
   const { stats, minute, homeGoals, awayGoals, pressureHistory, weather, homeTeam, awayTeam } = input;
 
   // Parse minute
@@ -230,8 +251,8 @@ export function extractFeatures(input: FeatureExtractionInput): MatchFeatures {
       eloDiffNorm = Math.max(-1, Math.min(1, prediction.ratingDiff / 400));
       homeFormIdx = getFormIndex(homeTeam);
       awayFormIdx = getFormIndex(awayTeam);
-      homeEloMatches = getRating(homeTeam).matchesPlayed / 50; // normalize by 50 matches
-      awayEloMatches = getRating(awayTeam).matchesPlayed / 50;
+      homeEloMatches = (getRating(homeTeam)?.matchesPlayed ?? 0) / 50;
+      awayEloMatches = (getRating(awayTeam)?.matchesPlayed ?? 0) / 50;
     } catch {}
   }
 
@@ -265,6 +286,87 @@ export function extractFeatures(input: FeatureExtractionInput): MatchFeatures {
   // ── Red cards ──
   const redH = getStat('red_cards', 'home') + getStat('two_yellow_red', 'home');
   const redA = getStat('red_cards', 'away') + getStat('two_yellow_red', 'away');
+
+  // ── xT advanced features ──
+  // When an xT grid is registered, aggregate the last 5 actions per
+  // side into a single delta-average. Without the grid we fall back
+  // to the 0.5 neutral value. The TS runtime does a single lazy
+  // load via the model router — failures degrade to 0.5.
+  let xtHomeRecent = 0.5;
+  let xtAwayRecent = 0.5;
+  try {
+    // Dynamic import to keep the heavy grid load off the hot path
+    // when the feature isn't requested.
+    const { loadXtGrid, xtDeltaForPass, pitch100ToGrid } = await import('./ml/xtGrid');
+    const grid = loadXtGrid();
+    const recentEvents: Array<{ x: number; y: number; side: 'home' | 'away' }> = [];
+    if (input.recentEvents && input.recentEvents.length > 0) {
+      for (const ev of input.recentEvents.slice(-10)) {
+        recentEvents.push({
+          x: ev.startXPct,
+          y: ev.startYPct,
+          side: ev.side,
+        });
+      }
+    }
+    const homeDeltas: number[] = [];
+    const awayDeltas: number[] = [];
+    for (let i = 1; i < recentEvents.length; i++) {
+      const prev = recentEvents[i - 1];
+      const cur = recentEvents[i];
+      if (cur.side !== prev.side) continue; // skip transitions
+      const prevXY = pitch100ToGrid(prev.x, prev.y, grid);
+      const curXY = pitch100ToGrid(cur.x, cur.y, grid);
+      const delta = xtDeltaForPass(grid, prevXY.col, prevXY.row, curXY.col, curXY.row);
+      if (cur.side === 'home') homeDeltas.push(delta);
+      else awayDeltas.push(delta);
+    }
+    const lastHome = homeDeltas.slice(-5);
+    const lastAway = awayDeltas.slice(-5);
+    if (lastHome.length > 0) {
+      xtHomeRecent = Math.max(0, Math.min(1, 0.5 + lastHome.reduce((s, d) => s + d, 0) / lastHome.length * 8));
+    }
+    if (lastAway.length > 0) {
+      xtAwayRecent = Math.max(0, Math.min(1, 0.5 + lastAway.reduce((s, d) => s + d, 0) / lastAway.length * 8));
+    }
+  } catch {
+    // Best-effort — keep 0.5 fallbacks
+  }
+  const xtDominance = Math.max(-1, Math.min(1, xtHomeRecent - xtAwayRecent));
+
+  // ── Live in-play deltas (W6) ──
+  // Aggregated from the same pressure history as the momentum
+  // features. Falls back to 0 (neutral) when fewer than 5 snapshots
+  // are available.
+  let livePressureGrowth = 0;
+  let liveXgDeltaHome = 0;
+  let liveXgDeltaAway = 0;
+  if (pressureHistory && pressureHistory.length >= 5) {
+    const last5 = pressureHistory.slice(-5);
+    livePressureGrowth = (last5[4].homePressure + last5[4].awayPressure
+      - last5[0].homePressure - last5[0].awayPressure) / 200;
+    livePressureGrowth = Math.max(-1, Math.min(1, livePressureGrowth));
+    liveXgDeltaHome = last5[4].stats.xg?.home != null && last5[0].stats.xg?.home != null
+      ? Math.max(0, (last5[4].stats.xg.home - last5[0].stats.xg.home))
+      : 0;
+    liveXgDeltaAway = last5[4].stats.xg?.away != null && last5[0].stats.xg?.away != null
+      ? Math.max(0, (last5[4].stats.xg.away - last5[0].stats.xg.away))
+      : 0;
+  }
+  // Consecutive SOT count (10-min window) — best-effort from
+  // pressureHistory if recent snapshots carry SOT. Falls back to
+  // current-minute SOT rate normalized to [0,1] when history is
+  // sparse.
+  const sotCount10min = (() => {
+    if (pressureHistory && pressureHistory.length >= 4) {
+      const recent = pressureHistory.slice(-4);
+      const startH = recent[0].stats.shots_on_target?.home ?? 0;
+      const endH = recent[recent.length - 1].stats.shots_on_target?.home ?? 0;
+      return Math.max(0, endH - startH);
+    }
+    return 0;
+  })();
+  const consecutiveSotH = Math.min(1, sotCount10min / 4);
 
   return {
     // Pressure & dominance
@@ -332,6 +434,13 @@ export function extractFeatures(input: FeatureExtractionInput): MatchFeatures {
     xg_rate_away: normRate(xgRateAway, 2.0),
     xg_dominance_ratio: xgDominance,
     xg_spike: xgSpike,
+    xt_home_recent: xtHomeRecent,
+    xt_away_recent: xtAwayRecent,
+    xt_dominance: xtDominance,
+    last_5min_pressure_growth: livePressureGrowth,
+    last_5min_xg_delta_home: Math.min(1, liveXgDeltaHome),
+    last_5min_xg_delta_away: Math.min(1, liveXgDeltaAway),
+    consecutive_shots_on_target_home: consecutiveSotH,
   };
 }
 
@@ -355,6 +464,9 @@ export const FEATURE_NAMES: (keyof MatchFeatures)[] = [
   'red_cards_home', 'red_cards_away',
   'temperature_norm', 'wind_speed_norm', 'precipitation_norm',
   'xg_rate_home', 'xg_rate_away', 'xg_dominance_ratio', 'xg_spike',
+  'xt_home_recent', 'xt_away_recent', 'xt_dominance',
+  'last_5min_pressure_growth', 'last_5min_xg_delta_home',
+  'last_5min_xg_delta_away', 'consecutive_shots_on_target_home',
 ];
 
 export function featuresToArray(features: MatchFeatures): number[] {

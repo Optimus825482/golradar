@@ -3,40 +3,72 @@
  * All external data sources (Scoremer, Goaloo, FotMob, NetScores) use this.
  */
 
-import { execFileSync } from 'child_process';
-import { existsSync } from 'fs';
-import { join } from 'path';
-
-const PYTHON = process.env.PYTHON_PATH || 'C:\\Python313\\python.exe';
-const BRIDGE = join(process.cwd(), 'scripts', 'scrape_bridge.py');
-const NETSCORES_SCRIPT = join(process.cwd(), 'scripts', 'netscores-fetch.py');
-
 interface ScrapeResult {
   ok: boolean;
   data?: any;
   error?: string;
 }
 
+let _PYTHON: string | undefined;
+function getPython(): string | null {
+  if (_PYTHON) return _PYTHON;
+  if (typeof window !== 'undefined') return null;
+  try {
+    const { existsSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const python = process.env.PYTHON_PATH || 'python3';
+    _PYTHON = python;
+    const bridge = join(process.cwd(), 'scripts', 'scrape_bridge.py');
+    if (!existsSync(bridge)) {
+      _PYTHON = '';
+      return null;
+    }
+    return python;
+  } catch {
+    _PYTHON = '';
+    return null;
+  }
+}
+
+function getBridgePath(): string | null {
+  if (typeof window !== 'undefined') return null;
+  try {
+    return require('path').join(process.cwd(), 'scripts', 'scrape_bridge.py');
+  } catch { return null; }
+}
+
+function getNetScoresScript(): string | null {
+  if (typeof window !== 'undefined') return null;
+  try {
+    return require('path').join(process.cwd(), 'scripts', 'netscores-fetch.py');
+  } catch { return null; }
+}
+
 /**
  * Fetch a URL using the Python scraping bridge.
- * Tries SCRAPING_ULTIMATE → curl_cffi → playwright automatically.
  */
 export function scrapeUrl(url: string, options?: {
   type?: 'html' | 'json';
   referer?: string;
   timeout?: number;
 }): ScrapeResult {
-  if (!existsSync(PYTHON)) {
-    return { ok: false, error: `Python not found at ${PYTHON}. Set PYTHON_PATH env.` };
+  const python = getPython();
+  const bridge = getBridgePath();
+  if (!python || !bridge) {
+    return { ok: false, error: 'Python not available' };
+  }
+  if (typeof window !== 'undefined') {
+    return { ok: false, error: 'scrapeUrl is server-only' };
   }
 
   const { type = 'html', referer = '', timeout = 20000 } = options || {};
 
   try {
-    const args = [BRIDGE, '--url', url, '--type', type, '--timeout', String(timeout)];
+    const { execFileSync } = require('child_process') as typeof import('child_process');
+    const args = [bridge, '--url', url, '--type', type, '--timeout', String(timeout)];
     if (referer) args.push('--referer', referer);
 
-    const stdout = execFileSync(PYTHON, args, {
+    const stdout = execFileSync(python, args, {
       encoding: 'utf-8',
       timeout,
       maxBuffer: 10 * 1024 * 1024,
@@ -52,12 +84,18 @@ export function scrapeUrl(url: string, options?: {
  * NetScores-specific fetch using the existing Scrapling script (curl_cffi).
  */
 function fetchNetScoresViaPython(url: string, timeoutMs = 20000): ScrapeResult {
-  if (!existsSync(NETSCORES_SCRIPT)) {
+  const python = getPython();
+  const script = getNetScoresScript();
+  if (!python || !script) {
     return { ok: false, error: 'netscores-fetch.py not found' };
+  }
+  if (typeof window !== 'undefined') {
+    return { ok: false, error: 'fetchNetScoresViaPython is server-only' };
   }
 
   try {
-    const stdout = execFileSync(PYTHON, [NETSCORES_SCRIPT, url, '--timeout', String(timeoutMs)], {
+    const { execFileSync } = require('child_process') as typeof import('child_process');
+    const stdout = execFileSync(python, [script, url, '--timeout', String(timeoutMs)], {
       encoding: 'utf-8',
       timeout: timeoutMs,
       maxBuffer: 5 * 1024 * 1024,

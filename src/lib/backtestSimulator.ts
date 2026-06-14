@@ -85,8 +85,8 @@ export interface SimInputMatch {
   homeScore: number;
   awayScore: number;
   htScore: string;       // "1:0" or "-"
-  ftStats: Record<string, { home: number | null; away: number | null }>;
-  htStats: Record<string, { home: number | null; away: number | null }> | null;
+  ftStats: MatchStats;
+  htStats: MatchStats | null;
   // ── Goaloo enrichment fields (optional) ──
   goalooMomentum?: {
     matchId: number;
@@ -137,8 +137,8 @@ function convertGoalooMomentumToSnapshots(
   events: SimInputMatch['goalooEvents'],
   homeScore: number,
   awayScore: number,
-  ftStats: Record<string, { home: number | null; away: number | null }>,
-  htStats: Record<string, { home: number | null; away: number | null }> | null,
+  ftStats: MatchStats,
+  htStats: MatchStats | null,
   htHomeScore: number,
   htAwayScore: number,
 ): PressureSnapshot[] {
@@ -181,7 +181,7 @@ function convertGoalooMomentumToSnapshots(
     const awayPressure = Math.min(100, Math.round((awayIntensity / maxIntensity) * 85 + 8));
 
     // Interpolate stats from FT/HT if available
-    const stats: Record<string, { home: number | null; away: number | null }> = {};
+    const stats: MatchStats = {} as MatchStats;
     if (ftStats && Object.keys(ftStats).length > 0) {
       const is1h = min <= 45;
       const halfMin = is1h ? min : min - 45;

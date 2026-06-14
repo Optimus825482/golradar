@@ -255,10 +255,10 @@ export function MatchDetailContent({
                       <div className="text-[11px] font-bold text-gray-700">{selectedGoalProb.timeMultiplier.toFixed(2)}x</div>
                     </div>
                   )}
-                  {selectedGoalProb.eloAdj && (Math.abs(selectedGoalProb.eloAdj.homeAdj) >= 2 || Math.abs(selectedGoalProb.eloAdj.awayAdj) >= 2) && (
+                  {selectedGoalProb.eloAdj && (Math.abs(selectedGoalProb.eloAdj.homeAdjust) >= 2 || Math.abs(selectedGoalProb.eloAdj.awayAdjust) >= 2) && (
                     <div className="bg-indigo-50 rounded px-2 py-1 text-center">
                       <div className="text-[8px] text-indigo-500 font-medium">Elo</div>
-                      <div className="text-[11px] font-bold text-indigo-700">{selectedGoalProb.eloAdj.homeAdj > 0 ? '+' : ''}{selectedGoalProb.eloAdj.homeAdj}/{selectedGoalProb.eloAdj.awayAdj > 0 ? '+' : ''}{selectedGoalProb.eloAdj.awayAdj}</div>
+                      <div className="text-[11px] font-bold text-indigo-700">{selectedGoalProb.eloAdj.homeAdjust > 0 ? '+' : ''}{selectedGoalProb.eloAdj.homeAdjust}/{selectedGoalProb.eloAdj.awayAdjust > 0 ? '+' : ''}{selectedGoalProb.eloAdj.awayAdjust}</div>
                     </div>
                   )}
                 </div>

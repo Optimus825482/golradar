@@ -11,6 +11,9 @@ import {
   formScoreAdjustment,
   type MatchIntelligence,
 } from './fotmobIntelligence';
+import { getSmartF8Adjustment, calculateOddsF8Compound, calibrateF8, loadCalibrationMode } from './smartCalibration';
+import { inPlayGoalProbability, calculateExpectedGoals, calculateMatchProbabilities, getTimeBasedGoalMultiplier } from './dixonColes';
+import { calibrateScore } from './calibration';
 
 export interface PressureSnapshotLite {
   homePressure: number;
@@ -30,7 +33,7 @@ export interface GoalProbability {
   factors: string[];
   calibratedP: number;
   poissonP: number;
-  eloAdj: { homeAdj: number; awayAdj: number } | null;
+  eloAdj: { homeAdjust: number; awayAdjust: number } | null;
   overUnder25: number;
   btts: number;
   timeMultiplier: number;
@@ -56,6 +59,10 @@ export function calculateGoalProbability(
     goalProbability5min: 0,
   };
   if (!isLive) return emptyResult;
+
+  // Determine if smart calibration is active
+  const _calMode = loadCalibrationMode();
+  const useSmartCalibration = _calMode.mode !== 'off';
 
   let goalCooldownHome = 0;
   let goalCooldownAway = 0;
@@ -202,13 +209,10 @@ export function calculateGoalProbability(
   const hasRealMinute = /\d/.test(minute);
   let minuteMultiplier = 1.0;
   if (hasRealMinute) {
-    let useSmartCalibration = false;
     try {
-      const { getSmartF8Adjustment } = require('./smartCalibration');
       const f8Adj = getSmartF8Adjustment(minNum, leagueId ?? null);
       minuteMultiplier = f8Adj.minuteMultiplier;
       if (f8Adj.factorDescription) sharedFactors.push(f8Adj.factorDescription);
-      useSmartCalibration = true;
     } catch { /* fallback */ }
     if (!useSmartCalibration) {
       if ((minNum >= 1 && minNum <= 5) || (minNum >= 46 && minNum <= 50)) minuteMultiplier = 0.70;
@@ -406,7 +410,6 @@ export function calculateGoalProbability(
     if (oddsMovementBoost.awayBoost > 0) { awayScore = Math.min(100, awayScore + oddsMovementBoost.awayBoost); awayFactors.push(`Oran düşüşü dep +${oddsMovementBoost.awayBoost}`); }
     if (oddsMovementBoost.significance === 'critical' || oddsMovementBoost.significance === 'high') sharedFactors.push(`Piyasa sinyali: ${oddsMovementBoost.significance}`);
     try {
-      const { calculateOddsF8Compound, calibrateF8 } = require('./smartCalibration');
       const cal = calibrateF8(leagueId ?? null);
       const compound = calculateOddsF8Compound(cal, oddsMovementBoost.significance as 'none' | 'low' | 'medium' | 'high' | 'critical', minNum, oddsMovementBoost.homeBoost, oddsMovementBoost.awayBoost);
       if (compound.homeCompoundPts > 0 || compound.awayCompoundPts > 0) { homeScore = Math.min(100, homeScore + compound.homeCompoundPts); awayScore = Math.min(100, awayScore + compound.awayCompoundPts); if (compound.homeCompoundPts >= 2) homeFactors.push(`Oran+F8 bileşik +${compound.homeCompoundPts}`); if (compound.awayCompoundPts >= 2) awayFactors.push(`Oran+F8 bileşik +${compound.awayCompoundPts}`); }
@@ -468,16 +471,16 @@ export function calculateGoalProbability(
 
   // Elo rating adjustment (live prior — always evaluated)
   // Combines team strength + recent form trend (matchesPlayed proxy)
-  let eloAdj: { homeAdj: number; awayAdj: number } | null = null;
+  let eloAdj: { homeAdjust: number; awayAdjust: number } | null = null;
   if (homeTeam && awayTeam) {
     try {
       eloAdj = eloGoalAdjustment(homeTeam, awayTeam);
       if (eloAdj) {
         // Base adjustment
-        homeScore += eloAdj.homeAdj;
-        awayScore += eloAdj.awayAdj;
-        if (Math.abs(eloAdj.homeAdj) >= 4) homeFactors.push(`Elo ${eloAdj.homeAdj > 0 ? '+' : ''}${eloAdj.homeAdj}`);
-        if (Math.abs(eloAdj.awayAdj) >= 4) awayFactors.push(`Elo ${eloAdj.awayAdj > 0 ? '+' : ''}${eloAdj.awayAdj}`);
+        homeScore += eloAdj.homeAdjust;
+        awayScore += eloAdj.awayAdjust;
+        if (Math.abs(eloAdj.homeAdjust) >= 4) homeFactors.push(`Elo ${eloAdj.homeAdjust > 0 ? '+' : ''}${eloAdj.homeAdjust}`);
+        if (Math.abs(eloAdj.awayAdjust) >= 4) awayFactors.push(`Elo ${eloAdj.awayAdjust > 0 ? '+' : ''}${eloAdj.awayAdjust}`);
 
         // Form boost: teams with many matches played (provisional phase done)
         // have more reliable ratings — slight confidence boost in extreme diff
@@ -486,19 +489,19 @@ export function calculateGoalProbability(
         const PROVISIONAL_THRESHOLD = 10;
         const homeReliable = homeRating && homeRating.matchesPlayed > PROVISIONAL_THRESHOLD;
         const awayReliable = awayRating && awayRating.matchesPlayed > PROVISIONAL_THRESHOLD;
-        if (homeReliable && eloAdj.homeAdj >= 5) {
+        if (homeReliable && eloAdj.homeAdjust >= 5) {
           homeScore += 2;
           homeFactors.push('Form güçlü');
         }
-        if (awayReliable && eloAdj.awayAdj >= 5) {
+        if (awayReliable && eloAdj.awayAdjust >= 5) {
           awayScore += 2;
           awayFactors.push('Form güçlü');
         }
         // Penalty for provisional (low-match-count) teams when Elo disagrees with shot data
-        if (!homeReliable && eloAdj.homeAdj < -4) {
+        if (!homeReliable && eloAdj.homeAdjust < -4) {
           homeScore = Math.max(0, homeScore - 1);
         }
-        if (!awayReliable && eloAdj.awayAdj < -4) {
+        if (!awayReliable && eloAdj.awayAdjust < -4) {
           awayScore = Math.max(0, awayScore - 1);
         }
       }
@@ -535,7 +538,6 @@ export function calculateGoalProbability(
   // Dixon-Coles Poisson blend
   let poissonP = 0, overUnder25 = 0, bttsP = 0;
   try {
-    const { inPlayGoalProbability, calculateExpectedGoals, calculateMatchProbabilities } = require('./dixonColes');
     const poissonResult = inPlayGoalProbability(xg.home, xg.away, minNum);
     poissonP = poissonResult.anyGoalP;
     const homeAttackStrength = xg.home > 0 ? (xg.home / Math.max(1, minNum)) * 90 / 1.30 : 1.0;
@@ -551,14 +553,12 @@ export function calculateGoalProbability(
   // Probability calibration
   let calibratedP = 0;
   try {
-    const { calibrateScore } = require('./calibration');
     calibratedP = calibrateScore(clampedScore);
   } catch { calibratedP = Math.min(0.80, clampedScore / 100); }
 
   // Time multiplier
   let timeMultiplier = 1.0;
   try {
-    const { getTimeBasedGoalMultiplier } = require('./dixonColes');
     timeMultiplier = getTimeBasedGoalMultiplier(minNum);
   } catch { /* fallback */ }
 

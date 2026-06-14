@@ -43,24 +43,28 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 // Uses Scrapling's StealthyFetcher to bypass Cloudflare challenges.
 // Falls back to direct Node.js fetch if Scrapling is unavailable.
 
-import { execFile } from "child_process";
-
 import { scrapeUrl } from './scraper';
+
+function getNsPath() {
+  if (typeof window !== 'undefined') return null;
+  try { return require('path'); } catch { return null; }
+}
+function getNsFs() {
+  if (typeof window !== 'undefined') return null;
+  try { return require('fs'); } catch { return null; }
+}
 
 let _scraplingScript: string | null = null;
 function getScraplingScript(): string {
   if (!_scraplingScript) {
-    const fs = require("fs") as typeof import("fs");
-    const p = require("path") as typeof import("path");
-    _scraplingScript = p.join(process.cwd(), "scripts", "netscores-fetch.py");
+    const p = getNsPath();
+    if (p) _scraplingScript = p.join(process.cwd(), "scripts", "netscores-fetch.py");
+    else _scraplingScript = '';
   }
-  return _scraplingScript;
+  return _scraplingScript!;
 }
 
-// Cache for Scrapling availability check
 let scraplingAvailable: boolean | null = null;
-// fallbacks. Cache the first one that exists so we don't stat() on every
-// request. Returns null when no Python runtime is installed.
 function resolvePython(): string | null {
   if (_pythonPath !== undefined) return _pythonPath;
   const candidates: string[] = [];
@@ -70,12 +74,11 @@ function resolvePython(): string | null {
   } else {
     candidates.push('python3', 'python');
   }
-  const fs = require('fs') as typeof import('fs');
+  const myfs = getNsFs();
+  if (!myfs) { _pythonPath = null; return null; }
   for (const c of candidates) {
     try {
-      // PATH-resolved binaries: stat fails; absolute paths: stat works.
-      // existsSync returns true for both cases on most platforms.
-      if (fs.existsSync(c)) {
+      if (myfs.existsSync(c)) {
         _pythonPath = c;
         return c;
       }
@@ -90,9 +93,10 @@ let _pythonPath: string | null | undefined = undefined;
 
 // Fetch via Scrapling Python script (bypasses Cloudflare)
 function fetchViaScrapling(url: string, timeoutMs: number = 20000): Promise<any> {
+  const execFile = typeof window === 'undefined' ? require('child_process').execFile : null;
   return new Promise((resolve) => {
     const python = resolvePython();
-    if (!python) {
+    if (!python || !execFile) {
       console.error("Scrapling disabled: no python interpreter on PATH. Set PYTHON_PATH to enable.");
       scraplingAvailable = false;
       resolve(null);

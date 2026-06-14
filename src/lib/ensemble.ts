@@ -20,9 +20,12 @@ import {
   calculateMatchProbabilities,
   inPlayGoalProbability,
   getTimeBasedGoalMultiplier,
-  blendWithPoisson,
 } from './dixonColes';
 import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
+import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
+import { loadLatestTeamStrength } from './ml/teamHistoryBackfill';
+import { loadXgbChampion } from './ml/modelRouter';
+import { predictXgb } from './ml/xgbLoader';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -31,6 +34,8 @@ export interface EnsembleWeights {
   poisson: number;     // Dixon-Coles Poisson weight
   elo: number;         // Elo-based weight
   ml: number;          // GBDT ML model weight
+  teamStrength: number; // Kalman team-strength weight
+  inplay: number;      // 5-min ahead in-play XGBoost (active only when minute > 20)
 }
 
 export interface ModelPrediction {
@@ -87,19 +92,23 @@ function calculateDynamicWeights(
 ): EnsembleWeights {
   // Base weights (pre-match optimized)
   let weights: EnsembleWeights = {
-    ruleBased: 0.40,
+    ruleBased: 0.35,
     poisson: 0.25,
-    elo: 0.15,
+    elo: 0.10,
     ml: 0.20,
+    teamStrength: 0.10,
+    inplay: 0.00, // ramped by weight gate below when minute > 20
   };
 
   // If ML model not available, redistribute
   if (!mlAvailable) {
     weights = {
-      ruleBased: 0.50,
+      ruleBased: 0.45,
       poisson: 0.30,
-      elo: 0.20,
+      elo: 0.15,
       ml: 0.00,
+      teamStrength: 0.10,
+    inplay: 0.00, // ramped by weight gate below when minute > 20
     };
   } else {
     // Reduce ML weight if low confidence
@@ -157,7 +166,7 @@ export interface EnsembleInput extends FeatureExtractionInput {
   homeDefenseStrength?: number;
 }
 
-export function predictEnsemble(input: EnsembleInput): EnsembleResult {
+export async function predictEnsemble(input: EnsembleInput): Promise<EnsembleResult> {
   const { stats, minute, isLive, homeGoals, awayGoals, homeTeam, awayTeam,
           pressureHistory, ruleBasedScore, homeAttackStrength, awayDefenseStrength,
           awayAttackStrength, homeDefenseStrength, weather } = input;
@@ -213,7 +222,7 @@ export function predictEnsemble(input: EnsembleInput): EnsembleResult {
         awayAttackStrength ?? 1.0, homeDefenseStrength ?? 1.0,
       );
       const probs = calculateMatchProbabilities(params);
-      poissonP = 1 - probs.overUnder[0.5]?.under ?? 0;
+      poissonP = 1 - (probs.overUnder[0.5]?.under || 0);
       poissonOverUnder = probs.overUnder[2.5]?.over ?? 0;
       poissonBTTS = probs.btts.yes;
       poissonHomeWin = probs.homeWin;
@@ -247,7 +256,7 @@ export function predictEnsemble(input: EnsembleInput): EnsembleResult {
       // Convert Elo win probability to goal probability
       // Higher Elo differential → higher chance of scoring
       eloP = Math.max(0, Math.min(0.8,
-        0.15 + (Math.abs(eloAdj.homeAdj) + Math.abs(eloAdj.awayAdj)) * 0.03
+        0.15 + (Math.abs(eloAdj.homeAdjust) + Math.abs(eloAdj.awayAdjust)) * 0.03
       ));
       eloHomeWin = eloPrediction.homeWinP;
       eloDraw = eloPrediction.drawP;
@@ -265,7 +274,7 @@ export function predictEnsemble(input: EnsembleInput): EnsembleResult {
   try {
     const mlModel = loadModel();
     if (mlModel) {
-      const features = extractFeatures(input);
+      const features = await extractFeatures(input);
       const featureArray = featuresToArray(features);
       const mlResult = predictGBDT(mlModel, featureArray);
       mlP = mlResult.probability;
@@ -280,17 +289,81 @@ export function predictEnsemble(input: EnsembleInput): EnsembleResult {
     mlP = 0;
   }
 
+  // ── Model 4b: In-play 5-min ahead XGBoost ──
+  // Loads the dedicated in-play artifact (when promoted) and runs
+  // it on the same 50-feature vector. The in-play model specializes
+  // in 5-min-horizon goal probability for the LATTER half of the
+  // match (minNum > 20). Before 20 min, the noise is too high to
+  // trust a 5-min signal — gate weight to 0.
+  let inPlayP = 0;
+  let inPlayConf = 0;
+  let inPlayDetails = 'No in-play model loaded';
+  if (minNum > 20) {
+    try {
+      const ipChampion = await loadXgbChampion('inplay');
+      if (ipChampion) {
+        const features = await extractFeatures(input);
+        const featureArray = featuresToArray(features);
+        inPlayP = Math.max(0, Math.min(1, predictXgb(ipChampion.model, featureArray)));
+        inPlayConf = 0.7; // fixed for now; can be re-derived from Brier later
+        inPlayDetails = `v${ipChampion.version} (horizon=5m, minute=${minNum})`;
+      }
+    } catch {
+      inPlayP = 0;
+    }
+  }
+
+  // ── Model 5: Kalman team strength ──
+  // Slow-changing prior on team quality. Best contribution as a
+  // smoothing term that nudges predictions toward the long-run
+  // goal rate (lambda_h, lambda_a) rather than as the dominant
+  // signal. Best when both teams are rated (>= 5 matches each).
+  let teamStrengthP = 0;
+  let teamStrengthConf = 0;
+  let teamStrengthDetails = 'No team-strength model loaded';
+  let teamStrengthHomeWin = 0;
+  let teamStrengthDraw = 0;
+  let teamStrengthAwayWin = 0;
+  try {
+    if (homeTeam && awayTeam) {
+      const tsModel: TeamStrengthModel = await loadLatestTeamStrength();
+      const tsPred = predictKalmanMatch(tsModel, homeTeam, awayTeam);
+      // Convert 1X2 to a goal-imminent probability: the larger of
+      // the team-specific Poisson rate (lambda) and a base rate.
+      // When both teams are rated, this is signal. When only one or
+      // neither is rated, fall back to lambda~1.0 (no info).
+      const lambdaImminent = 1 - Math.exp(-(tsPred.lambdaHome + tsPred.lambdaAway) * 0.2);
+      teamStrengthP = Math.max(0, Math.min(0.6, lambdaImminent));
+      teamStrengthConf = Math.min(tsPred.matches.home, tsPred.matches.away) >= 5 ? 0.7 : 0.3;
+      teamStrengthHomeWin = tsPred.homeWinP;
+      teamStrengthDraw = tsPred.drawP;
+      teamStrengthAwayWin = tsPred.awayWinP;
+      teamStrengthDetails = `λ_h=${tsPred.lambdaHome.toFixed(2)} λ_a=${tsPred.lambdaAway.toFixed(2)} (m=${Math.min(tsPred.matches.home, tsPred.matches.away)})`;
+    }
+  } catch {
+    teamStrengthP = 0;
+  }
+
   // ── Calculate dynamic weights ──
   const mlAvailable = mlP > 0;
   const hasHistory = !!(pressureHistory && pressureHistory.length >= 3);
   const weights = calculateDynamicWeights(minNum, mlAvailable, mlConfidence, hasHistory);
+
+  // In-play weight gate: only contributes after minute 20 (W6 plan).
+  // Weight ramps from 0 to 0.20 between min 20 and min 30, then
+  // capped at 0.20 thereafter. Bypass when no in-play model loaded.
+  if (inPlayP > 0) {
+    weights.inplay = minNum > 30 ? 0.20 : minNum > 20 ? 0.10 * (minNum - 20) / 10 : 0;
+  }
 
   // ── Weighted ensemble blend ──
   const ensembleP = (
     ruleBasedP * weights.ruleBased +
     poissonP * weights.poisson +
     eloP * weights.elo +
-    mlP * weights.ml
+    mlP * weights.ml +
+    teamStrengthP * weights.teamStrength +
+    inPlayP * weights.inplay
   );
 
   // ── Model agreement ──
@@ -303,16 +376,27 @@ export function predictEnsemble(input: EnsembleInput): EnsembleResult {
   const ensembleOverUnder = poissonOverUnder > 0 ? poissonOverUnder : ensembleP * 1.5;
   const ensembleBTTS = poissonBTTS > 0 ? poissonBTTS : ensembleP * 0.7;
 
-  // Blend 1X2 predictions from Poisson and Elo
-  const ensembleHomeWin = poissonHomeWin > 0 && eloHomeWin > 0
-    ? poissonHomeWin * 0.6 + eloHomeWin * 0.4
-    : poissonHomeWin > 0 ? poissonHomeWin : eloHomeWin;
-  const ensembleDraw = poissonDraw > 0 && eloDraw > 0
-    ? poissonDraw * 0.6 + eloDraw * 0.4
-    : poissonDraw > 0 ? poissonDraw : eloDraw;
-  const ensembleAwayWin = poissonAwayWin > 0 && eloAwayWin > 0
-    ? poissonAwayWin * 0.6 + eloAwayWin * 0.4
-    : poissonAwayWin > 0 ? poissonAwayWin : eloAwayWin;
+  // Blend 1X2 predictions from Poisson, Elo, and Kalman team strength.
+  // Team strength contributes 0.20 weight when both teams are rated,
+  // tapers to 0.05 when only one is rated, 0 otherwise.
+  const tsRated = Math.min(teamStrengthConf > 0 ? 1 : 0, 1); // binary
+  const ts1x2Weight = tsRated > 0 ? Math.min(0.20, teamStrengthConf * 0.25) : 0;
+  const baseWeight = 1 - ts1x2Weight;
+  const tsHome = tsRated > 0 ? teamStrengthHomeWin : 0;
+  const tsDraw = tsRated > 0 ? teamStrengthDraw : 0;
+  const tsAway = tsRated > 0 ? teamStrengthAwayWin : 0;
+  const ensembleHomeWin =
+    poissonHomeWin > 0 || eloHomeWin > 0
+      ? (poissonHomeWin * 0.6 + eloHomeWin * 0.4) * baseWeight + tsHome * ts1x2Weight
+      : tsHome;
+  const ensembleDraw =
+    poissonDraw > 0 || eloDraw > 0
+      ? (poissonDraw * 0.6 + eloDraw * 0.4) * baseWeight + tsDraw * ts1x2Weight
+      : tsDraw;
+  const ensembleAwayWin =
+    poissonAwayWin > 0 || eloAwayWin > 0
+      ? (poissonAwayWin * 0.6 + eloAwayWin * 0.4) * baseWeight + tsAway * ts1x2Weight
+      : tsAway;
 
   // ── Determine dominant model ──
   const modelWeights = [
@@ -320,6 +404,8 @@ export function predictEnsemble(input: EnsembleInput): EnsembleResult {
     { name: 'Poisson', weight: weights.poisson * poissonP },
     { name: 'Elo', weight: weights.elo * eloP },
     { name: 'ML', weight: weights.ml * mlP },
+    { name: 'TeamStrength', weight: weights.teamStrength * teamStrengthP },
+    { name: 'InPlay5m', weight: weights.inplay * inPlayP },
   ];
   const dominantModel = modelWeights.reduce((a, b) => a.weight > b.weight ? a : b).name;
 
@@ -375,6 +461,20 @@ export function predictEnsemble(input: EnsembleInput): EnsembleResult {
       confidence: Math.round(mlConfidence * 100) / 100,
       weight: Math.round(weights.ml * 100) / 100,
       details: mlP > 0 ? `Conf: ${(mlConfidence * 100).toFixed(0)}%` : 'Model not loaded',
+    },
+    {
+      name: 'TeamStrength',
+      probability: Math.round(teamStrengthP * 1000) / 1000,
+      confidence: Math.round(teamStrengthConf * 100) / 100,
+      weight: Math.round(weights.teamStrength * 100) / 100,
+      details: teamStrengthDetails,
+    },
+    {
+      name: 'InPlay5m',
+      probability: Math.round(inPlayP * 1000) / 1000,
+      confidence: Math.round(inPlayConf * 100) / 100,
+      weight: Math.round(weights.inplay * 100) / 100,
+      details: inPlayDetails,
     },
   ];
 

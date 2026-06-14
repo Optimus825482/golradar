@@ -128,7 +128,7 @@ const TEAM_NAME_MAP: Record<string, string> = {
 };
 
 /** Translate Turkish team name to English, normalizing first */
-function translateTeamName(name: string): string {
+export function translateTeamName(name: string): string {
   const normalized = normalizeTeamName(name);
   return TEAM_NAME_MAP[normalized] || normalized;
 }

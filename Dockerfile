@@ -40,8 +40,9 @@ RUN apk add --no-cache \
       openssl-dev \
       cargo
 
-# Pre-install Scrapling at image-build time. Pin versions to avoid pip
-# resolution-too-deep errors on Alpine.
+# Pre-install Scrapling at image-build time. Use core package only
+# (no [all] — that pulls in Playwright which requires glibc, not available
+# on Alpine). The app only needs curl_cffi-based fetching.
 RUN pip3 install --no-cache-dir --break-system-packages \
       'urllib3>=2,<3' \
       'certifi>=2024' \
@@ -49,7 +50,13 @@ RUN pip3 install --no-cache-dir --break-system-packages \
       'requests>=2.31' \
       'charset-normalizer>=3' \
       && pip3 install --no-cache-dir --break-system-packages \
-      'scrapling[all]==0.4.8'
+      'scrapling>=0.4' \
+      'curl_cffi>=0.7' \
+      'orjson>=3.10' \
+      'lxml>=5' \
+      'w3lib>=2' \
+      'tld>=0.13' \
+      'tldextract>=5'
 
 # Next.js standalone
 COPY --from=build /app/.next/standalone /app/web

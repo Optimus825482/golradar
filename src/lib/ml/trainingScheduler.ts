@@ -285,7 +285,8 @@ export async function triggerInPlayRetrainNow(): Promise<{ ok: boolean; reason?:
 
 // Auto-start on server boot (gated by runtime check to avoid
 // double-start in dev HMR). Mirrors fotmobCacheMaintenance.
-if (typeof window === 'undefined') {
+// Skip during build when DATABASE_URL is not available.
+if (typeof window === 'undefined' && process.env.DATABASE_URL) {
   setImmediate(() => {
     try {
       startTrainingScheduler();

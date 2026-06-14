@@ -40,11 +40,16 @@ RUN apk add --no-cache \
       openssl-dev \
       cargo
 
-# Pre-install Scrapling at image-build time so the runtime container does
-# not need network or a working compiler. The wheels come from the same
-# lockstep as the dev image.
+# Pre-install Scrapling at image-build time. Pin versions to avoid pip
+# resolution-too-deep errors on Alpine.
 RUN pip3 install --no-cache-dir --break-system-packages \
-      'scrapling[all]'
+      'urllib3>=2,<3' \
+      'certifi>=2024' \
+      'idna>=3.6' \
+      'requests>=2.31' \
+      'charset-normalizer>=3' \
+      && pip3 install --no-cache-dir --break-system-packages \
+      'scrapling[all]==0.4.8'
 
 # Next.js standalone
 COPY --from=build /app/.next/standalone /app/web

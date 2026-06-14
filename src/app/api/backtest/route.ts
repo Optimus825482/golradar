@@ -90,9 +90,9 @@ export async function POST(request: Request) {
     const action = body.action || "simulate";
 
     if (action === "simulate") {
-      const daysBack = body.daysBack ? parseInt(body.daysBack, 10) : 3;
-      const maxMatches = body.maxMatches ? parseInt(body.maxMatches, 10) : 30;
-      const signalThreshold = body.signalThreshold ? parseInt(body.signalThreshold, 10) : 55;
+      const daysBack = Math.min(30, Math.max(1, parseInt(body.daysBack, 10) || 3));
+      const maxMatches = Math.min(200, Math.max(1, parseInt(body.maxMatches, 10) || 30));
+      const signalThreshold = Math.min(100, Math.max(0, parseInt(body.signalThreshold, 10) || 55));
       const useGoaloo = body.useGoaloo !== false; // Default: true
 
       console.log(`[Backtest API] Starting simulation: daysBack=${daysBack}, maxMatches=${maxMatches}, useGoaloo=${useGoaloo}`);

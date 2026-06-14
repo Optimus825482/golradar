@@ -10,7 +10,7 @@
 //   - SoccerAjax?type=4&id={matchId}     → Live odds movements
 //   - gettextlivedetail?scheduleId={id}  → Match events (goals, cards, subs)
 
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
 import { devLog, devWarn, devError } from './devLog';
 import { scrapeUrl } from './scraper';
 
@@ -111,24 +111,29 @@ export interface GoalooTeamStats {
 
 // ── Fetch helper (curl-based to bypass anti-bot) ──────────────
 
-function goalooFetch(url: string): string | null {
+async function goalooFetch(url: string): Promise<string | null> {
   // Step 1: Try Python bridge (curl_cffi — bypasses Cloudflare)
-  const bridgeResult = scrapeUrl(url, { type: 'json', referer: 'https://www.goaloo.com/', timeout: 15000 });
+  const bridgeResult = await scrapeUrl(url, { type: 'json', referer: 'https://www.goaloo.com/', timeout: 15000 });
   if (bridgeResult.ok && bridgeResult.data) {
     return typeof bridgeResult.data === 'string' ? bridgeResult.data : JSON.stringify(bridgeResult.data);
   }
 
   // Step 2: Fallback — try curl (works on some environments)
   try {
-    const result = execFileSync('curl', [
-      '-s', '-L', '--max-time', '15',
-      '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-      '-H', 'Accept: application/json, text/javascript, */*; q=0.01',
-      '-H', 'Accept-Language: en-US,en;q=0.9',
-      '-H', 'X-Requested-With: XMLHttpRequest',
-      '-H', 'Referer: https://www.goaloo.com/',
-      '--compressed', url,
-    ], { encoding: 'utf-8', timeout: 20000, maxBuffer: 5 * 1024 * 1024 });
+    const result = await new Promise<string | null>((resolve) => {
+      execFile('curl', [
+        '-s', '-L', '--max-time', '15',
+        '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        '-H', 'Accept: application/json, text/javascript, */*; q=0.01',
+        '-H', 'Accept-Language: en-US,en;q=0.9',
+        '-H', 'X-Requested-With: XMLHttpRequest',
+        '-H', 'Referer: https://www.goaloo.com/',
+        '--compressed', url,
+      ], { encoding: 'utf-8', timeout: 20000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
+        if (err || !stdout) resolve(null);
+        else resolve(stdout);
+      });
+    });
     if (result) return result;
   } catch { /* both failed */ }
 
@@ -341,7 +346,7 @@ function parseGoalooDate(dateStr: string): { date: string; time: string } {
 
 export async function fetchGoalooMatchesByDate(date: string): Promise<GoalooMatch[]> {
   const url = `${GOALOO_BASE}/Ajax/SoccerAjax?type=6&date=${date}&order=league&timezone=0&flesh=${Math.random()}`;
-  const data = goalooFetch(url);
+  const data = await goalooFetch(url);
 
   if (!data) {
     console.error(`[Goaloo] Failed to fetch matches for ${date}`);
@@ -420,7 +425,7 @@ export async function fetchGoalooMatchesRecent(daysBack: number = 3): Promise<Go
 
 export async function fetchGoalooMomentum(matchId: number): Promise<MomentumData | null> {
   const url = `${GOALOO_BASE}/ajax/soccerajax?type=2&id=${matchId}`;
-  const data = goalooFetch(url);
+  const data = await goalooFetch(url);
 
   if (!data) {
     console.error(`[Goaloo] Failed to fetch momentum for match ${matchId}`);
@@ -557,7 +562,7 @@ function parseMomentumJsq(matchId: number, jsq: string): MomentumData {
 
 export async function fetchGoalooMatchEvents(matchId: number): Promise<GoalooMatchEvent[]> {
   const url = `${GOALOO_BASE}/ajax/gettextlivedetail?scheduleId=${matchId}`;
-  const data = goalooFetch(url);
+  const data = await goalooFetch(url);
 
   if (!data) return [];
 
@@ -595,7 +600,7 @@ export async function fetchGoalooMatchEvents(matchId: number): Promise<GoalooMat
 
 export async function fetchGoalooOdds(matchId: number): Promise<GoalooOdds | null> {
   const url = `${GOALOO_BASE}/ajax/soccerajax?type=1&id=${matchId}`;
-  const data = goalooFetch(url);
+  const data = await goalooFetch(url);
 
   if (!data) return null;
 
@@ -649,7 +654,7 @@ function parseOddsRow(row: string): GoalooOdds['initial'] | null {
 
 export async function fetchGoalooTeamStats(matchId: number): Promise<GoalooTeamStats | null> {
   const url = `${GOALOO_BASE}/ajax/soccerajax?type=3&id=${matchId}`;
-  const data = goalooFetch(url);
+  const data = await goalooFetch(url);
 
   if (!data) return null;
 

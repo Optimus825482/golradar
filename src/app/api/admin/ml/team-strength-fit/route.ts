@@ -19,13 +19,11 @@ import {
   fitAndRegisterTeamStrength,
 } from '@/lib/ml/teamHistoryBackfill';
 import { promoteArtifact } from '@/lib/ml/modelRouter';
+import { adminRoute } from '@/lib/adminRoute';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: Request) {
-  if (typeof window !== 'undefined') {
-    return NextResponse.json({ error: 'server-only' }, { status: 503 });
-  }
+export const POST = adminRoute(async (request: Request) => {
 
   let body: {
     startDate?: string;
@@ -85,4 +83,4 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
-}
+});

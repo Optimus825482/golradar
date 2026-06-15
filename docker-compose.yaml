@@ -30,10 +30,10 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db
       NODE_ENV: production
       PORT: 3000
-      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3012}
       NESINE_LIVE_PORT: 3003
       NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:3003}
-      SOCKET_CORS_ORIGIN: ${SOCKET_CORS_ORIGIN:-http://localhost:3000}
+      SOCKET_CORS_ORIGIN: ${SOCKET_CORS_ORIGIN:-http://localhost:3012}
       RADAR_THRESHOLD: ${RADAR_THRESHOLD:-65}
       SIGNAL_5MIN_THRESHOLD: ${SIGNAL_5MIN_THRESHOLD:-0.25}
       POISSON_BLEND_WEIGHT: ${POISSON_BLEND_WEIGHT:-0.25}
@@ -49,7 +49,7 @@ services:
     networks:
       - golradar-net
     ports:
-      - "3000:3000"
+      - "3012:3012"
       - "3003:3003"
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3012/api').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]

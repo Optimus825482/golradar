@@ -14,6 +14,8 @@ import {
   GoalProbability,
 } from "@/lib/nesine";
 import { getCachedMatchDetails } from "@/lib/fotmob";
+import { autoFetchMissingRatings, getRating } from "@/lib/eloRating";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -177,11 +179,36 @@ export async function GET(request: Request) {
       goalRadar = calculateGoalProbability(
         parsed.stats, parsed.minute, parsed.isLive,
         hist?.snapshots, parsed.homeGoals, parsed.awayGoals,
-        undefined, undefined,
+        parsed.home, parsed.away,
         undefined, undefined,
         fotmobData,
       );
       if (goalRadar.score < 55) goalRadar = undefined;
+
+      // Auto-log predictions to PredictionLog for ML training pipeline
+      if (goalRadar && parsed.isLive && goalRadar.score >= 40) {
+        const homeElo = getRating(parsed.home)?.rating ?? null;
+        const awayElo = getRating(parsed.away)?.rating ?? null;
+        void db.predictionLog.create({
+          data: {
+            matchCode: parsed.code,
+            minute: parseInt(parsed.minute) || 0,
+            rawScore: goalRadar.score,
+            homeScore: goalRadar.homeScore,
+            awayScore: goalRadar.awayScore,
+            calibratedP: goalRadar.calibratedP,
+            side: goalRadar.side ?? 'none',
+            level: goalRadar.level,
+            factorsJson: JSON.stringify(goalRadar.factors),
+            homeTeam: parsed.home,
+            awayTeam: parsed.away,
+            league: parsed.league,
+            homeElo: homeElo ? Math.round(homeElo) : null,
+            awayElo: awayElo ? Math.round(awayElo) : null,
+            modelVariant: 'champion',
+          },
+        }).catch(() => {});
+      }
     }
     matches.push({ ...parsed, goalRadar });
   }
@@ -201,6 +228,12 @@ export async function GET(request: Request) {
     const hist = pressureHistory.get(m.code);
     if (hist?.snapshots.length) pressureData[m.code] = hist.snapshots;
     if (m.goalRadar) goalRadarData[m.code] = m.goalRadar;
+  }
+
+  // Auto-fetch missing Elo ratings in background (fire-and-forget)
+  if (matches.length > 0) {
+    const teamNames = matches.flatMap(m => [m.home, m.away]).filter(Boolean);
+    void autoFetchMissingRatings(teamNames).catch(() => {});
   }
 
   return NextResponse.json({

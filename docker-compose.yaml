@@ -1,12 +1,33 @@
 services:
+  # ── PostgreSQL ──
+  postgres:
+    image: postgres:16-alpine
+    container_name: golradar-db
+    restart: unless-stopped
+    volumes:
+      - golradar_pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-golradar_secret}
+      POSTGRES_DB: golradar_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d golradar_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - golradar-net
+
   # ── Web App (Next.js + Nesine relay) ──
-  # PostgreSQL is managed by Coolify as a separate service.
-  # DATABASE_URL is injected by Coolify automatically.
   golradar:
     build: .
     container_name: golradar-app
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db
       NODE_ENV: production
       PORT: 3000
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
@@ -23,9 +44,10 @@ services:
       SCOREMER_API_TIMEOUT: ${SCOREMER_API_TIMEOUT:-15000}
       NEXT_PUBLIC_PWA_THEME_COLOR: ${NEXT_PUBLIC_PWA_THEME_COLOR:-#10b981}
       ADMIN_API_TOKEN: ${ADMIN_API_TOKEN}
-      DATABASE_URL: ${DATABASE_URL}
       # ML Trainer sidecar
       ML_TRAINER_URL: "http://ml-trainer:9100"
+    networks:
+      - golradar-net
     ports:
       - "3000:3000"
       - "3003:3003"
@@ -43,11 +65,16 @@ services:
       dockerfile: Dockerfile
     container_name: golradar-ml-trainer
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       ML_DATA_ROOT: /data
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db
     volumes:
       - golradar_ml_data:/data
+    networks:
+      - golradar-net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9100/healthz')\" || exit 1"]
       interval: 30s
@@ -55,5 +82,10 @@ services:
       retries: 5
       start_period: 60s
 
+networks:
+  golradar-net:
+    driver: bridge
+
 volumes:
+  golradar_pgdata:
   golradar_ml_data:

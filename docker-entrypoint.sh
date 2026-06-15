@@ -3,22 +3,19 @@ set -eu
 
 echo "[ENTRYPOINT] Starting golradar..."
 
-# ── Resolve DATABASE_URL ──
-# Coolify injects DATABASE_URL automatically when a PostgreSQL
-# database is linked to this service in the Coolify UI.
+# DATABASE_URL is set by docker-compose.yaml
 if [ -z "${DATABASE_URL:-}" ]; then
-    echo "[FATAL] DATABASE_URL is not set. Link a PostgreSQL database in Coolify."
+    echo "[FATAL] DATABASE_URL is not set!"
     exit 1
 fi
 
-# Mask password for logging
 MASKED_URL=$(echo "$DATABASE_URL" | sed 's/:.*@/:***@/g')
 echo "[DB] DATABASE_URL: $MASKED_URL"
 
-# Extract host/port from DATABASE_URL for connectivity check
+# Extract host/port from DATABASE_URL
 DB_HOST=$(echo "$DATABASE_URL" | sed -n 's|.*@\([^:]*\):.*|\1|p')
 DB_PORT=$(echo "$DATABASE_URL" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
-DB_HOST="${DB_HOST:-localhost}"
+DB_HOST="${DB_HOST:-postgres}"
 DB_PORT="${DB_PORT:-5432}"
 
 echo "[DB] Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
@@ -37,10 +34,9 @@ done
 
 if [ "$DB_READY" -ne 1 ]; then
     echo "[ERROR] PostgreSQL not reachable after 90s at ${DB_HOST}:${DB_PORT}"
-    echo "[ERROR] Continuing anyway — Prisma will show a detailed error."
 fi
 
-# ── Prisma schema sync ─────────────────────────────────────────
+# Prisma schema sync
 echo "[DB] Syncing schema..."
 cd /app/web
 
@@ -59,13 +55,13 @@ else
 fi
 echo "[DB] Schema sync complete"
 
-# ── Start Next.js ──
+# Start Next.js
 echo "[WEB] Starting Next.js on port ${PORT:-3000}..."
 NODE_ENV=production DATABASE_URL="$DATABASE_URL" PORT=${PORT:-3000} bun server.js &
 WEB_PID=$!
 echo "[OK] Next.js started (PID $WEB_PID)"
 
-# ── Start Nesine-live relay ──
+# Start Nesine-live relay
 if [ -f /app/nesine/index.ts ]; then
     echo "[NESINE] Starting relay..."
     cd /app/nesine
@@ -77,7 +73,6 @@ else
     NESINE_PID=""
 fi
 
-# ── Graceful shutdown ──
 cleanup() {
     echo "[SHUTDOWN] Stopping..."
     [ -n "$NESINE_PID" ] && kill $NESINE_PID 2>/dev/null || true

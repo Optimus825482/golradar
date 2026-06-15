@@ -699,8 +699,107 @@ function EloImportTab({ token }: { token: string }) {
   );
 }
 
+// ── Backfill Tab ──────────────────────────────────────────────────
+function BackfillTab({ token }: { token: string }) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [daysBack, setDaysBack] = useState(30);
+  const [maxMatches, setMaxMatches] = useState(300);
+
+  const startBackfill = async () => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await adminFetch(token, '/api/admin/backfill-predictions', {
+        method: 'POST',
+        body: JSON.stringify({ daysBack, maxMatches }),
+      });
+      setResult(await res.json());
+    } catch (e: any) {
+      setResult({ error: e.message });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card title="Geçmiş Veri İçe Aktarma">
+        <p className="text-xs text-gray-500 mb-4">
+          Nesine API'den bitmiş maçları çeker, her maç için 5 dakikalık aralıklarla tahmin hesaplar
+          ve PredictionLog tablosuna yazar. Bu veriler ML model eğitimi için kullanılır.
+          Ayrıca gol olayları MatchEvent tablosuna yazılır (labeling için).
+        </p>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 mb-1">Gün Geriye Git</label>
+            <input
+              type="number"
+              value={daysBack}
+              onChange={(e) => setDaysBack(Math.min(90, Math.max(1, parseInt(e.target.value) || 30)))}
+              min={1}
+              max={90}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+            />
+            <p className="text-[10px] text-gray-400 mt-1">1-90 gün arası</p>
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 mb-1">Max Maç Sayısı</label>
+            <input
+              type="number"
+              value={maxMatches}
+              onChange={(e) => setMaxMatches(Math.min(2000, Math.max(10, parseInt(e.target.value) || 300)))}
+              min={10}
+              max={2000}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+            />
+            <p className="text-[10px] text-gray-400 mt-1">10-2000 maç</p>
+          </div>
+        </div>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-700">
+          ⚠️ Bu işlem uzun sürebilir (30 gün ≈ 5-10 dakika). Her maç için 17 snapshot hesabı yapılır.
+          İşlem sırasında sayfayı kapatmayın.
+        </div>
+
+        <button
+          onClick={startBackfill}
+          disabled={loading}
+          className="w-full py-3 bg-emerald-600 text-white rounded-lg text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+        >
+          {loading ? (
+            <span className="flex items-center justify-center gap-2"><Spinner /> Veri çekiliyor...</span>
+          ) : (
+            `📊 ${daysBack} Gün Geriye Git (${maxMatches} Max Maç)`
+          )}
+        </button>
+      </Card>
+
+      {result?.summary && (
+        <Card title="Sonuç">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <Stat label="İşlenen Gün" value={result.summary.datesProcessed} />
+            <Stat label="Toplam Maç" value={result.summary.totalMatches} />
+            <Stat label="Toplam Tahmin" value={result.summary.totalPredictions?.toLocaleString()} />
+            <Stat label="Başarısız Gün" value={result.summary.failedDates} />
+            <Stat label="Elo Çekilen Takım" value={result.summary.teamsEloFetched} />
+          </div>
+          <div className="mt-3 p-2 bg-emerald-50 rounded-lg text-xs text-emerald-700">
+            ✅ {result.summary.totalPredictions} tahmin kaydedildi. 
+            ML trainer otomatik olarak training data export edecek (her gün 03:00).
+            Veya admin panelinden "ML Modelleri" → "Export" ile manuel tetikleyebilirsin.
+          </div>
+        </Card>
+      )}
+
+      {result?.error && (
+        <div className="p-3 bg-red-50 rounded-lg text-xs text-red-600">{result.error}</div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────
-type Tab = 'overview' | 'ml' | 'calibration' | 'signals' | 'elo' | 'elo-import';
+type Tab = 'overview' | 'ml' | 'calibration' | 'signals' | 'elo' | 'elo-import' | 'backfill';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'overview', label: 'Genel Bakış' },
@@ -709,6 +808,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'signals', label: 'Sinyaller' },
   { key: 'elo', label: 'Elo' },
   { key: 'elo-import', label: 'Elo İçe Aktar' },
+  { key: 'backfill', label: 'Veri İçe Aktar' },
 ];
 
 export default function AdminPage() {
@@ -767,6 +867,7 @@ export default function AdminPage() {
         {tab === 'signals' && <SignalsTab />}
         {tab === 'elo' && <EloTab />}
         {tab === 'elo-import' && <EloImportTab token={token} />}
+        {tab === 'backfill' && <BackfillTab token={token} />}
       </div>
     </div>
   );

@@ -247,3 +247,52 @@ export function bulkSetRatings(entries: Array<{ team: string; rating: number; ma
   saveRatings();
   return count;
 }
+
+/**
+ * Check which teams from a list are missing Elo ratings.
+ * Returns the team names that need ratings.
+ */
+export function getTeamsNeedingRatings(teams: string[]): string[] {
+  const ratings = loadRatings();
+  return teams.filter(t => {
+    const key = normalizeTeamName(t) || t;
+    return !ratings.has(key);
+  });
+}
+
+/**
+ * Auto-fetch Elo ratings from ClubElo for teams that don't have ratings yet.
+ * Runs in background — doesn't block the caller.
+ * Returns a promise that resolves to the number of teams imported.
+ */
+export async function autoFetchMissingRatings(teams: string[]): Promise<number> {
+  const missing = getTeamsNeedingRatings(teams);
+  if (missing.length === 0) return 0;
+
+  // Try to fetch from ClubElo in background
+  const results: Array<{ team: string; rating: number }> = [];
+  for (const team of missing) {
+    try {
+      const resp = await fetch(`http://api.clubelo.com/${team}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!resp.ok) continue;
+      const csv = await resp.text();
+      const lines = csv.trim().split('\n');
+      if (lines.length < 2) continue;
+      const lastLine = lines[lines.length - 1];
+      const parts = lastLine.split(',');
+      const rating = parseFloat(parts[1]);
+      if (!isNaN(rating) && rating >= 500 && rating <= 3000) {
+        results.push({ team, rating });
+      }
+    } catch {
+      // Skip failed fetches silently
+    }
+  }
+
+  if (results.length > 0) {
+    return bulkSetRatings(results);
+  }
+  return 0;
+}

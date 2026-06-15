@@ -1,0 +1,620 @@
+'use client';
+
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
+
+// ── Admin API Helper ──────────────────────────────────────────────
+function adminFetch(token: string, path: string, init?: RequestInit) {
+  return fetch(path, {
+    ...init,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...init?.headers,
+    },
+  });
+}
+
+// ── Login Screen ──────────────────────────────────────────────────
+function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
+  const [token, setToken] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    try {
+      const res = await fetch('/api/admin/ml/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        sessionStorage.setItem('admin_token', token);
+        onLogin(token);
+      } else {
+        setError('Geçersiz token');
+      }
+    } catch {
+      setError('Bağlantı hatası');
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm">
+        <div className="text-center mb-6">
+          <div className="text-3xl mb-2">⚽</div>
+          <h1 className="text-xl font-bold text-gray-800">Admin Panel</h1>
+          <p className="text-sm text-gray-500">Gol Radarı Yönetim</p>
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Admin Token</label>
+          <input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="ADMIN_API_TOKEN"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+            autoFocus
+          />
+        </div>
+        {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+        <button
+          type="submit"
+          className="w-full py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
+        >
+          Giriş Yap
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ── Reusable Components ───────────────────────────────────────────
+function Card({ title, children, className = '' }: { title?: string; children: ReactNode; className?: string }) {
+  return (
+    <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-4 ${className}`}>
+      {title && <h3 className="text-sm font-bold text-gray-700 mb-3">{title}</h3>}
+      {children}
+    </div>
+  );
+}
+
+function Badge({ children, color = 'gray' }: { children: ReactNode; color?: string }) {
+  const colors: Record<string, string> = {
+    green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    red: 'bg-red-50 text-red-700 border-red-200',
+    yellow: 'bg-amber-50 text-amber-700 border-amber-200',
+    blue: 'bg-blue-50 text-blue-700 border-blue-200',
+    gray: 'bg-gray-50 text-gray-600 border-gray-200',
+  };
+  return (
+    <span className={`inline-block px-2 py-0.5 text-[11px] font-medium rounded border ${colors[color] || colors.gray}`}>
+      {children}
+    </span>
+  );
+}
+
+function Stat({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+  return (
+    <div>
+      <div className="text-[11px] text-gray-500">{label}</div>
+      <div className="text-lg font-bold text-gray-800">{value}</div>
+      {sub && <div className="text-[10px] text-gray-400">{sub}</div>}
+    </div>
+  );
+}
+
+function Spinner() {
+  return <div className="inline-block w-4 h-4 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />;
+}
+
+// ── Overview Tab ──────────────────────────────────────────────────
+function OverviewTab({ token }: { token: string }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [mlRes, cacheRes, calRes] = await Promise.all([
+        adminFetch(token, '/api/admin/ml/status'),
+        adminFetch(token, '/api/admin/fotmob-cache-stats'),
+        fetch('/api/calibration?action=stats'),
+      ]);
+      const ml = mlRes.ok ? await mlRes.json() : null;
+      const cache = cacheRes.ok ? await cacheRes.json() : null;
+      const cal = calRes.ok ? await calRes.json() : null;
+      setData({ ml, cache, cal });
+    } catch { setData(null); }
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+  if (!data) return <div className="text-center py-12 text-gray-500">Veri yüklenemedi</div>;
+
+  const { ml, cache, cal } = data;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <Card title="ML Durumu">
+        <div className="flex items-center gap-2 mb-3">
+          <Badge color={ml?.trainer?.health?.ok ? 'green' : 'red'}>
+            Trainer {ml?.trainer?.health?.ok ? 'Aktif' : 'Pasif'}
+          </Badge>
+          <Badge color={ml?.trainer?.enabled ? 'blue' : 'gray'}>
+            {ml?.trainer?.enabled ? 'Enabled' : 'Disabled'}
+          </Badge>
+        </div>
+        {ml?.champions && Object.entries(ml.champions).map(([name, c]: [string, any]) => (
+          <div key={name} className="flex justify-between text-xs py-1 border-t border-gray-50">
+            <span className="font-medium text-gray-700">{name}</span>
+            <span className="text-gray-500">v{c.version}</span>
+          </div>
+        ))}
+        {ml?.latestMetrics && (
+          <div className="mt-3 pt-2 border-t border-gray-100">
+            <div className="text-[11px] text-gray-500 mb-1">Son Metrikler</div>
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label="Brier" value={ml.latestMetrics.brierScore?.toFixed(4) ?? '-'} />
+              <Stat label="Shadow Δ" value={ml.latestMetrics.shadowBrierDelta?.toFixed(4) ?? '-'} />
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card title="FotMob Cache">
+        {cache?.cache ? (
+          <div className="grid grid-cols-2 gap-3">
+            <Stat label="Toplam Satır" value={cache.cache.totalRows} />
+            <Stat label="Hit Rate" value={cache.cache.cacheHitRatePct !== null ? `${cache.cache.cacheHitRatePct}%` : '-'} />
+            <Stat label="Süresi Dolan" value={cache.cache.expiredRows} />
+            <Stat label="Toplam Hit" value={cache.cache.totalHits} />
+          </div>
+        ) : <p className="text-gray-400 text-sm">Veri yok</p>}
+        {cache?.scheduler && (
+          <div className="mt-3 pt-2 border-t border-gray-100 text-xs text-gray-500">
+            Scheduler: {cache.scheduler.running ? `Aktif (${cache.scheduler.uptimeHuman})` : 'Pasif'}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Kalibrasyon">
+        {cal ? (
+          <div className="grid grid-cols-2 gap-3">
+            <Stat label="Kayıt Sayısı" value={cal.totalRecords ?? '-'} />
+            <Stat label="Brier Score" value={cal.brierScore?.toFixed(4) ?? '-'} />
+            <Stat label="Log Loss" value={cal.logLoss?.toFixed(4) ?? '-'} />
+            <Stat label="Doğruluk" value={cal.accuracy != null ? `${(cal.accuracy * 100).toFixed(1)}%` : '-'} />
+          </div>
+        ) : <p className="text-gray-400 text-sm">Veri yok</p>}
+      </Card>
+
+      <Card title="Scheduler" className="md:col-span-2 lg:col-span-3">
+        {ml?.scheduler ? (
+          <div className="flex flex-wrap gap-4 text-xs">
+            <div><span className="text-gray-500">Export:</span> <Badge color={ml.scheduler.exportRunning ? 'green' : 'gray'}>{ml.scheduler.exportRunning ? 'Aktif' : 'Pasif'}</Badge></div>
+            <div><span className="text-gray-500">InPlay:</span> <Badge color={ml.scheduler.inplayRunning ? 'green' : 'gray'}>{ml.scheduler.inplayRunning ? 'Aktif' : 'Pasif'}</Badge></div>
+            <div><span className="text-gray-500">Son Export:</span> {ml.scheduler.lastExportAt ? new Date(ml.scheduler.lastExportAt).toLocaleString('tr-TR') : '-'}</div>
+            <div><span className="text-gray-500">Son InPlay:</span> {ml.scheduler.lastInplayAt ? new Date(ml.scheduler.lastInplayAt).toLocaleString('tr-TR') : '-'}</div>
+          </div>
+        ) : <p className="text-gray-400 text-sm">Veri yok</p>}
+      </Card>
+    </div>
+  );
+}
+
+// ── ML Models Tab ─────────────────────────────────────────────────
+function MLModelsTab({ token }: { token: string }) {
+  const [status, setStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState('');
+  const [actionResult, setActionResult] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await adminFetch(token, '/api/admin/ml/status');
+      if (res.ok) setStatus(await res.json());
+    } catch {}
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const doAction = async (name: string, url: string, body?: any) => {
+    setActionLoading(name);
+    setActionResult('');
+    try {
+      const res = await adminFetch(token, url, {
+        method: body ? 'POST' : 'GET',
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json();
+      setActionResult(`${name}: ${res.ok ? 'Başarılı' : 'Hata'} — ${JSON.stringify(data).slice(0, 200)}`);
+      if (res.ok) load();
+    } catch (e: any) {
+      setActionResult(`${name}: Hata — ${e.message}`);
+    }
+    setActionLoading('');
+  };
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+
+  return (
+    <div className="space-y-4">
+      <Card title="Champion Modeller">
+        {status?.champions && Object.keys(status.champions).length > 0 ? (
+          <div className="space-y-2">
+            {Object.entries(status.champions).map(([name, c]: [string, any]) => (
+              <div key={name} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
+                <div>
+                  <span className="font-bold text-sm text-gray-800">{name}</span>
+                  <span className="ml-2 text-xs text-gray-500">v{c.version}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => doAction(`compare-${name}`, `/api/admin/ml/compare?name=${name}&version=${c.version}`)}
+                    disabled={!!actionLoading}
+                    className="px-3 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    {actionLoading === `compare-${name}` ? <Spinner /> : 'Karşılaştır'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-gray-400 text-sm">Henüz champion model yok</p>}
+      </Card>
+
+      <Card title="Model Eğit">
+        <div className="flex flex-wrap gap-2">
+          {['gbdt', 'xgb', 'inplay'].map((name) => (
+            <button
+              key={name}
+              onClick={() => {
+                const version = prompt(`${name} model versiyonu (ör: 1.0.0):`);
+                if (version) doAction(`train-${name}`, '/api/admin/ml/train', { name, version });
+              }}
+              disabled={!!actionLoading}
+              className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {actionLoading === `train-${name}` ? <Spinner /> : `Train ${name}`}
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <Card title="Training Datasets">
+        {status?.recentDatasets?.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-100">
+                  <th className="py-1.5 pr-3">ID</th>
+                  <th className="py-1.5 pr-3">Horizon</th>
+                  <th className="py-1.5 pr-3">Satır</th>
+                  <th className="py-1.5 pr-3">Brier</th>
+                  <th className="py-1.5 pr-3">Durum</th>
+                  <th className="py-1.5">Tarih</th>
+                </tr>
+              </thead>
+              <tbody>
+                {status.recentDatasets.map((d: any) => (
+                  <tr key={d.id} className="border-b border-gray-50">
+                    <td className="py-1.5 pr-3 font-mono text-[10px]">{d.id.slice(0, 8)}</td>
+                    <td className="py-1.5 pr-3">{d.horizonMin}dk</td>
+                    <td className="py-1.5 pr-3">{d.rowCount?.toLocaleString()}</td>
+                    <td className="py-1.5 pr-3">{d.brier?.toFixed(4) ?? '-'}</td>
+                    <td className="py-1.5 pr-3"><Badge color={d.status === 'ready' ? 'green' : d.status === 'error' ? 'red' : 'yellow'}>{d.status}</Badge></td>
+                    <td className="py-1.5 text-gray-400">{new Date(d.createdAt).toLocaleDateString('tr-TR')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p className="text-gray-400 text-sm">Dataset yok</p>}
+      </Card>
+
+      {actionResult && (
+        <div className="p-3 bg-gray-50 rounded-lg text-xs text-gray-600 font-mono break-all">{actionResult}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Calibration Tab ───────────────────────────────────────────────
+function CalibrationTab({ token }: { token: string }) {
+  const [calData, setCalData] = useState<any>(null);
+  const [smartData, setSmartData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [actionResult, setActionResult] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [calRes, smartRes] = await Promise.all([
+        fetch('/api/calibration?action=stats'),
+        fetch('/api/smart-calibration?action=status'),
+      ]);
+      if (calRes.ok) setCalData(await calRes.json());
+      if (smartRes.ok) setSmartData(await smartRes.json());
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const autocalibrate = async () => {
+    try {
+      const res = await fetch('/api/calibration?action=autocalibrate');
+      const data = await res.json();
+      setActionResult(data.message || JSON.stringify(data));
+      load();
+    } catch (e: any) { setActionResult(`Hata: ${e.message}`); }
+  };
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card title="Kalibrasyon İstatistikleri">
+          {calData ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Stat label="Kayıt" value={calData.totalRecords ?? '-'} />
+              <Stat label="Brier" value={calData.brierScore?.toFixed(4) ?? '-'} />
+              <Stat label="Log Loss" value={calData.logLoss?.toFixed(4) ?? '-'} />
+              <Stat label="Doğruluk" value={calData.accuracy != null ? `${(calData.accuracy * 100).toFixed(1)}%` : '-'} />
+            </div>
+          ) : <p className="text-gray-400 text-sm">Veri yok</p>}
+          <button
+            onClick={autocalibrate}
+            className="mt-3 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            Otomatik Kalibrasyon
+          </button>
+        </Card>
+
+        <Card title="Smart Kalibrasyon (F8)">
+          {smartData?.mode && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Mod:</span>
+                <Badge color={smartData.mode.mode === 'auto' ? 'green' : smartData.mode.mode === 'manual' ? 'blue' : 'gray'}>
+                  {smartData.mode.mode}
+                </Badge>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Sensitivite:</span>
+                <span className="font-medium">{smartData.mode.sensitivity}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Min Örnek:</span>
+                <span className="font-medium">{smartData.mode.minSampleSize}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Odds Compound:</span>
+                <Badge color={smartData.mode.oddsCompoundEnabled ? 'green' : 'gray'}>
+                  {smartData.mode.oddsCompoundEnabled ? 'Aktif' : 'Pasif'}
+                </Badge>
+              </div>
+            </div>
+          )}
+          {smartData?.f8Calibration && (
+            <div className="mt-3 pt-2 border-t border-gray-100">
+              <div className="text-[11px] text-gray-500 mb-2">F8 Kalibrasyon</div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div><span className="text-gray-400">Dampener:</span> {smartData.f8Calibration.calibratedDampener?.toFixed(2)}</div>
+                <div><span className="text-gray-400">Danger Boost:</span> {smartData.f8Calibration.calibratedDangerBoost?.toFixed(2)}</div>
+                <div><span className="text-gray-400">Kaynak:</span> {smartData.f8Calibration.source}</div>
+              </div>
+              {smartData.f8Calibration.explanation && (
+                <p className="mt-2 text-[11px] text-gray-500">{smartData.f8Calibration.explanation}</p>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {smartData?.topLeagues?.length > 0 && (
+        <Card title="Lig Profilleri">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-100">
+                  <th className="py-1.5 pr-3">Lig ID</th>
+                  <th className="py-1.5 pr-3">Ort. Gol Dakikası</th>
+                  <th className="py-1.5 pr-3">Erken Gol %</th>
+                  <th className="py-1.5 pr-3">Geç Gol %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {smartData.topLeagues.map((p: any) => (
+                  <tr key={p.leagueId} className="border-b border-gray-50">
+                    <td className="py-1.5 pr-3">{p.leagueId}</td>
+                    <td className="py-1.5 pr-3">{p.avgGoalMinute?.toFixed(1)}</td>
+                    <td className="py-1.5 pr-3">{(p.earlyGoalRate * 100)?.toFixed(1)}%</td>
+                    <td className="py-1.5 pr-3">{(p.lateGoalRate * 100)?.toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {actionResult && (
+        <div className="p-3 bg-gray-50 rounded-lg text-xs text-gray-600 font-mono break-all">{actionResult}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Signals Tab ───────────────────────────────────────────────────
+function SignalsTab() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/goal-signals?action=stats');
+      if (res.ok) setData(await res.json());
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+
+  return (
+    <div className="space-y-4">
+      <Card title="Sinyal İstatistikleri">
+        {data ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Stat label="Toplam Sinyal" value={data.totalSignals ?? '-'} />
+            <Stat label="Doğrulanan" value={data.verifiedSignals ?? '-'} />
+            <Stat label="Doğruluk" value={data.accuracy != null ? `${(data.accuracy * 100).toFixed(1)}%` : '-'} />
+            <Stat label="Ort. Brier" value={data.avgBrier?.toFixed(4) ?? '-'} />
+          </div>
+        ) : <p className="text-gray-400 text-sm">Veri yok</p>}
+      </Card>
+    </div>
+  );
+}
+
+// ── Elo Tab ───────────────────────────────────────────────────────
+function EloTab() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/elo?action=all');
+      if (res.ok) setData(await res.json());
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+
+  const entries = data ? Object.entries(data)
+    .filter(([name]: [string, any]) => !search || name.toLowerCase().includes(search.toLowerCase()))
+    .sort(([, a]: [string, any], [, b]: [string, any]) => (b.rating ?? 1500) - (a.rating ?? 1500))
+    .slice(0, 50) : [];
+
+  return (
+    <div className="space-y-4">
+      <Card title="Elo Sıralaması">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Takım ara..."
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm mb-3 focus:ring-2 focus:ring-emerald-500 outline-none"
+        />
+        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-white">
+              <tr className="text-left text-gray-500 border-b border-gray-100">
+                <th className="py-1.5 pr-3">#</th>
+                <th className="py-1.5 pr-3">Takım</th>
+                <th className="py-1.5 pr-3">Rating</th>
+                <th className="py-1.5 pr-3">Form</th>
+                <th className="py-1.5">Maç</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map(([name, r]: [string, any], i) => (
+                <tr key={name} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="py-1.5 pr-3 text-gray-400">{i + 1}</td>
+                  <td className="py-1.5 pr-3 font-medium text-gray-800">{name}</td>
+                  <td className="py-1.5 pr-3 font-mono">{r.rating?.toFixed(0) ?? '-'}</td>
+                  <td className="py-1.5 pr-3">{r.formIndex?.toFixed(2) ?? '-'}</td>
+                  <td className="py-1.5">{r.matchesPlayed ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ── Main Admin Page ───────────────────────────────────────────────
+type Tab = 'overview' | 'ml' | 'calibration' | 'signals' | 'elo';
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'overview', label: 'Genel Bakış' },
+  { key: 'ml', label: 'ML Modelleri' },
+  { key: 'calibration', label: 'Kalibrasyon' },
+  { key: 'signals', label: 'Sinyaller' },
+  { key: 'elo', label: 'Elo' },
+];
+
+export default function AdminPage() {
+  const [token, setToken] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>('overview');
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem('admin_token');
+    if (saved) setToken(saved);
+  }, []);
+
+  if (!token) return <LoginScreen onLogin={setToken} />;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 px-4 py-3">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-xl">⚽</span>
+            <h1 className="text-lg font-bold text-gray-800">Admin Panel</h1>
+          </div>
+          <button
+            onClick={() => { sessionStorage.removeItem('admin_token'); setToken(null); }}
+            className="text-xs text-gray-500 hover:text-red-600"
+          >
+            Çıkış
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="bg-white border-b border-gray-100 px-4">
+        <div className="max-w-6xl mx-auto flex gap-1 overflow-x-auto">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                tab === t.key
+                  ? 'border-emerald-600 text-emerald-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="max-w-6xl mx-auto p-4">
+        {tab === 'overview' && <OverviewTab token={token} />}
+        {tab === 'ml' && <MLModelsTab token={token} />}
+        {tab === 'calibration' && <CalibrationTab token={token} />}
+        {tab === 'signals' && <SignalsTab />}
+        {tab === 'elo' && <EloTab />}
+      </div>
+    </div>
+  );
+}

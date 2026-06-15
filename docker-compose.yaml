@@ -61,8 +61,8 @@ services:
   # ── ML Trainer Sidecar (XGBoost) ──
   ml-trainer:
     build:
-      context: .
-      dockerfile: mini-services/ml-trainer/Dockerfile
+      context: ./mini-services/ml-trainer
+      dockerfile: Dockerfile
     container_name: golradar-ml-trainer
     restart: unless-stopped
     depends_on:

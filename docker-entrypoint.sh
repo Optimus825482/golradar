@@ -56,8 +56,8 @@ fi
 echo "[DB] Schema sync complete"
 
 # Start Next.js
-echo "[WEB] Starting Next.js on port ${PORT:-3000}..."
-NODE_ENV=production DATABASE_URL="$DATABASE_URL" PORT=${PORT:-3000} bun server.js &
+echo "[WEB] Starting Next.js on port ${PORT:-3012}..."
+NODE_ENV=production DATABASE_URL="$DATABASE_URL" HOSTNAME=0.0.0.0 PORT=${PORT:-3012} bun server.js &
 WEB_PID=$!
 echo "[OK] Next.js started (PID $WEB_PID)"
 

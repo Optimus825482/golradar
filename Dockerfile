@@ -90,7 +90,7 @@ COPY --from=build /app/mini-services/nesine-live/index.ts ./
 COPY --from=build /app/mini-services/shared /app/shared
 
 WORKDIR /app/web
-EXPOSE 3000 3003
+EXPOSE 3012 3003
 
 # Graceful start — wait for postgres, push schema, then start both
 COPY docker-entrypoint.sh /docker-entrypoint.sh

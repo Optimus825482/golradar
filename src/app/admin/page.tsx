@@ -548,8 +548,159 @@ function EloTab() {
   );
 }
 
+// ── Elo Import Tab ────────────────────────────────────────────────
+function EloImportTab({ token }: { token: string }) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [manualEntries, setManualEntries] = useState('');
+  const [fetchTeams, setFetchTeams] = useState('');
+
+  const doImport = async (action: string, body: any) => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await adminFetch(token, '/api/admin/elo-import', {
+        method: 'POST',
+        body: JSON.stringify({ action, ...body }),
+      });
+      setResult(await res.json());
+    } catch (e: any) {
+      setResult({ error: e.message });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card title="Süper Lig İçe Aktar">
+          <p className="text-xs text-gray-500 mb-3">ClubElo.com'dan Türk takımlarının Elo rating'lerini çeker.</p>
+          <button
+            onClick={() => doImport('fetch-league', { country: 'TUR' })}
+            disabled={loading}
+            className="w-full py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+          >
+            {loading ? <Spinner /> : '🇹🇷 Süper Lig Çek'}
+          </button>
+        </Card>
+
+        <Card title="Avrupa Kulüpleri İçe Aktar">
+          <p className="text-xs text-gray-500 mb-3">Major Avrupa kulüplerinin Elo rating'leri.</p>
+          <button
+            onClick={() => doImport('fetch-league', { country: 'EUR' })}
+            disabled={loading}
+            className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? <Spinner /> : '🇪🇺 Avrupa Çek'}
+          </button>
+        </Card>
+
+        <Card title="Hepsini Çek">
+          <p className="text-xs text-gray-500 mb-3">Süper Lig + Avrupa kulüpleri toplu import.</p>
+          <button
+            onClick={() => doImport('fetch-league', { country: 'ALL' })}
+            disabled={loading}
+            className="w-full py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {loading ? <Spinner /> : '⚽ Tümünü Çek'}
+          </button>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card title="Takım Listesi ile Çek (ClubElo)">
+          <p className="text-xs text-gray-500 mb-2">ClubElo takım isimlerini virgülle ayırarak girin.</p>
+          <textarea
+            value={fetchTeams}
+            onChange={(e) => setFetchTeams(e.target.value)}
+            placeholder="Galatasaray, Fenerbahce, Besiktas, RealMadrid, Barcelona"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs h-20 resize-none focus:ring-2 focus:ring-emerald-500 outline-none"
+          />
+          <button
+            onClick={() => {
+              const teams = fetchTeams.split(',').map(t => t.trim()).filter(Boolean);
+              if (teams.length > 0) doImport('fetch', { teams });
+            }}
+            disabled={loading || !fetchTeams.trim()}
+            className="mt-2 w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {loading ? <Spinner /> : 'Çek'}
+          </button>
+        </Card>
+
+        <Card title="Manuel Giriş">
+          <p className="text-xs text-gray-500 mb-2">Her satıra: takımadı, rating (ör: Galatasaray, 1750)</p>
+          <textarea
+            value={manualEntries}
+            onChange={(e) => setManualEntries(e.target.value)}
+            placeholder={"Galatasaray, 1750\nFenerbahce, 1720\nBesiktas, 1680"}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs h-20 resize-none focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+          />
+          <button
+            onClick={() => {
+              const entries = manualEntries.split('\n').map(line => {
+                const parts = line.split(',').map(s => s.trim());
+                if (parts.length >= 2) {
+                  const rating = parseFloat(parts[1]);
+                  if (!isNaN(rating)) return { team: parts[0], rating };
+                }
+                return null;
+              }).filter(Boolean);
+              if (entries.length > 0) doImport('manual', { entries });
+            }}
+            disabled={loading || !manualEntries.trim()}
+            className="mt-2 w-full py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50"
+          >
+            {loading ? <Spinner /> : 'Kaydet'}
+          </button>
+        </Card>
+      </div>
+
+      {result && (
+        <Card title="Sonuç">
+          <div className="space-y-2">
+            {result.ok && (
+              <div className="flex flex-wrap gap-3">
+                <Stat label="İçe Aktarılan" value={result.imported ?? 0} />
+                {result.failed?.length > 0 && <Stat label="Başarısız" value={result.failed.length} />}
+                {result.country && <Stat label="Lig" value={result.country} />}
+              </div>
+            )}
+            {result.results?.length > 0 && (
+              <div className="mt-2">
+                <div className="text-[11px] text-gray-500 mb-1">Çekilen Rating'ler:</div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1">
+                  {result.results.map((r: any) => (
+                    <div key={r.team} className="flex justify-between text-xs bg-gray-50 px-2 py-1 rounded">
+                      <span className="text-gray-700">{r.team}</span>
+                      <span className="font-mono font-bold text-emerald-700">{r.rating}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {result.failed?.length > 0 && (
+              <div className="mt-2">
+                <div className="text-[11px] text-red-500 mb-1">Bulunamayan Takımlar:</div>
+                <div className="flex flex-wrap gap-1">
+                  {result.failed.map((t: string) => (
+                    <span key={t} className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded">{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {result.error && (
+              <div className="text-xs text-red-600 bg-red-50 p-2 rounded">{result.error}</div>
+            )}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────
-type Tab = 'overview' | 'ml' | 'calibration' | 'signals' | 'elo';
+type Tab = 'overview' | 'ml' | 'calibration' | 'signals' | 'elo' | 'elo-import';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'overview', label: 'Genel Bakış' },
@@ -557,6 +708,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'calibration', label: 'Kalibrasyon' },
   { key: 'signals', label: 'Sinyaller' },
   { key: 'elo', label: 'Elo' },
+  { key: 'elo-import', label: 'Elo İçe Aktar' },
 ];
 
 export default function AdminPage() {
@@ -614,6 +766,7 @@ export default function AdminPage() {
         {tab === 'calibration' && <CalibrationTab token={token} />}
         {tab === 'signals' && <SignalsTab />}
         {tab === 'elo' && <EloTab />}
+        {tab === 'elo-import' && <EloImportTab token={token} />}
       </div>
     </div>
   );

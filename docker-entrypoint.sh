@@ -65,7 +65,7 @@ echo "[OK] Next.js started (PID $WEB_PID)"
 if [ -f /app/nesine/index.ts ]; then
     echo "[NESINE] Starting relay..."
     cd /app/nesine
-    CORS_LIST=$(echo "${SOCKET_CORS_ORIGIN:-http://localhost:3012}" | tr ',' ' ')
+    CORS_LIST=$(echo "${SOCKET_CORS_ORIGIN:-http://localhost:3000}" | tr ',' ' ')
     NODE_ENV=production SOCKET_CORS_ORIGIN="${CORS_LIST}" bun index.ts &
     NESINE_PID=$!
     echo "[OK] Nesine relay started (PID $NESINE_PID)"

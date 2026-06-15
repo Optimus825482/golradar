@@ -203,3 +203,47 @@ export function eloGoalAdjustment(home: string, away: string, currentMinute: num
   let awayAdjust = diff < -50 ? (isVeryLate ? 8 : isLate ? 5 : 2) : diff < 0 ? (isLate ? 3 : 1) : 0;
   return { homeAdjust, awayAdjust };
 }
+
+/**
+ * Directly set a team's Elo rating (used by import/admin).
+ * Unlike updateRatings(), this doesn't simulate a match.
+ */
+export function setRating(team: string, rating: number, matchesPlayed?: number): EloRating {
+  const ratings = loadRatings();
+  const key = normalizeTeamName(team) || team;
+  const existing = ratings.get(key);
+  const entry: EloRating = {
+    rating: Math.round(rating),
+    matchesPlayed: matchesPlayed ?? existing?.matchesPlayed ?? 0,
+    lastUpdated: Date.now(),
+    recentResults: existing?.recentResults ?? [],
+  };
+  ratings.set(key, entry);
+  ratingsCache = ratings;
+  saveRatings();
+  return entry;
+}
+
+/**
+ * Bulk set ratings from an external source.
+ * Returns count of imported teams.
+ */
+export function bulkSetRatings(entries: Array<{ team: string; rating: number; matchesPlayed?: number }>): number {
+  const ratings = loadRatings();
+  let count = 0;
+  for (const e of entries) {
+    const key = normalizeTeamName(e.team) || e.team;
+    if (!key || e.rating < 500 || e.rating > 3000) continue;
+    const existing = ratings.get(key);
+    ratings.set(key, {
+      rating: Math.round(e.rating),
+      matchesPlayed: e.matchesPlayed ?? existing?.matchesPlayed ?? 0,
+      lastUpdated: Date.now(),
+      recentResults: existing?.recentResults ?? [],
+    });
+    count++;
+  }
+  ratingsCache = ratings;
+  saveRatings();
+  return count;
+}

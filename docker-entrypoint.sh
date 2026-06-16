@@ -60,7 +60,7 @@ echo "[DB] Schema sync complete"
 if [ "${SIGNAL_RESET:-0}" = "1" ]; then
     echo "[DB] Resetting Signal table for new schema..."
     NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
-        node -e "const{PrismaClient}=require('@prisma/client');const p=new PrismaClient({datasourceUrl:process.env.DATABASE_URL});p.\$executeRawUnsafe('DELETE FROM \"Signal\"').then(r=>{console.log('[DB] Signal table cleared ('+r+' rows)');process.exit(0)}).catch(e=>{console.error(e);process.exit(1)})" 2>&1 || echo "[DB] Signal cleanup failed (ignored)"
+        node -e "const{PrismaClient}=require('@prisma/client');const p=new PrismaClient({datasourceUrl:process.env.\$DATABASE_URL});p.\$executeRawUnsafe('DELETE FROM \"Signal\"').then(r=>{console.log('[DB] Signal table cleared ('+r+' rows)');process.exit(0)}).catch(e=>{console.error(e);process.exit(1)})" 2>&1 || echo "[DB] Signal cleanup failed (ignored)"
 fi
 
 # Import FotMob teams from CSV into TeamMapping (first deploy only)
@@ -69,7 +69,7 @@ if [ "${IMPORT_FOTMOB_TEAMS:-0}" = "1" ]; then
     NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
         node -e "
 (async()=>{
-const{PrismaClient}=require('@prisma/client'),fs=require('fs'),p=new PrismaClient({datasourceUrl:process.env.DATABASE_URL});
+const{PrismaClient}=require('@prisma/client'),fs=require('fs'),p=new PrismaClient({datasourceUrl:process.env.\$DATABASE_URL});
 const raw=fs.readFileSync('docs/fotmob_teams.csv','utf-8'),lines=raw.trim().split('\n');
 
 let c=0;
@@ -81,7 +81,7 @@ for(let i=1;i<lines.length;i++){
   try{await p.teamMapping.upsert({where:{canonicalName:canonical},create:{canonicalName:canonical,fotmobId:+m[1],fotmobName:name,fotmobSlug:slug,fotmobLogoUrl:logoUrl,country:country||undefined},update:{fotmobId:+m[1],fotmobName:name,fotmobSlug:slug,fotmobLogoUrl:logoUrl,country:country||undefined}});c++}catch(e){}
 }
 console.log('[DB] '+c+' FotMob teams imported');
-await p.$disconnect();
+await p.\$disconnect();
 })()
 " 2>&1 || echo "[DB] FotMob import failed (ignored)"
 fi

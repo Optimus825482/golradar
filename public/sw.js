@@ -57,8 +57,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API calls: network-first with 10s timeout, then cache
+  // API calls: network-first with 10s timeout, then cache (GET only)
   if (url.pathname.startsWith('/api/')) {
+    // POST requests: network-only, never cache
+    if (request.method !== 'GET') {
+      return; // Let browser handle normally
+    }
+
     event.respondWith(
       fetchWithTimeout(request, 10000)
         .then((response) => {

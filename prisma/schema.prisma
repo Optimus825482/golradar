@@ -259,8 +259,8 @@ model Signal {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  // One signal per match per side — upserted on every poll
-  @@unique([matchCode, date, signalSide])
+  // Multiple signals per match per side — each new signal after a resolved one creates a new row
+  @@index([matchCode, date, signalSide])
   @@index([date])
   @@index([matchCode])
   @@index([goalHappened])

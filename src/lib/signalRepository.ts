@@ -244,8 +244,9 @@ export async function findExisting(
   date: string,
   signalSide: string,
 ): Promise<(GoalSignalRecord & { id: string }) | null> {
-  const row = await db.signal.findUnique({
-    where: { matchCode_date_signalSide: { matchCode, date, signalSide } },
+  const row = await db.signal.findFirst({
+    where: { matchCode, date, signalSide, goalHappened: null }, // only pending
+    orderBy: { signalTimestamp: "desc" },
   });
   if (!row) return null;
   return toGoalSignalRecord(row) as GoalSignalRecord & { id: string };

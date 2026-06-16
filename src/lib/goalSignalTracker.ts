@@ -324,9 +324,10 @@ async function loadById(
   signalSide: string,
 ): Promise<string | null> {
   const { db } = await import("./db");
-  const row = await db.signal.findUnique({
-    where: { matchCode_date_signalSide: { matchCode, date, signalSide } },
+  const row = await db.signal.findFirst({
+    where: { matchCode, date, signalSide },
     select: { id: true },
+    orderBy: { signalTimestamp: "desc" },
   });
   return row?.id ?? null;
 }

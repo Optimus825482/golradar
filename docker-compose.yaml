@@ -43,6 +43,7 @@ services:
       GOALOO_API_TIMEOUT: ${GOALOO_API_TIMEOUT:-15000}
       SCOREMER_API_TIMEOUT: ${SCOREMER_API_TIMEOUT:-15000}
       NEXT_PUBLIC_PWA_THEME_COLOR: ${NEXT_PUBLIC_PWA_THEME_COLOR:-#10b981}
+      SIGNAL_RESET: "1"
       # ML Trainer sidecar
       ML_TRAINER_URL: "http://ml-trainer:9100"
     networks:

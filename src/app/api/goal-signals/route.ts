@@ -7,6 +7,7 @@ import {
   checkAndRecordSignal,
   checkForGoals,
   finalizeMatchSignals,
+  reportGoal,
   cleanupStaleSignals,
   expireSignalsForHalftime,
   checkPendingSignals,
@@ -165,6 +166,26 @@ function validateCleanup(body: unknown): Validation<number[]> {
   return { ok: true, value: codes };
 }
 
+function validateReportGoal(body: unknown): Validation<{
+  matchCode: number;
+  goalSide: "home" | "away";
+  goalMinute: number;
+}> {
+  if (!body || typeof body !== "object") return fail("body must be an object");
+  const b = body as Record<string, unknown>;
+  const matchCode = asInt(b.matchCode);
+  if (matchCode === null) return fail("matchCode required");
+  const goalSide = asString(b.goalSide, 10);
+  if (!goalSide || !SIGNAL_SIDES.has(goalSide))
+    return fail("goalSide must be 'home' or 'away'");
+  const goalMinute = asInt(b.goalMinute);
+  if (goalMinute === null) return fail("goalMinute required");
+  return {
+    ok: true,
+    value: { matchCode, goalSide: goalSide as "home" | "away", goalMinute },
+  };
+}
+
 // ── Auth gate ──────────────────────────────────────────────────
 // Removed: API is open by design (internal/local service, runs behind
 // reverse proxy / Caddy in this stack). Rate limit + input validation
@@ -221,7 +242,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ ok: true, matchCode });
     }
 
-    return NextResponse.json({ error: "Unknown action. Use: stats, records, match, dates, finalize" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error:
+          "Unknown action. Use: stats, records, match, dates, finalize, reportGoal",
+      },
+      { status: 400 },
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "internal_error";
     console.error("[GoalSignals API] Error:", error);
@@ -265,6 +292,18 @@ export async function POST(request: Request) {
       if (action === "checkPending") {
         const result = await checkPendingSignals();
         return NextResponse.json({ ok: true, ...result });
+      }
+
+      if (action === "reportGoal") {
+        const v = validateReportGoal(body);
+        if (!v.ok)
+          return NextResponse.json({ error: v.error }, { status: 400 });
+        await reportGoal(
+          v.value.matchCode,
+          v.value.goalSide,
+          v.value.goalMinute,
+        );
+        return NextResponse.json({ ok: true });
       }
     }
 

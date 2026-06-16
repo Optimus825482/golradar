@@ -75,8 +75,8 @@ export default function OptimusGolRadariPage() {
   // Goal flash tracking
   const [goalFlashMap, setGoalFlashMap] = useState<Record<number, number>>({})
 
-  // Previous goals tracking
-  const prevGoalsRef = useRef<Record<number, { home: number; away: number }>>({})
+  // Previous goals tracking (with status for match-end detection)
+  const prevGoalsRef = useRef<Record<number, { home: number; away: number; status: number }>>({})
 
   // NetScores integration (replaces FotMob)
   const [fotmobData, setFotmobData] = useState<FotMobMatchDetails | null>(null)
@@ -383,7 +383,7 @@ export default function OptimusGolRadariPage() {
     }
   }, [activeTab, matches.length, finishedMatches.length, fetchFinishedMatches, finishedLoading])
 
-  // Goal Detection
+  // Goal Detection: report goals to signal tracker + UI notifications
   useEffect(() => {
     const prevGoals = prevGoalsRef.current
     const now = Date.now()
@@ -398,8 +398,21 @@ export default function OptimusGolRadariPage() {
       if (homeScored || awayScored) {
         setGoalFlashMap(p => ({ ...p, [m.code]: now }))
 
-        fetch(`/api/goal-signals?action=finalize&matchCode=${m.code}&homeScore=${m.homeGoals}&awayScore=${m.awayGoals}`)
-          .catch(() => {})
+        // Report each goal side independently via API
+        if (homeScored) {
+          fetch('/api/goal-signals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'reportGoal', matchCode: m.code, goalSide: 'home', goalMinute: parseInt(m.minute) || 0 }),
+          }).catch(() => { })
+        }
+        if (awayScored) {
+          fetch('/api/goal-signals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'reportGoal', matchCode: m.code, goalSide: 'away', goalMinute: parseInt(m.minute) || 0 }),
+          }).catch(() => { })
+        }
 
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('goal-scored', { detail: { matchCode: m.code } }))
@@ -421,11 +434,18 @@ export default function OptimusGolRadariPage() {
           }, 8000)
         }
       }
+
+      // When match ends, finalize all pending signals for this match
+      const MATCH_ENDED = [3, 28, 30, 40, 50, 60, 70, 80, 90, 100]
+      if (MATCH_ENDED.includes(m.status) && prev.status !== m.status) {
+        fetch(`/api/goal-signals?action=finalize&matchCode=${m.code}&homeScore=${m.homeGoals}&awayScore=${m.awayGoals}`)
+          .catch(() => { })
+      }
     }
 
-    const newPrev: Record<number, { home: number; away: number }> = {}
+    const newPrev: Record<number, { home: number; away: number; status: number }> = {}
     for (const m of matches) {
-      newPrev[m.code] = { home: m.homeGoals, away: m.awayGoals }
+      newPrev[m.code] = { home: m.homeGoals, away: m.awayGoals, status: m.status }
     }
     prevGoalsRef.current = newPrev
   }, [matches, favorites])
@@ -851,7 +871,7 @@ export default function OptimusGolRadariPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col touch-manipulation">
       {/* ── Compact App Header ─────────────────────────────────── */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm safe-top">
-        <div className="max-w-[1400px] mx-auto px-3 py-2 flex items-center justify-between">
+        <div className="max-w-350 mx-auto px-3 py-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img src="/logo-192.png" alt="Gol Radarı" className="w-8 h-8 rounded-lg shadow-sm object-cover" />
             <div>
@@ -890,8 +910,8 @@ export default function OptimusGolRadariPage() {
 
       {/* ── Goal Radar Alert Banner ──────────────────────────── */}
       {radarCount > 0 && activeTab !== 'radar' && (
-        <div className="bg-gradient-to-r from-red-500 via-red-600 to-red-500 border-b border-red-700">
-          <div className="max-w-[1400px] mx-auto px-3 py-1.5 flex items-center justify-between">
+        <div className="bg-linear-to-r from-red-500 via-red-600 to-red-500 border-b border-red-700">
+          <div className="max-w-350 mx-auto px-3 py-1.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="relative">
                 <svg className="w-4 h-4 text-white animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -916,7 +936,7 @@ export default function OptimusGolRadariPage() {
       {/* ── Main Content Area ──────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden" style={{ height: 'calc(100dvh - 56px - 60px - env(safe-area-inset-top) - env(safe-area-inset-bottom))' }}>
         <div className={`transition-all duration-300 ease-in-out overflow-y-auto -webkit-overflow-scrolling-touch ${selectedMatch ? 'md:w-[40%] w-full' : 'w-full'}`}>
-          <div className={`${selectedMatch ? 'max-w-full' : 'max-w-[1400px]'} mx-auto p-3 pb-20`}>
+          <div className={`${selectedMatch ? 'max-w-full' : 'max-w-350'} mx-auto p-3 pb-20`}>
             {renderMatchList()}
           </div>
         </div>
@@ -967,10 +987,10 @@ export default function OptimusGolRadariPage() {
 
       {/* Goal Notifications Portal */}
       {goalNotifications.length > 0 && favoritesLoaded && createPortal(
-        <div className="fixed top-16 right-3 z-[100] flex flex-col gap-2 pointer-events-none" style={{ maxWidth: '340px' }}>
+        <div className="fixed top-16 right-3 z-100 flex flex-col gap-2 pointer-events-none" style={{ maxWidth: '340px' }}>
           {goalNotifications.map(notif => (
             <div key={notif.id}
-              className="pointer-events-auto animate-[slideInRight_0.4s_ease-out] bg-gradient-to-r from-green-500 via-emerald-500 to-green-600 rounded-xl shadow-2xl border border-green-400 p-3 text-white"
+              className="pointer-events-auto animate-[slideInRight_0.4s_ease-out] bg-linear-to-r from-green-500 via-emerald-500 to-green-600 rounded-xl shadow-2xl border border-green-400 p-3 text-white"
               style={{ animation: 'slideInRight 0.4s ease-out' }}>
               <div className="flex items-center gap-2 mb-1">
                 <div className="relative">

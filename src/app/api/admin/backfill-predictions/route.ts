@@ -1,26 +1,25 @@
-// ── Admin: Historical Prediction Backfill (Sofascore-powered) ─────
-// Fetches finished matches from Sofascore (via datafc bridge), uses
-// real per-minute momentum, exact goal times, HT/FT scores, and full
-// match statistics. Generates prediction snapshots at ~5min intervals
-// and writes PredictionLog entries for ML training.
+// ── Admin: Goaloo Season Backfill ──────────────────────────────────
+// Fetches full-season historical matches from football.goaloo.com,
+// uses real per-minute momentum & goal events from the Goaloo API.
+// Generates prediction snapshots at ~5min intervals and writes
+// PredictionLog + MatchEvent entries for ML training.
 //
-// POST body:
-//   { daysBack: 30, maxMatches: 500 }
+// POST body: { league: 34, season: "2025-2026", maxMatches: 500 }
 
 import { NextResponse } from "next/server";
 import { adminRoute } from "@/lib/adminRoute";
 import { db } from "@/lib/db";
 import {
-  fetchSofascoreMatchesByDate,
-  fetchSofascoreMatchDetail,
-  type SofascoreMatch,
-  type SofascoreIncident,
-  type SofascoreMomentumPoint,
-  type SofascoreStatItem,
-} from "@/lib/sofascore";
+  fetchGoalooSeasonMatches,
+  fetchGoalooMomentum,
+  fetchGoalooMatchEvents,
+  type GoalooSeasonMatch,
+  type MomentumData,
+  type GoalooMatchEvent,
+} from "@/lib/goaloo";
 import { calculateGoalProbability } from "@/lib/goalRadar";
 import { extractFeatures, featuresToArray } from "@/lib/featureEngineering";
-import { getRating, autoFetchMissingRatings } from "@/lib/eloRating";
+import { getRating } from "@/lib/eloRating";
 
 export const dynamic = "force-dynamic";
 
@@ -28,16 +27,13 @@ export const dynamic = "force-dynamic";
 
 interface BackfillProgress {
   status: "running" | "done" | "failed";
-  daysBack: number;
+  league: number;
+  season: string;
   maxMatches: number;
-  totalDates: number;
-  processedDates: number;
-  failedDates: number;
   totalMatches: number;
   totalPredictions: number;
-  currentDate: string;
+  processedMatches: number;
   currentMatch: string;
-  teamsCollected: number;
   progressPct: number;
   error?: string;
 }
@@ -45,7 +41,6 @@ interface BackfillProgress {
 const globalForBackfill = globalThis as unknown as {
   __backfillProgress: Record<string, BackfillProgress> | undefined;
 };
-
 function getProgressStore(): Record<string, BackfillProgress> {
   if (!globalForBackfill.__backfillProgress) {
     globalForBackfill.__backfillProgress = {};
@@ -53,388 +48,178 @@ function getProgressStore(): Record<string, BackfillProgress> {
   return globalForBackfill.__backfillProgress;
 }
 
-// ── Types ────────────────────────────────────────────────────────
+// ── Convert Goaloo momentum (per-minute intensity 0-100) → snapshot ─
 
-interface EnrichedMatch {
-  matchCode: number;
-  homeTeam: string;
-  awayTeam: string;
-  league: string;
-  homeScore: number;
-  awayScore: number;
-  homeScoreHT: number;
-  awayScoreHT: number;
-  incidents: SofascoreIncident[];
-  statistics: SofascoreStatItem[];
-  momentum: SofascoreMomentumPoint[];
-}
-
-// ── Convert Sofascore momentum → pressure snapshot ────────────────
-// Sofascore momentum: [{minute: 1, value: 47}, {minute: 2, value: 52}, ...]
-// Value represents home team attack intensity (0-100).
-
-function momentumToSnapshots(match: EnrichedMatch): Array<{
-  minute: number;
-  homePressure: number;
-  awayPressure: number;
-  homeGoals: number;
-  awayGoals: number;
+function momentumToSnapshots(
+  momentum: MomentumData,
+  goalEvents: { minute: number; isHome: boolean }[],
+): Array<{
+  minute: number; homePressure: number; awayPressure: number;
+  homeGoals: number; awayGoals: number;
   stats: Record<string, { home: number; away: number }>;
 }> {
-  const { momentum, statistics } = match;
+  const intervals = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
 
-  // Build stats lookup per stat name
-  const statMap = new Map<string, { home: number; away: number }>();
-  for (const s of statistics) {
-    if (!statMap.has(s.stat_name)) {
-      statMap.set(s.stat_name, { home: s.home ?? 0, away: s.away ?? 0 });
+  const homeGoalsAt = (m: number) => goalEvents.filter(e => e.isHome && e.minute <= m).length;
+  const awayGoalsAt = (m: number) => goalEvents.filter(e => !e.isHome && e.minute <= m).length;
+
+  return intervals.map(min => {
+    let hSum = 0, aSum = 0, cnt = 0;
+    for (let i = 0; i < Math.min(min, 90); i++) {
+      hSum += momentum.homeIntensities[i] || 0;
+      aSum += momentum.awayIntensities[i] || 0;
+      cnt++;
     }
-  }
-
-  // Goal events with exact minutes
-  const goalAt = (minute: number, isHome: boolean) =>
-    match.incidents.filter(
-      (e) => e.incident_type === 1 && e.is_home === isHome && e.time <= minute,
-    ).length;
-
-  const snapshots: Array<{
-    minute: number;
-    homePressure: number;
-    awayPressure: number;
-    homeGoals: number;
-    awayGoals: number;
-    stats: Record<string, { home: number; away: number }>;
-  }> = [];
-
-  const intervals = [
-    5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90,
-  ];
-  for (const min of intervals) {
-    // Find closest momentum point
-    const mom = momentum
-      .filter((p) => p.minute <= min)
-      .sort((a, b) => b.minute - a.minute)[0];
-
-    // Sofascore momentum value represents home attack intensity
-    // Derive away pressure as inverse
-    const baseValue = mom?.value ?? 50;
-    const homePressure = Math.min(100, Math.max(0, baseValue));
-    const awayPressure = Math.min(100, Math.max(0, 100 - baseValue));
-
-    snapshots.push({
+    return {
       minute: min,
-      homePressure,
-      awayPressure,
-      homeGoals: goalAt(min, true),
-      awayGoals: goalAt(min, false),
+      homePressure: cnt > 0 ? Math.round(hSum / cnt) : 50,
+      awayPressure: cnt > 0 ? Math.round(aSum / cnt) : 50,
+      homeGoals: homeGoalsAt(min),
+      awayGoals: awayGoalsAt(min),
       stats: {
-        possession: statMap.get("Ball possession") ?? { home: 50, away: 50 },
-        shots_on_target: statMap.get("Shots on target") ?? { home: 0, away: 0 },
-        dangerous_attacks: statMap.get("Dangerous attacks") ?? {
-          home: 0,
-          away: 0,
-        },
-        shots_total: statMap.get("Total shots") ?? { home: 0, away: 0 },
-        corners: statMap.get("Corner kicks") ?? { home: 0, away: 0 },
-        yellow_cards: statMap.get("Yellow cards") ?? { home: 0, away: 0 },
+        possession: { home: cnt > 0 ? Math.round(hSum / cnt) : 50, away: cnt > 0 ? Math.round(aSum / cnt) : 50 },
+        shots_on_target: { home: 0, away: 0 },
+        dangerous_attacks: { home: 0, away: 0 },
+        shots_total: { home: 0, away: 0 },
+        corners: { home: 0, away: 0 },
+        yellow_cards: { home: 0, away: 0 },
       },
-    });
-  }
-
-  return snapshots;
+    };
+  });
 }
 
-// ── Fetch finished matches from Sofascore by date ─────────────────
+// ── Parse goal events from Goaloo detail text ────────────────────
 
-async function fetchFinishedMatchesByDate(
-  date: string,
-): Promise<EnrichedMatch[]> {
-  const matches = await fetchSofascoreMatchesByDate(date);
-  if (matches.length === 0) return [];
-
-  // Filter finished matches
-  const finished = matches.filter(
-    (m) =>
-      m.status_type === "finished" &&
-      m.home_score != null &&
-      m.away_score != null,
-  );
-
-  // Fetch detail (incidents, stats, momentum) for each match — concurrency 3
-  const enriched: (EnrichedMatch | null)[] = [];
-  for (let i = 0; i < finished.length; i += 3) {
-    const batch = finished.slice(i, i + 3);
-    const results = await Promise.all(
-      batch.map(async (m) => {
-        const detail = await fetchSofascoreMatchDetail(m.game_id);
-        if (!detail) return null;
-        return {
-          matchCode: m.game_id,
-          homeTeam: m.home_team,
-          awayTeam: m.away_team,
-          league: m.tournament_name,
-          homeScore: m.home_score ?? 0,
-          awayScore: m.away_score ?? 0,
-          homeScoreHT: m.home_score_ht ?? 0,
-          awayScoreHT: m.away_score_ht ?? 0,
-          incidents: detail.incidents,
-          statistics: detail.statistics,
-          momentum: detail.momentum,
-        } as EnrichedMatch;
-      }),
-    );
-    enriched.push(...results);
-    if (i + 3 < finished.length) {
-      await new Promise((r) => setTimeout(r, 500));
-    }
+function parseGoalEvents(events: GoalooMatchEvent[], homeTeam: string, awayTeam: string) {
+  const result: { minute: number; isHome: boolean; player: string }[] = [];
+  for (const e of events) {
+    if (e.type !== "goal" || !e.minute) continue;
+    const detail = e.detail.toLowerCase();
+    const isHome = detail.includes(homeTeam.toLowerCase());
+    result.push({ minute: e.minute, isHome, player: e.player || "" });
   }
-
-  return enriched.filter((m): m is EnrichedMatch => m !== null);
+  return result;
 }
 
-async function processMatch(match: EnrichedMatch): Promise<number> {
-  const { homeTeam, awayTeam, league, matchCode } = match;
+// ── Process a single match ────────────────────────────────────────
 
-  // 1. Build pressure snapshots from Sofascore's real momentum data
-  const snapshots = momentumToSnapshots(match);
+async function processMatch(m: GoalooSeasonMatch, leagueName: string): Promise<number> {
+  const matchCode = m.scheduleId;
+  const homeTeam = m.homeTeam;
+  const awayTeam = m.awayTeam;
+
+  // Fetch momentum & events from Goaloo AJAX endpoints
+  const momentum = await fetchGoalooMomentum(matchCode);
+  if (!momentum) return 0;
+
+  const events = await fetchGoalooMatchEvents(matchCode);
+  const goalEvents = parseGoalEvents(events, homeTeam, awayTeam);
+
+  // Build snapshots
+  const snapshots = momentumToSnapshots(momentum, goalEvents);
   if (snapshots.length === 0) return 0;
 
-  // 2. Get Elo ratings
+  // Elo
   const homeElo = getRating(homeTeam)?.rating ?? null;
   const awayElo = getRating(awayTeam)?.rating ?? null;
 
-  // 3. Goal events (incident_type=1 = goal)
-  const goalEvents = match.incidents.filter((e) => e.incident_type === 1);
-
-  // 4. Write MatchEvent entries for goals
+  // Write goal events
   for (const ge of goalEvents) {
-    await db.matchEvent
-      .create({
-        data: {
-          matchCode,
-          minute: ge.time,
-          eventType: "goal" as const,
-          side: ge.is_home ? "home" : "away",
-          player: ge.player_name || null,
-        },
-      })
-      .catch(() => {});
+    await db.matchEvent.create({
+      data: {
+        matchCode, minute: ge.minute, eventType: "goal",
+        side: ge.isHome ? "home" : "away", player: ge.player || null,
+      },
+    }).catch(() => {});
   }
 
-  // 5. Generate PredictionLog entries at ~5min intervals
-  const INTERVALS = [
-    10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90,
-  ];
+  // Generate predictions at intervals
+  const INTERVALS = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
   const predictionLogs: any[] = [];
 
   for (const minNum of INTERVALS) {
-    const snap = snapshots.find((s) => s.minute === minNum);
+    const snap = snapshots.find(s => s.minute === minNum);
     if (!snap) continue;
 
-    const minuteStr = `${minNum}'`;
-
+    const homeGoalsAtMin = snap.homeGoals;
+    const awayGoalsAtMin = snap.awayGoals;
     const pressureHistory = snapshots
-      .filter((s) => s.minute <= minNum)
-      .map((s) => ({
-        homePressure: s.homePressure,
-        awayPressure: s.awayPressure,
-        stats: s.stats,
-        homeGoals: s.homeGoals,
-        awayGoals: s.awayGoals,
-      }));
-
-    const homeGoalsAtMin = goalEvents.filter(
-      (e) => e.is_home && e.time <= minNum,
-    ).length;
-    const awayGoalsAtMin = goalEvents.filter(
-      (e) => !e.is_home && e.time <= minNum,
-    ).length;
+      .filter(s => s.minute <= minNum)
+      .map(s => ({ homePressure: s.homePressure, awayPressure: s.awayPressure, stats: s.stats, homeGoals: s.homeGoals, awayGoals: s.awayGoals }));
 
     try {
-      const prob = calculateGoalProbability(
-        snap.stats,
-        minuteStr,
-        true,
-        pressureHistory,
-        homeGoalsAtMin,
-        awayGoalsAtMin,
-        homeTeam,
-        awayTeam,
-      );
-
-      const features = await extractFeatures({
-        stats: snap.stats,
-        minute: minuteStr,
-        isLive: true,
-        homeGoals: homeGoalsAtMin,
-        awayGoals: awayGoalsAtMin,
-        homeTeam,
-        awayTeam,
-        pressureHistory,
-        skipXtGrid: true,
-      });
-
+      const prob = calculateGoalProbability(snap.stats, `${minNum}'`, true, pressureHistory, homeGoalsAtMin, awayGoalsAtMin, homeTeam, awayTeam);
+      const features = await extractFeatures({ stats: snap.stats, minute: `${minNum}'`, isLive: true, homeGoals: homeGoalsAtMin, awayGoals: awayGoalsAtMin, homeTeam, awayTeam, pressureHistory, skipXtGrid: true });
       const featuresArr = featuresToArray(features);
 
-      // Determine label: is there a goal after this minute in the same match?
-      const nextGoalMinute = goalEvents
-        .map((g) => g.time)
-        .filter((t) => t > minNum)
-        .sort((a, b) => a - b)[0] ?? null;
+      const nextGoalMinute = goalEvents.map(g => g.minute).filter(t => t > minNum).sort((a, b) => a - b)[0] ?? null;
 
       predictionLogs.push({
-        matchCode,
-        minute: minNum,
-        rawScore: prob.score,
-        homeScore: prob.homeScore,
-        awayScore: prob.awayScore,
-        calibratedP: prob.calibratedP,
-        side: prob.side ?? "none",
-        level: prob.level,
+        matchCode, minute: minNum,
+        rawScore: prob.score, homeScore: prob.homeScore, awayScore: prob.awayScore,
+        calibratedP: prob.calibratedP, side: prob.side ?? "none", level: prob.level,
         factorsJson: JSON.stringify(prob.factors),
-        homeTeam,
-        awayTeam,
-        league,
+        homeTeam, awayTeam, league: leagueName,
         homeElo: homeElo ? Math.round(homeElo) : null,
         awayElo: awayElo ? Math.round(awayElo) : null,
-        poissonHomeP: null,
-        poissonAwayP: null,
-        modelVariant: "historical-backfill",
+        poissonHomeP: null, poissonAwayP: null,
+        modelVariant: "goaloo-season",
         featuresJson: JSON.stringify(featuresArr),
         goalScored: nextGoalMinute ? true : false,
         minutesToGoal: nextGoalMinute ? nextGoalMinute - minNum : null,
       });
-    } catch {
-      // Skip
-    }
+    } catch { /* skip */ }
   }
 
-  // 6. Batch insert (goalScored & minutesToGoal already set above)
   if (predictionLogs.length > 0) {
-    await db.predictionLog.createMany({
-      data: predictionLogs,
-      skipDuplicates: true,
-    });
+    await db.predictionLog.createMany({ data: predictionLogs, skipDuplicates: true });
   }
-
   return predictionLogs.length;
 }
 
+// ── POST: Kick off backfill ───────────────────────────────────────
+
 export const POST = adminRoute(async (request: Request) => {
   let body: any;
-  try {
-    body = await request.json();
-  } catch {
-    body = {};
-  }
+  try { body = await request.json(); } catch { body = {}; }
 
-  const daysBack = Math.min(90, Math.max(1, parseInt(body.daysBack) || 30));
-  const maxMatches = Math.min(
-    2000,
-    Math.max(10, parseInt(body.maxMatches) || 500),
-  );
+  const league = parseInt(body.league) || 34;
+  const season = body.season || "2025-2026";
+  const maxMatches = Math.min(2000, Math.max(10, parseInt(body.maxMatches) || 500));
   const jobId = body.jobId || crypto.randomUUID();
 
-  const dates: string[] = [];
-  for (let d = 1; d <= daysBack; d++) {
-    const date = new Date(Date.now() - d * 86_400_000);
-    dates.push(date.toISOString().slice(0, 10));
-  }
+  const LEAGUE_NAMES: Record<number, string> = {
+    34: "Italy Serie A", 36: "England Premier League", 31: "Spain LaLiga",
+    8: "Germany Bundesliga", 11: "France Ligue 1", 52: "Turkey Super Lig",
+  };
 
   const progress: BackfillProgress = {
-    status: "running",
-    daysBack,
-    maxMatches,
-    totalDates: dates.length,
-    processedDates: 0,
-    failedDates: 0,
-    totalMatches: 0,
-    totalPredictions: 0,
-    currentDate: "",
-    currentMatch: "",
-    teamsCollected: 0,
-    progressPct: 0,
+    status: "running", league, season, maxMatches,
+    totalMatches: 0, totalPredictions: 0, processedMatches: 0,
+    currentMatch: "", progressPct: 0,
   };
   getProgressStore()[jobId] = progress;
 
   void (async () => {
     try {
-      const allTeams = new Set<string>();
+      const matches = await fetchGoalooSeasonMatches(league, season);
+      progress.totalMatches = Math.min(matches.length, maxMatches);
 
-      // Phase 1: collect teams (they're in the match names, fast)
-      for (const date of dates) {
-        const matches = await fetchSofascoreMatchesByDate(date);
-        for (const m of matches) {
-          allTeams.add(m.home_team);
-          allTeams.add(m.away_team);
-        }
+      let processed = 0, totalPreds = 0;
+      for (const m of matches) {
+        if (processed >= maxMatches) break;
+        try {
+          progress.currentMatch = `${m.homeTeam} vs ${m.awayTeam}`;
+          const leagueName = LEAGUE_NAMES[league] || `League#${league}`;
+          const preds = await processMatch(m, leagueName);
+          totalPreds += preds;
+          processed++;
+          progress.processedMatches = processed;
+          progress.totalPredictions = totalPreds;
+          progress.progressPct = Math.round((processed / progress.totalMatches) * 100);
+        } catch { /* skip */ }
+        await new Promise(r => setTimeout(r, 600));
       }
-      progress.teamsCollected = allTeams.size;
-
-      if (allTeams.size > 0) {
-        await autoFetchMissingRatings([...allTeams]).catch(() => {});
-      }
-
-      // Phase 2: parallel workers
-      const BACKFILL_WORKERS = 4;
-      let dateCursor = 0;
-      let processedDatesCount = 0;
-
-      const phase2Lock = new (class {
-        _total = 0;
-        _preds = 0;
-        _failedDates = 0;
-        update(date: string, match: string, mc: number, preds: number) {
-          this._total += mc;
-          this._preds += preds;
-          progress.currentDate = date;
-          progress.currentMatch = match;
-          progress.totalMatches = this._total;
-          progress.totalPredictions = this._preds;
-          progress.failedDates = this._failedDates;
-          progress.processedDates = processedDatesCount;
-          progress.progressPct = Math.round(
-            (processedDatesCount / dates.length) * 100,
-          );
-        }
-      })();
-
-      async function dateWorker() {
-        while (true) {
-          const idx = dateCursor++;
-          if (idx >= dates.length) break;
-          const date = dates[idx];
-
-          const enriched = await fetchFinishedMatchesByDate(date);
-          if (enriched.length === 0) {
-            phase2Lock._failedDates++;
-            processedDatesCount++;
-            phase2Lock.update(date, "", 0, 0);
-            continue;
-          }
-
-          for (const match of enriched) {
-            if (progress.totalMatches >= progress.maxMatches) break;
-            try {
-              const count = await processMatch(match);
-              phase2Lock.update(
-                date,
-                `${match.homeTeam}-${match.awayTeam}`,
-                1,
-                count,
-              );
-            } catch {
-              /* skip */
-            }
-          }
-          processedDatesCount++;
-          phase2Lock.update(date, "", 0, 0);
-        }
-      }
-
-      await Promise.all(
-        Array.from({ length: BACKFILL_WORKERS }, () => dateWorker()),
-      );
 
       progress.status = "done";
       progress.progressPct = 100;
@@ -444,23 +229,19 @@ export const POST = adminRoute(async (request: Request) => {
     }
   })();
 
-  return NextResponse.json({ ok: true, jobId, totalDates: dates.length });
+  return NextResponse.json({ ok: true, jobId, totalMatches: 0 });
 });
 
-// ── GET: poll job progress ────────────────────────────────────────
+// ── GET: Poll job progress ────────────────────────────────────────
 
 export const GET = adminRoute(async (request: Request) => {
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get("jobId");
-  if (!jobId) {
-    return NextResponse.json({ error: "jobId required" }, { status: 400 });
-  }
+  if (!jobId) return NextResponse.json({ error: "jobId required" }, { status: 400 });
 
   const store = getProgressStore();
   const progress = store[jobId];
-  if (!progress) {
-    return NextResponse.json({ error: "job not found" }, { status: 404 });
-  }
+  if (!progress) return NextResponse.json({ error: "job not found" }, { status: 404 });
 
   return NextResponse.json(progress);
 });

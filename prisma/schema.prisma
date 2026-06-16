@@ -10,6 +10,21 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ── Gol Radarı: Admin User ───────────────────────────────────────
+model User {
+  id                  String    @id @default(cuid())
+  username            String    @unique
+  passwordHash        String    // pbkdf2 hex
+  passwordSalt        String    // random hex salt
+  mustChangePassword  Boolean   @default(true)
+  sessionToken        String?   @unique // current login token
+  sessionExpiresAt    DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([username])
+}
+
 // ── Gol Radarı: Match Pressure Snapshots ─────────────────────────
 // Stores periodic snapshots of match stats for momentum/trend analysis
 model MatchSnapshot {

@@ -30,10 +30,10 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db
       NODE_ENV: production
       PORT: 3012
-      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3012}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://radar.erkanerdem.online}
       NESINE_LIVE_PORT: 3003
-      NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:3003}
-      SOCKET_CORS_ORIGIN: ${SOCKET_CORS_ORIGIN:-http://localhost:3012}
+      NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-https://radar.erkanerdem.online:3003}
+      SOCKET_CORS_ORIGIN: ${SOCKET_CORS_ORIGIN:-https://radar.erkanerdem.online}
       RADAR_THRESHOLD: ${RADAR_THRESHOLD:-65}
       SIGNAL_5MIN_THRESHOLD: ${SIGNAL_5MIN_THRESHOLD:-0.25}
       POISSON_BLEND_WEIGHT: ${POISSON_BLEND_WEIGHT:-0.25}
@@ -43,7 +43,6 @@ services:
       GOALOO_API_TIMEOUT: ${GOALOO_API_TIMEOUT:-15000}
       SCOREMER_API_TIMEOUT: ${SCOREMER_API_TIMEOUT:-15000}
       NEXT_PUBLIC_PWA_THEME_COLOR: ${NEXT_PUBLIC_PWA_THEME_COLOR:-#10b981}
-      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN}
       # ML Trainer sidecar
       ML_TRAINER_URL: "http://ml-trainer:9100"
     networks:

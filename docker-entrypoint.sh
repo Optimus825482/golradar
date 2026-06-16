@@ -55,6 +55,14 @@ else
 fi
 echo "[DB] Schema sync complete"
 
+# Clean old Signal rows that used the old unique key (matchCode, date, signalIndex).
+# New schema uses (matchCode, date, signalSide) — old rows are incompatible.
+if [ "${SIGNAL_RESET:-0}" = "1" ]; then
+    echo "[DB] Resetting Signal table for new schema..."
+    NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
+        node -e "const{PrismaClient}=require('@prisma/client');const p=new PrismaClient({datasourceUrl:process.env.DATABASE_URL});p.\$executeRawUnsafe('DELETE FROM \"Signal\"').then(r=>{console.log('[DB] Signal table cleared ('+r+' rows)');process.exit(0)}).catch(e=>{console.error(e);process.exit(1)})" 2>&1 || echo "[DB] Signal cleanup failed (ignored)"
+fi
+
 # Start Next.js
 echo "[WEB] Starting Next.js on port ${PORT:-3012}..."
 NODE_ENV=production DATABASE_URL="$DATABASE_URL" HOSTNAME=0.0.0.0 PORT=${PORT:-3012} bun server.js &

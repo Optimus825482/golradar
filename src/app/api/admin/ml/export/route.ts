@@ -40,9 +40,10 @@ export const POST = adminRoute(async (request: Request) => {
   try {
     const result = await triggerExportNow(horizon);
     return NextResponse.json({
-      ok: true,
-      triggered: result.horizons,
-      startedAt: new Date().toISOString(),
+      ok: !!result,
+      horizon: result?.datasetId ? `${horizon ?? 5}min` : null,
+      rowCount: result?.rowCount ?? 0,
+      path: result?.path ?? null,
     });
   } catch (err) {
     return NextResponse.json(

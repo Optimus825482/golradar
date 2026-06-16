@@ -11,7 +11,8 @@ import {
   exportTrainingData,
   recordExportFailure,
   type TrainingHorizon,
-} from './exportTrainingData';
+  type ExportResult,
+} from "./exportTrainingData";
 import {
   startTraining,
   pollJob,
@@ -142,18 +143,21 @@ export function getTrainingSchedulerStatus(): {
  */
 export async function triggerExportNow(
   horizon?: TrainingHorizon,
-): Promise<{ horizons: TrainingHorizon[] }> {
+): Promise<ExportResult | null> {
   const state = getState();
-  const targets = horizon ? [horizon] : state.horizons;
-  for (const h of targets) {
-    try {
-      await exportTrainingData({ days: DEFAULT_DAYS_BACK, horizon: h, maxRows: MAX_ROWS_PER_EXPORT });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await recordExportFailure(h, msg);
-    }
+  const target = horizon ?? state.horizons[0];
+  try {
+    const result = await exportTrainingData({
+      days: DEFAULT_DAYS_BACK,
+      horizon: target,
+      maxRows: MAX_ROWS_PER_EXPORT,
+    });
+    return result;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await recordExportFailure(target, msg);
+    return null;
   }
-  return { horizons: targets };
 }
 
 // ── In-play retrain scheduler (W6) ───────────────────────────────

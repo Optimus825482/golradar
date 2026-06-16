@@ -122,7 +122,8 @@ export async function GET(request: Request) {
   let resp;
   try {
     resp = await fetch(`${LIVESCORE_API}?sportType=1&v=${version}`, {
-      headers: HEADERS, cache: "no-store",
+      headers: HEADERS,
+      cache: "no-store",
       signal: AbortSignal.timeout(10000),
     });
   } catch {
@@ -132,7 +133,11 @@ export async function GET(request: Request) {
 
   const text = await resp.text();
   let data;
-  try { data = JSON.parse(text); } catch { return emptyResponse(); }
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return emptyResponse();
+  }
   if (!data || data.sc !== 200) return emptyResponse();
 
   const rawMatches = data.d || [];
@@ -141,7 +146,10 @@ export async function GET(request: Request) {
   // Fan out FotMob cache lookups for live matches in parallel.
   // Padded to a 200ms deadline so a slow/missing cache never blocks
   // the response — failures degrade gracefully to non-enriched output.
-  const fotmobPromises = new Map<number, Promise<import("@/lib/fotmob").FotMobMatchDetails | null>>();
+  const fotmobPromises = new Map<
+    number,
+    Promise<import("@/lib/fotmob").FotMobMatchDetails | null>
+  >();
   for (const m of rawMatches) {
     const status = m.S || 0;
     if (!ACTIVE_STATUSES.has(status)) continue;
@@ -259,12 +267,54 @@ export async function GET(request: Request) {
 
   // Auto-fetch missing Elo ratings in background (fire-and-forget)
   if (matches.length > 0) {
-    const teamNames = matches.flatMap(m => [m.home, m.away]).filter(Boolean);
+    const teamNames = matches.flatMap((m) => [m.home, m.away]).filter(Boolean);
     void autoFetchMissingRatings(teamNames).catch(() => {});
   }
 
+  // Resolve FotMob logo URLs from TeamMapping for each team
+  const teamLogos: Record<string, string> = {};
+  const allTeamNames = matches.flatMap((m) => [
+    m.home.toLowerCase().trim(),
+    m.away.toLowerCase().trim(),
+  ]);
+  const uniqueNames = [...new Set(allTeamNames)];
+  if (uniqueNames.length > 0) {
+    try {
+      // Batch lookup: match by nesineName (fuzzy) or canonicalName
+      const mappings = await db.teamMapping.findMany({
+        where: {
+          OR: uniqueNames.map((n) => ({
+            OR: [
+              { canonicalName: { contains: n, mode: "insensitive" as const } },
+              { nesineName: { contains: n, mode: "insensitive" as const } },
+            ],
+          })),
+        },
+        select: { canonicalName: true, fotmobLogoUrl: true, nesineName: true },
+        take: 200,
+      });
+      for (const mapping of mappings) {
+        if (mapping.fotmobLogoUrl) {
+          // Store by lowercase for lookup
+          const key = mapping.canonicalName.toLowerCase();
+          teamLogos[key] = mapping.fotmobLogoUrl;
+          if (mapping.nesineName) {
+            teamLogos[mapping.nesineName.toLowerCase()] = mapping.fotmobLogoUrl;
+          }
+        }
+      }
+    } catch {
+      // Silent — logos are cosmetic
+    }
+  }
+
   return NextResponse.json({
-    matches, byLeague, version: data.v || 0,
-    count: matches.length, pressureData, goalRadarData,
+    matches,
+    byLeague,
+    version: data.v || 0,
+    count: matches.length,
+    pressureData,
+    goalRadarData,
+    teamLogos,
   });
 }

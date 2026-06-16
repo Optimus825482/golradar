@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 
 // ── Auth API Helper ──────────────────────────────────────────────
 function authFetch(path: string, init?: RequestInit) {
@@ -659,8 +659,32 @@ function EloTab() {
 function EloImportTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<any>(null);
   const [manualEntries, setManualEntries] = useState('');
   const [fetchTeams, setFetchTeams] = useState('');
+  const progressRef = useRef<jobId | null>(null);
+
+  // Poll progress when job is running
+  useEffect(() => {
+    if (!jobId) return;
+    const poll = setInterval(async () => {
+      try {
+        const res = await authFetch('/api/admin/elo-import', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'job-progress', jobId }),
+        });
+        const data = await res.json();
+        setProgress(data);
+        if (data.status === 'done' || data.status === 'failed') {
+          clearInterval(poll);
+          setJobId(null);
+          setResult(data);
+        }
+      } catch { }
+    }, 1500);
+    return () => clearInterval(poll);
+  }, [jobId]);
 
   const doImport = async (action: string, body: any) => {
     setLoading(true);
@@ -670,7 +694,35 @@ function EloImportTab({ token }: { token: string }) {
         method: 'POST',
         body: JSON.stringify({ action, ...body }),
       });
-      setResult(await res.json());
+      const data = await res.json();
+      if (data.jobId) {
+        setJobId(data.jobId);
+        setProgress({ status: 'running', progressPct: 0, totalTeams: data.total, fetchedTeams: 0, failedTeams: 0 });
+      } else {
+        setResult(data);
+      }
+    } catch (e: any) {
+      setResult({ error: e.message });
+    }
+    setLoading(false);
+  };
+
+  // Import ALL TeamMapping teams as background job
+  const importAllMappings = async () => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await authFetch('/api/admin/elo-import', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'fetch-all-mappings' }),
+      });
+      const data = await res.json();
+      if (data.jobId) {
+        setJobId(data.jobId);
+        setProgress({ status: 'running', progressPct: 0, totalTeams: data.total, fetchedTeams: 0, failedTeams: 0 });
+      } else {
+        setResult(data);
+      }
     } catch (e: any) {
       setResult({ error: e.message });
     }
@@ -682,87 +734,84 @@ function EloImportTab({ token }: { token: string }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card title="Süper Lig İçe Aktar">
           <p className="text-xs text-gray-500 mb-3">Türk takımlarının Elo rating'lerini çoklu kaynaktan çeker.</p>
-          <button
-            onClick={() => doImport('fetch-league', { country: 'TUR' })}
-            disabled={loading}
-            className="w-full py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-          >
+          <button onClick={() => doImport('fetch-league', { country: 'TUR' })} disabled={loading}
+            className="w-full py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
             {loading ? <Spinner /> : '🇹🇷 Süper Lig Çek'}
           </button>
         </Card>
-
         <Card title="Avrupa Kulüpleri İçe Aktar">
           <p className="text-xs text-gray-500 mb-3">Major Avrupa kulüplerinin Elo rating'leri.</p>
-          <button
-            onClick={() => doImport('fetch-league', { country: 'EUR' })}
-            disabled={loading}
-            className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
+          <button onClick={() => doImport('fetch-league', { country: 'EUR' })} disabled={loading}
+            className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
             {loading ? <Spinner /> : '🇪🇺 Avrupa Çek'}
           </button>
         </Card>
-
-        <Card title="Hepsini Çek">
-          <p className="text-xs text-gray-500 mb-3">Süper Lig + Avrupa kulüpleri toplu import.</p>
-          <button
-            onClick={() => doImport('fetch-league', { country: 'ALL' })}
-            disabled={loading}
-            className="w-full py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
-          >
-            {loading ? <Spinner /> : '⚽ Tümünü Çek'}
+        <Card title="Tüm Takımları Çek (Arkaplanda)">
+          <p className="text-xs text-gray-500 mb-3">TeamMapping'teki TÜM takımların Elo rating'lerini arkaplanda çeker. Sayfayı kapatabilirsin.</p>
+          <button onClick={importAllMappings} disabled={loading || !!jobId}
+            className="w-full py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+            {loading ? <Spinner /> : '⚽ Tüm Takımları Çek'}
           </button>
         </Card>
       </div>
+
+      {/* Progress Bar */}
+      {progress && (
+        <Card title="İlerleme">
+          <div className="space-y-3">
+            <div className="flex justify-between text-xs text-gray-600">
+              <span>{progress.status === 'done' ? '✅ Tamamlandı' : progress.status === 'failed' ? '❌ Başarısız' : '⏳ Çalışıyor...'}</span>
+              <span className="font-mono">{progress.fetchedTeams ?? 0} / {progress.totalTeams ?? 0} takım</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2.5">
+              <div className={`h-2.5 rounded-full transition-all duration-700 ${progress.status === 'done' ? 'bg-emerald-500' : progress.status === 'failed' ? 'bg-red-500' : 'bg-blue-500'
+                }`} style={{ width: `${progress.progressPct ?? 0}%` }} />
+            </div>
+            <div className="flex justify-between text-[10px] text-gray-400">
+              <span>Başarılı: {progress.fetchedTeams ?? 0}</span>
+              <span>Başarısız: {progress.failedTeams ?? 0}</span>
+              <span>{progress.currentTeam ? `Şu an: ${progress.currentTeam}` : ''}</span>
+              <span className="font-mono">%{progress.progressPct ?? 0}</span>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card title="Takım Listesi ile Çek (Çoklu Kaynak)">
           <p className="text-xs text-gray-500 mb-2">Takım isimlerini virgülle ayırarak girin. ClubElo → FootballDB → Tahmin.</p>
-          <textarea
-            value={fetchTeams}
-            onChange={(e) => setFetchTeams(e.target.value)}
+          <textarea value={fetchTeams} onChange={(e) => setFetchTeams(e.target.value)}
             placeholder="Galatasaray, Fenerbahce, Besiktas, RealMadrid, Barcelona"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs h-20 resize-none focus:ring-2 focus:ring-emerald-500 outline-none"
-          />
-          <button
-            onClick={() => {
-              const teams = fetchTeams.split(',').map(t => t.trim()).filter(Boolean);
-              if (teams.length > 0) doImport('fetch', { teams });
-            }}
-            disabled={loading || !fetchTeams.trim()}
-            className="mt-2 w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-          >
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs h-20 resize-none focus:ring-2 focus:ring-emerald-500 outline-none" />
+          <button onClick={() => {
+            const teams = fetchTeams.split(',').map(t => t.trim()).filter(Boolean);
+            if (teams.length > 0) doImport('fetch', { teams });
+          }} disabled={loading || !fetchTeams.trim()}
+            className="mt-2 w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
             {loading ? <Spinner /> : 'Çek'}
           </button>
         </Card>
-
         <Card title="Manuel Giriş">
           <p className="text-xs text-gray-500 mb-2">Her satıra: takımadı, rating (ör: Galatasaray, 1750)</p>
-          <textarea
-            value={manualEntries}
-            onChange={(e) => setManualEntries(e.target.value)}
+          <textarea value={manualEntries} onChange={(e) => setManualEntries(e.target.value)}
             placeholder={"Galatasaray, 1750\nFenerbahce, 1720\nBesiktas, 1680"}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs h-20 resize-none focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
-          />
-          <button
-            onClick={() => {
-              const entries = manualEntries.split('\n').map(line => {
-                const parts = line.split(',').map(s => s.trim());
-                if (parts.length >= 2) {
-                  const rating = parseFloat(parts[1]);
-                  if (!isNaN(rating)) return { team: parts[0], rating };
-                }
-                return null;
-              }).filter(Boolean);
-              if (entries.length > 0) doImport('manual', { entries });
-            }}
-            disabled={loading || !manualEntries.trim()}
-            className="mt-2 w-full py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50"
-          >
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs h-20 resize-none focus:ring-2 focus:ring-emerald-500 outline-none font-mono" />
+          <button onClick={() => {
+            const entries = manualEntries.split('\n').map(line => {
+              const parts = line.split(',').map(s => s.trim());
+              if (parts.length >= 2) {
+                const rating = parseFloat(parts[1]);
+                if (!isNaN(rating)) return { team: parts[0], rating };
+              }
+              return null;
+            }).filter(Boolean);
+            if (entries.length > 0) doImport('manual', { entries });
+          }} disabled={loading || !manualEntries.trim()}
+            className="mt-2 w-full py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
             {loading ? <Spinner /> : 'Kaydet'}
           </button>
         </Card>
       </div>
-
       {result && (
         <Card title="Sonuç">
           <div className="space-y-2">

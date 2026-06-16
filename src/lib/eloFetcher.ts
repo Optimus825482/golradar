@@ -38,7 +38,6 @@ async function fetchClubElo(teamName: string): Promise<number | null> {
     }
   }
   return null;
-  }
 }
 
 // ── Source 2: FootballDatabase.com scraping ───────────────────────

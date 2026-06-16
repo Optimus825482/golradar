@@ -15,6 +15,8 @@ import { NextResponse } from 'next/server';
 import { adminRoute } from '@/lib/adminRoute';
 import { bulkSetRatings } from "@/lib/eloRating";
 import { fetchTeamRating, fetchTeamRatings } from "@/lib/eloFetcher";
+import { db } from "@/lib/db";
+import { startEloImport, getJobProgress } from "@/lib/eloImportJob";
 
 // Well-known Turkish Super Lig teams
 const TURKISH_TEAMS = [
@@ -200,6 +202,22 @@ export const POST = adminRoute(async (request: Request) => {
     const imported = bulkSetRatings(
       results.map((r) => ({ team: r.team, rating: r.rating })),
     );
+
+    // Also write Elo ratings to TeamMapping table
+    for (const r of results) {
+      await db.teamMapping
+        .upsert({
+          where: { canonicalName: r.team },
+          create: {
+            canonicalName: r.team,
+            eloRating: r.rating,
+            eloSource: r.source,
+          },
+          update: { eloRating: r.rating, eloSource: r.source },
+        })
+        .catch(() => {}); // ignore if team not in mapping
+    }
+
     return NextResponse.json({ ok: true, imported, failed, results });
   }
 
@@ -247,11 +265,55 @@ export const POST = adminRoute(async (request: Request) => {
     const imported = bulkSetRatings(
       results.map((r) => ({ team: r.team, rating: r.rating })),
     );
+    // Also write to TeamMapping
+    for (const r of results) {
+      await db.teamMapping
+        .upsert({
+          where: { canonicalName: r.team },
+          create: {
+            canonicalName: r.team,
+            eloRating: r.rating,
+            eloSource: r.source,
+          },
+          update: { eloRating: r.rating, eloSource: r.source },
+        })
+        .catch(() => {});
+    }
     return NextResponse.json({ ok: true, country, imported, failed, results });
   }
 
+  // Fetch ALL teams from TeamMapping as background job
+  if (action === "fetch-all-mappings") {
+    const mappings = await db.teamMapping.findMany({
+      where: { fotmobId: { not: null } },
+      select: { canonicalName: true },
+    });
+    const teams = mappings.map((m) => m.canonicalName);
+
+    const job = await db.eloImportJob.create({
+      data: { status: "running", totalTeams: teams.length },
+    });
+    void startEloImport(teams, job.id);
+
+    return NextResponse.json({ ok: true, jobId: job.id, total: teams.length });
+  }
+
+  // Poll job progress
+  if (action === "job-progress") {
+    const jobId = body.jobId;
+    if (!jobId)
+      return NextResponse.json({ error: "jobId required" }, { status: 400 });
+    const job = await getJobProgress(jobId);
+    if (!job)
+      return NextResponse.json({ error: "job not found" }, { status: 404 });
+    return NextResponse.json(job);
+  }
+
   return NextResponse.json(
-    { error: "Unknown action. Use: fetch, manual, fetch-league" },
+    {
+      error:
+        "Unknown action. Use: fetch, manual, fetch-league, fetch-all-mappings",
+    },
     { status: 400 },
   );
-});
+};);

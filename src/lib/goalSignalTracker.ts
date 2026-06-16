@@ -211,12 +211,13 @@ export async function checkAndRecordSignal(
   const signalSide = goalProbability.side as "home" | "away";
 
   // ── Upsert logic ──────────────────────────────────────────────
-  // If this match+side+date already has a signal row, update only the
-  // "last" fields. If it doesn't exist, create with first-signal values.
+  // Eğer bu match+side+date için mevcut sinyal varsa VE hala pending ise
+  // sadece "last" değerlerini güncelle. Ama eğer sinyal ÇÖZÜLMÜŞSE
+  // (goalHappened != null), yepyeni bir sinyal kaydı oluştur.
   const existing = await repoFindExisting(matchCode, today, signalSide);
 
-  if (existing) {
-    // Signal exists — only update "last" values (don't touch first-signal fields)
+  if (existing && existing.goalHappened === null) {
+    // Pending sinyal — sadece son değerleri güncelle
     const updated = await repoUpdateLastValues(existing.id!, {
       lastScore: goalProbability.score,
       lastCalibratedP: goalProbability.calibratedP,

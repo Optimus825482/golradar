@@ -352,7 +352,7 @@ async function main() {
   }
 
   // Launch workers
-  const workerPromises = [];
+  const workerPromises: Promise<void>[] = [];
   for (let i = 0; i < workers; i++) {
     workerPromises.push(worker(i + 1));
   }

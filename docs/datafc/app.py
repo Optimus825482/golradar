@@ -13,6 +13,31 @@ from typing import Any, Callable
 import pandas as pd
 from flask import Flask, jsonify, render_template, request, send_file
 
+# ── Monkey-patch SofascoreClient BEFORE datafc imports ─────────
+# Sofascore tightened their API protection — 403 on direct calls.
+import datafc.utils._config as _cfg
+import datafc.utils._client as _client_mod
+from curl_cffi import requests as _cf_req
+
+_cfg.API_URLS["sofavpn"] = "https://api.sofascore.com"
+_cfg.API_URLS["sofascore"] = "https://api.sofascore.com"
+
+
+def _patched_client_init(self, rate_limit=2.0, timeout=30, retries=3, cache=None):
+    self._min_interval = 1.0 / rate_limit if rate_limit > 0 else 0.0
+    self._timeout = timeout
+    self._retries = retries
+    self._cache = cache if cache is not None else _client_mod.get_default_cache()
+    self._session = _cf_req.Session(impersonate="chrome131")
+    self._session.headers.update(_cfg.SOFASCORE_HEADERS)
+    try:
+        self._session.get("https://www.sofascore.com/", timeout=15)
+    except Exception:
+        pass
+
+
+_client_mod.SofascoreClient.__init__ = _patched_client_init
+
 from datafc import (
     incidents_data,
     league_player_stats_data,

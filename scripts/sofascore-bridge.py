@@ -18,13 +18,41 @@ import argparse
 import traceback
 from typing import Any
 
+# ── Monkey-patch SofascoreClient BEFORE datafc imports ─────────
+# Sofascore tightened their API protection — 403 on direct calls.
+# Fix: chrome131 impersonate + cookie warm-up from www.sofascore.com
+import datafc.utils._config as _cfg
+import datafc.utils._client as _client_mod
+from curl_cffi import requests as _cf_req
+
+# Route through api.sofascore.com (api.sofavpn.com is blocked)
+_cfg.API_URLS["sofavpn"] = "https://api.sofascore.com"
+_cfg.API_URLS["sofascore"] = "https://api.sofascore.com"
+
+
+# Replace SofascoreClient.__init__ with cookie-warming version
+def _patched_client_init(self, rate_limit=2.0, timeout=30, retries=3, cache=None):
+    self._min_interval = 1.0 / rate_limit if rate_limit > 0 else 0.0
+    self._timeout = timeout
+    self._retries = retries
+    self._cache = cache if cache is not None else _client_mod.get_default_cache()
+    self._session = _cf_req.Session(impersonate="chrome131")
+    self._session.headers.update(_cfg.SOFASCORE_HEADERS)
+    # Warm cookies from main site — required post-2026 protection update
+    try:
+        self._session.get("https://www.sofascore.com/", timeout=15)
+    except Exception:
+        pass
+
+
+_client_mod.SofascoreClient.__init__ = _patched_client_init
+
 # ── datafc imports ─────────────────────────────────────────────
 sys.path.insert(0, "docs/datafc")
-from datafc.utils._client import SofascoreClient
-from datafc.utils._config import API_URLS
+from datafc.utils._client import SofascoreClient  # noqa: E402
+from datafc.utils._config import API_URLS  # noqa: E402
 
-# datafc functions we'll use
-from datafc import (
+from datafc import (  # noqa: E402
     match_stats_data,
     incidents_data,
     momentum_data,
@@ -32,7 +60,7 @@ from datafc import (
     match_data,
     search_data,
 )
-import pandas as pd
+import pandas as pd  # noqa: E402
 
 
 def fetch_matches_by_date(date: str) -> list[dict]:

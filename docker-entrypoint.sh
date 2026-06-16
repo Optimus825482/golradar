@@ -61,6 +61,21 @@ NODE_ENV=production DATABASE_URL="$DATABASE_URL" HOSTNAME=0.0.0.0 PORT=${PORT:-3
 WEB_PID=$!
 echo "[OK] Next.js started (PID $WEB_PID)"
 
+# Seed default admin user after Next.js is ready
+echo "[AUTH] Seeding default admin user..."
+SEED_READY=0
+for i in $(seq 1 30); do
+    if curl -sf "http://localhost:${PORT:-3012}/api/admin/auth?action=seed" > /dev/null 2>&1; then
+        echo "[AUTH] Admin seed complete"
+        SEED_READY=1
+        break
+    fi
+    sleep 1
+done
+if [ "$SEED_READY" -ne 1 ]; then
+    echo "[AUTH] WARNING: Could not seed admin user after 30s. Continuing..."
+fi
+
 # Start Nesine-live relay
 if [ -f /app/nesine/index.ts ]; then
     echo "[NESINE] Starting relay..."

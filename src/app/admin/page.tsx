@@ -2,38 +2,47 @@
 
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 
-// ── Admin API Helper ──────────────────────────────────────────────
-function adminFetch(token: string, path: string, init?: RequestInit) {
+// ── Auth API Helper ──────────────────────────────────────────────
+function authFetch(path: string, init?: RequestInit) {
+  const token = sessionStorage.getItem('admin_token');
   return fetch(path, {
     ...init,
     headers: {
-      'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
   });
 }
 
 // ── Login Screen ──────────────────────────────────────────────────
-function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
-  const [token, setToken] = useState('');
+function LoginScreen({ onLogin }: { onLogin: (token: string, mustChange: boolean) => void }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
     try {
-      const res = await fetch('/api/admin/ml/status', {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch('/api/admin/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', username, password }),
       });
-      if (res.ok) {
-        sessionStorage.setItem('admin_token', token);
-        onLogin(token);
+      const data = await res.json();
+      if (data.ok) {
+        sessionStorage.setItem('admin_token', data.token);
+        onLogin(data.token, data.mustChange ?? false);
       } else {
-        setError('Geçersiz token');
+        setError(data.reason || 'Giriş başarısız');
       }
     } catch {
       setError('Bağlantı hatası');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -46,22 +55,120 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
           <p className="text-sm text-gray-500">Gol Radarı Yönetim</p>
         </div>
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Admin Token</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Kullanıcı Adı</label>
           <input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="ADMIN_API_TOKEN"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="admin"
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
             autoFocus
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Şifre</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
           />
         </div>
         {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
         <button
           type="submit"
-          className="w-full py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
+          disabled={loading}
+          className="w-full py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
         >
-          Giriş Yap
+          {loading ? 'Giriş yapılıyor...' : 'Giriş Yap'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ── Password Change Screen ────────────────────────────────────────
+function PasswordChangeScreen({ token, onDone }: { token: string; onDone: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (newPassword.length < 6) { setError('Yeni şifre en az 6 karakter olmalı'); return; }
+    if (newPassword !== confirmPassword) { setError('Şifreler eşleşmiyor'); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'change-password', password: currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        onDone();
+      } else {
+        setError(data.reason || 'Şifre değiştirilemedi');
+      }
+    } catch {
+      setError('Bağlantı hatası');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm">
+        <div className="text-center mb-6">
+          <div className="text-3xl mb-2">🔒</div>
+          <h1 className="text-xl font-bold text-gray-800">Şifre Değiştir</h1>
+          <p className="text-sm text-gray-500">İlk girişte şifrenizi değiştirmelisiniz</p>
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Mevcut Şifre</label>
+          <input
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            placeholder="Mevcut şifreniz"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+            autoFocus
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Yeni Şifre</label>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="En az 6 karakter"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Yeni Şifre (Tekrar)</label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Yeni şifreyi tekrar yazın"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+          />
+        </div>
+        {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
+        >
+          {loading ? 'Değiştiriliyor...' : 'Şifreyi Güncelle'}
         </button>
       </form>
     </div>
@@ -116,8 +223,8 @@ function OverviewTab({ token }: { token: string }) {
     setLoading(true);
     try {
       const [mlRes, cacheRes, calRes] = await Promise.all([
-        adminFetch(token, '/api/admin/ml/status'),
-        adminFetch(token, '/api/admin/fotmob-cache-stats'),
+        authFetch('/api/admin/ml/status'),
+        authFetch('/api/admin/fotmob-cache-stats'),
         fetch('/api/calibration?action=stats'),
       ]);
       const ml = mlRes.ok ? await mlRes.json() : null;
@@ -214,7 +321,7 @@ function MLModelsTab({ token }: { token: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await adminFetch(token, '/api/admin/ml/status');
+      const res = await authFetch('/api/admin/ml/status');
       if (res.ok) setStatus(await res.json());
     } catch {}
     setLoading(false);
@@ -226,7 +333,7 @@ function MLModelsTab({ token }: { token: string }) {
     setActionLoading(name);
     setActionResult('');
     try {
-      const res = await adminFetch(token, url, {
+      const res = await authFetch(url, {
         method: body ? 'POST' : 'GET',
         body: body ? JSON.stringify(body) : undefined,
       });
@@ -559,7 +666,7 @@ function EloImportTab({ token }: { token: string }) {
     setLoading(true);
     setResult(null);
     try {
-      const res = await adminFetch(token, '/api/admin/elo-import', {
+      const res = await authFetch('/api/admin/elo-import', {
         method: 'POST',
         body: JSON.stringify({ action, ...body }),
       });
@@ -710,7 +817,7 @@ function BackfillTab({ token }: { token: string }) {
     setLoading(true);
     setResult(null);
     try {
-      const res = await adminFetch(token, '/api/admin/backfill-predictions', {
+      const res = await authFetch('/api/admin/backfill-predictions', {
         method: 'POST',
         body: JSON.stringify({ daysBack, maxMatches }),
       });
@@ -813,14 +920,53 @@ const TABS: { key: Tab; label: string }[] = [
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
+  const [mustChange, setMustChange] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
 
   useEffect(() => {
     const saved = sessionStorage.getItem('admin_token');
-    if (saved) setToken(saved);
+    if (saved) {
+      // Check if password change is still required
+      fetch('/api/admin/auth?action=check', {
+        headers: { Authorization: `Bearer ${saved}` },
+      }).then(async (r) => {
+        const data = await r.json();
+        if (data.ok) {
+          setToken(saved);
+          setMustChange(data.mustChange ?? false);
+        } else {
+          sessionStorage.removeItem('admin_token');
+        }
+      }).catch(() => {
+        sessionStorage.removeItem('admin_token');
+      });
+    }
   }, []);
 
-  if (!token) return <LoginScreen onLogin={setToken} />;
+  const handleLogin = (t: string, mc: boolean) => {
+    setToken(t);
+    setMustChange(mc);
+  };
+
+  const handlePasswordChanged = () => {
+    setMustChange(false);
+  };
+
+  const handleLogout = () => {
+    if (token) {
+      fetch('/api/admin/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'logout' }),
+      }).catch(() => { });
+    }
+    sessionStorage.removeItem('admin_token');
+    setToken(null);
+    setMustChange(false);
+  };
+
+  if (!token) return <LoginScreen onLogin={handleLogin} />;
+  if (mustChange) return <PasswordChangeScreen token={token} onDone={handlePasswordChanged} />;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -832,7 +978,7 @@ export default function AdminPage() {
             <h1 className="text-lg font-bold text-gray-800">Admin Panel</h1>
           </div>
           <button
-            onClick={() => { sessionStorage.removeItem('admin_token'); setToken(null); }}
+            onClick={handleLogout}
             className="text-xs text-gray-500 hover:text-red-600"
           >
             Çıkış

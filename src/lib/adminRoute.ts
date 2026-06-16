@@ -1,13 +1,12 @@
 // ── Admin Route Wrapper ──────────────────────────────────────────────
 // Tiny helper to wrap an /api/admin/* handler so the auth check
-// is the first thing it does. Saves 4 lines per endpoint:
+// is the first thing it does:
 //
-//   export const POST = adminRoute(async (request) => {
+//   export const GET = adminRoute(async (request, auth) => {
 //     // ... handler body, already auth-checked ...
 //   });
 //
-// The handler receives the original Request plus the auth result
-// (mostly for logging the callerId).
+// The handler receives the original Request plus the auth result.
 
 import { NextResponse } from 'next/server';
 import { adminUnauthorized, requireAdmin, type AdminAuthResult } from './adminAuth';

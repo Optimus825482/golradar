@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Match Details — datafc Tester</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <h1>datafc Tester</h1>
+    <p class="sub">
+      <a href="/" class="back-link">← Back to Matches</a>
+    </p>
+  </header>
+
+  <div id="match-header" class="match-page-header">
+    <div class="mp-teams">
+      <span id="mp-home" class="mp-team">—</span>
+      <span id="mp-score" class="mp-score">vs</span>
+      <span id="mp-away" class="mp-team">—</span>
+    </div>
+    <div class="mp-meta">
+      <span id="mp-tournament">—</span>
+      <span id="mp-time">—</span>
+    </div>
+  </div>
+
+  <div id="match-loading" class="detail-loading">Loading match details...</div>
+
+  <div id="match-content" class="match-content hidden">
+    <div class="detail-tabs" id="detail-tabs"></div>
+    <div class="dt-content" id="detail-panels"></div>
+  </div>
+
+  <script src="{{ url_for('static', filename='match.js') }}"></script>
+  <script>
+    (function() {
+      var p = new URLSearchParams(window.location.search);
+      var live = p.get('live') === '1';
+      initMatchPage({{ game_id }}, {
+        home: p.get('home') || '', away: p.get('away') || '',
+        homeScore: p.get('hs'), awayScore: p.get('as'),
+        homeScoreNormaltime: p.get('hsn'), awayScoreNormaltime: p.get('asn'),
+        tournament: p.get('tn') || '', time: p.get('ts') || '',
+        live: live
+      });
+    })();
+  </script>
+</body>
+</html>

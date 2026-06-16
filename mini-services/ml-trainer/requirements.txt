@@ -7,3 +7,4 @@ numpy==2.1.*
 scikit-learn==1.5.*
 scipy==1.14.*
 pydantic==2.9.*
+datafc==2.7.*

@@ -16,6 +16,7 @@ import {
 import { getCachedMatchDetails } from "@/lib/fotmob";
 import { autoFetchMissingRatings, getRating } from "@/lib/eloRating";
 import { db } from "@/lib/db";
+import { checkForGoals } from "@/lib/goalSignalTracker";
 
 export const dynamic = "force-dynamic";
 
@@ -153,10 +154,26 @@ export async function GET(request: Request) {
   for (const m of rawMatches) {
     const status = m.S || 0;
     if (EXCLUDED_STATUSES.has(status)) continue;
-    if (!ACTIVE_STATUSES.has(status) && !FINISHED_STATUSES.has(status)) continue;
+    if (!ACTIVE_STATUSES.has(status) && !FINISHED_STATUSES.has(status))
+      continue;
 
     const parsed = parseMatch(m);
     updatePressureHistory(parsed);
+
+    // Fire-and-forget goal verification for live matches
+    if (parsed.isLive && parsed.hasStats) {
+      const currentMinute =
+        parseInt(parsed.minute.replace(/[^0-9]/g, ""), 10) || 0;
+      const today = new Date();
+      const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      void checkForGoals(
+        parsed.code,
+        parsed.homeGoals,
+        parsed.awayGoals,
+        currentMinute,
+        localDate,
+      ).catch(() => {});
+    }
 
     const hist = pressureHistory.get(parsed.code);
     let goalRadar: GoalProbability | undefined;
@@ -170,17 +187,25 @@ export async function GET(request: Request) {
         try {
           fotmobData = await Promise.race([
             getCachedMatchDetails(parsed.fotmobId, parsed.matchDate),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 200)),
+            new Promise<null>((resolve) =>
+              setTimeout(() => resolve(null), 200),
+            ),
           ]);
         } catch {
           fotmobData = null;
         }
       }
       goalRadar = calculateGoalProbability(
-        parsed.stats, parsed.minute, parsed.isLive,
-        hist?.snapshots, parsed.homeGoals, parsed.awayGoals,
-        parsed.home, parsed.away,
-        undefined, undefined,
+        parsed.stats,
+        parsed.minute,
+        parsed.isLive,
+        hist?.snapshots,
+        parsed.homeGoals,
+        parsed.awayGoals,
+        parsed.home,
+        parsed.away,
+        undefined,
+        undefined,
         fotmobData,
       );
       if (goalRadar.score < 55) goalRadar = undefined;
@@ -189,25 +214,27 @@ export async function GET(request: Request) {
       if (goalRadar && parsed.isLive && goalRadar.score >= 40) {
         const homeElo = getRating(parsed.home)?.rating ?? null;
         const awayElo = getRating(parsed.away)?.rating ?? null;
-        void db.predictionLog.create({
-          data: {
-            matchCode: parsed.code,
-            minute: parseInt(parsed.minute) || 0,
-            rawScore: goalRadar.score,
-            homeScore: goalRadar.homeScore,
-            awayScore: goalRadar.awayScore,
-            calibratedP: goalRadar.calibratedP,
-            side: goalRadar.side ?? 'none',
-            level: goalRadar.level,
-            factorsJson: JSON.stringify(goalRadar.factors),
-            homeTeam: parsed.home,
-            awayTeam: parsed.away,
-            league: parsed.league,
-            homeElo: homeElo ? Math.round(homeElo) : null,
-            awayElo: awayElo ? Math.round(awayElo) : null,
-            modelVariant: 'champion',
-          },
-        }).catch(() => {});
+        void db.predictionLog
+          .create({
+            data: {
+              matchCode: parsed.code,
+              minute: parseInt(parsed.minute) || 0,
+              rawScore: goalRadar.score,
+              homeScore: goalRadar.homeScore,
+              awayScore: goalRadar.awayScore,
+              calibratedP: goalRadar.calibratedP,
+              side: goalRadar.side ?? "none",
+              level: goalRadar.level,
+              factorsJson: JSON.stringify(goalRadar.factors),
+              homeTeam: parsed.home,
+              awayTeam: parsed.away,
+              league: parsed.league,
+              homeElo: homeElo ? Math.round(homeElo) : null,
+              awayElo: awayElo ? Math.round(awayElo) : null,
+              modelVariant: "champion",
+            },
+          })
+          .catch(() => {});
       }
     }
     matches.push({ ...parsed, goalRadar });

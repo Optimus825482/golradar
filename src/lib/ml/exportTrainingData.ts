@@ -166,9 +166,12 @@ export async function exportTrainingData(
     goalsByMatch.get(ev.matchCode)!.push(ev);
   }
 
-  // Build training rows
+  // Build training rows — use PredictionLog.goalScored as primary label source.
+  // MatchEvent lookup is a secondary fallback for logs that predate the goalScored column.
   const rows: TrainingRow[] = [];
   let skippedMissingFeatures = 0;
+  let labeledFromDb = 0;
+  let labeledFromEvents = 0;
 
   for (const log of predictionLogs) {
     if (!log.featuresJson) {
@@ -193,8 +196,17 @@ export async function exportTrainingData(
       features = featuresToArray(extracted);
     }
 
-    const matchGoals = goalsByMatch.get(log.matchCode) ?? [];
-    const label = labelForLog(log.createdAt, horizon, matchGoals);
+    // Primary label: PredictionLog.goalScored (set during backfill / finalize)
+    // Secondary: MatchEvent join for logs where goalScored is still null
+    let label: number;
+    if (log.goalScored !== null) {
+      label = log.goalScored ? 1 : 0;
+      labeledFromDb++;
+    } else {
+      const matchGoals = goalsByMatch.get(log.matchCode) ?? [];
+      label = labelForLog(log.createdAt, horizon, matchGoals);
+      labeledFromEvents++;
+    }
 
     rows.push({
       matchCode: log.matchCode,
@@ -222,7 +234,10 @@ export async function exportTrainingData(
   const negatives = rows.length - positives;
   console.log(
     `[Export] ${rows.length} rows, ${positives} positives (${((positives / rows.length) * 100).toFixed(1)}%), ` +
-      `${negatives} negatives for horizon=${horizon}min`,
+      `${negatives} negatives for horizon=${horizon}min` +
+      (labeledFromDb > 0
+        ? ` (${labeledFromDb} from DB goalScored, ${labeledFromEvents} from MatchEvent)`
+        : ""),
   );
 
   if (positives === 0 || negatives === 0) {

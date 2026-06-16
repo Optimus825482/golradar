@@ -300,38 +300,40 @@ export async function checkForGoals(
   if (homeScored) scoredSides.push("home");
   if (awayScored) scoredSides.push("away");
 
+  // Get ALL pending signals for this match (both sides)
+  const allPending = await repoFindAllPending(matchCode);
+
   for (const goalSide of scoredSides) {
-    const pending = await repoFindPendingForMatch(matchCode, goalSide);
-    if (pending.length === 0) continue;
+    // Match: same-side pending signals get verified as correct
+    const sameSidePending = allPending.filter((s) => s.signalSide === goalSide);
+    for (const s of sameSidePending) {
+      const id = s.id ?? (await loadById(matchCode, today, s.signalSide));
+      if (!id) continue;
+      await repoUpdateVerification(id, {
+        goalHappened: true,
+        goalMinute: currentMinute,
+        goalSide,
+        correctPrediction: s.signalSide === goalSide,
+        minutesAfterSignal: currentMinute - s.signalMinute,
+        goalTimestamp: Date.now(),
+      });
+    }
 
-    // Most recent pending first.
-    const matched = pending.sort((a, b) => b.signalMinute - a.signalMinute)[0]!;
-    const id = matched.id ?? (await loadById(matchCode, today, goalSide));
-    if (!id) continue;
-    await repoUpdateVerification(id, {
-      goalHappened: true,
-      goalMinute: currentMinute,
-      goalSide,
-      correctPrediction: matched.signalSide === goalSide,
-      minutesAfterSignal: currentMinute - matched.signalMinute,
-      goalTimestamp: Date.now(),
-    });
-  }
-
-  // Opposite-side expiry: only for sides that did NOT score in this cycle.
-  if (scoredSides.length === 1) {
-    const scoringSide = scoredSides[0]!;
-    const opposite: "home" | "away" = scoringSide === "home" ? "away" : "home";
-    const oppositePending = await repoFindPendingForMatch(matchCode, opposite);
+    // Opposite-side pending: goal DID happen, but wrong side predicted
+    const oppositeSide = goalSide === "home" ? "away" : "home";
+    const oppositePending = allPending.filter(
+      (s) => s.signalSide === oppositeSide,
+    );
     for (const s of oppositePending) {
-      const id = s.id ?? (await loadById(matchCode, today, opposite));
+      const id = s.id ?? (await loadById(matchCode, today, oppositeSide));
       if (!id) continue;
       await repoUpdateVerification(id, {
         goalHappened: false,
-        goalSide: scoringSide,
+        goalMinute: currentMinute,
+        goalSide,
         correctPrediction: false,
-        minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-        goalTimestamp: null,
+        minutesAfterSignal: currentMinute - s.signalMinute,
+        goalTimestamp: Date.now(),
       });
     }
   }
@@ -465,34 +467,36 @@ export async function reportGoal(
 ): Promise<void> {
   const today = getLocalDateString();
 
-  // Mark pending signals for this side as verified
-  const pending = await repoFindPendingForMatch(matchCode, goalSide);
-  for (const s of pending) {
-    const id = s.id ?? (await loadById(matchCode, today, goalSide));
-    if (!id) continue;
-    await repoUpdateVerification(id, {
-      goalHappened: true,
-      goalMinute,
-      goalSide,
-      correctPrediction: s.signalSide === goalSide,
-      minutesAfterSignal: goalMinute - s.signalMinute,
-      goalTimestamp: Date.now(),
-    });
-  }
-
-  // Expire opposite side pending signals
+  // Get ALL pending signals (both sides), not just the scoring side
+  const allPending = await repoFindAllPending(matchCode);
   const opposite: "home" | "away" = goalSide === "home" ? "away" : "home";
-  const oppositePending = await repoFindPendingForMatch(matchCode, opposite);
-  for (const s of oppositePending) {
-    const id = s.id ?? (await loadById(matchCode, today, opposite));
+
+  for (const s of allPending) {
+    const side = s.signalSide;
+    const id = s.id ?? (await loadById(matchCode, today, side));
     if (!id) continue;
-    await repoUpdateVerification(id, {
-      goalHappened: false,
-      goalSide,
-      correctPrediction: false,
-      minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-      goalTimestamp: null,
-    });
+
+    if (side === goalSide) {
+      // Same side: goal happened, correct prediction
+      await repoUpdateVerification(id, {
+        goalHappened: true,
+        goalMinute,
+        goalSide,
+        correctPrediction: side === goalSide,
+        minutesAfterSignal: goalMinute - s.signalMinute,
+        goalTimestamp: Date.now(),
+      });
+    } else {
+      // Opposite side: goal happened but wrong side predicted
+      await repoUpdateVerification(id, {
+        goalHappened: false,
+        goalMinute,
+        goalSide,
+        correctPrediction: false,
+        minutesAfterSignal: goalMinute - s.signalMinute,
+        goalTimestamp: Date.now(),
+      });
+    }
   }
 }
 

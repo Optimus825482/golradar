@@ -14,6 +14,7 @@ interface CsvRow {
   name: string;
   slug: string;
   logoUrl: string;
+  country: string;
 }
 
 function parseCsv(filePath: string): CsvRow[] {
@@ -23,14 +24,18 @@ function parseCsv(filePath: string): CsvRow[] {
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-    // CSV fields: "id","name","slug","logo_url","country","created_at"
-    const match = line.match(/"(\d+)","([^"]*)","([^"]*)","([^"]*)"/);
+    // CSV fields: "id","name","slug","url",country,"created_at"
+    // Country may be unquoted (empty)
+    const match = line.match(
+      /"(\d+)","([^"]*)","([^"]*)","([^"]*)",([^,]*),"([^"]*)"/,
+    );
     if (!match) continue;
     rows.push({
       fotmobId: parseInt(match[1], 10),
       name: match[2],
       slug: match[3],
       logoUrl: match[4],
+      country: match[5].replace(/"/g, ""),
     });
   }
   return rows;
@@ -221,12 +226,13 @@ function toCanonical(fotmobName: string): string {
   for (const [key, val] of Object.entries(CANONICAL_MAP)) {
     if (key === norm || normalize(val) === norm) return val;
   }
-  return "";
-}
-
-function getCountry(slug: string): string {
-  // We'll fill this from eloFetcher later. For now, leave empty.
-  return "";
+  // For unknown teams: generate a canonical name from FotMob name
+  // e.g. "Wolfsberger AC" → "WolfsbergerAc", "FC Inter Turku" → "FcInterTurku"
+  return fotmobName
+    .replace(/[^a-zA-Z0-9\s]/g, "")
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join("");
 }
 
 // ── Main ───────────────────────────────────────────────────────────
@@ -263,6 +269,7 @@ async function main() {
             fotmobName: row.name,
             fotmobSlug: row.slug,
             fotmobLogoUrl: row.logoUrl,
+            country: row.country || undefined,
           },
         });
         updated++;
@@ -275,6 +282,7 @@ async function main() {
             fotmobName: row.name,
             fotmobSlug: row.slug,
             fotmobLogoUrl: row.logoUrl,
+            country: row.country || undefined,
           },
         });
         inserted++;

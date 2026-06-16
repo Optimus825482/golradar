@@ -16,6 +16,8 @@
 
 import {
   createSignal as repoCreate,
+  findExisting as repoFindExisting,
+  updateLastValues as repoUpdateLastValues,
   findByDate as repoFindByDate,
   findByMatch as repoFindByMatch,
   findRecentPending as repoFindPending,
@@ -26,7 +28,7 @@ import {
   calculateSignalStats as repoCalculateStats,
   updateVerification as repoUpdateVerification,
   updateFinalScore as repoUpdateFinalScore,
-} from './signalRepository';
+} from "./signalRepository";
 
 // ── Server-only check ─────────────────────────────────────────
 const isServer = typeof window === 'undefined' && typeof process !== 'undefined';
@@ -47,38 +49,41 @@ export interface GoalSignalRecord {
   homeTeam: string;
   awayTeam: string;
   league: string;
-  matchTime: string;         // Match start time
-  date: string;              // Date of the match
+  matchTime: string; // Match start time
+  date: string; // Date of the match
 
-  // ── Signal details ──
+  // ── First signal details (snapshot at first threshold crossing) ──
   signalMinute: number;
-  signalSide: 'home' | 'away';
-  signalScore: number;         // Raw Goal Radar score (0–100)
-  calibratedP: number;         // Calibrated probability (0–1)
-  poissonP: number;            // Dixon-Coles Poisson probability
-  signalLevel: 'low' | 'medium' | 'high' | 'critical';
+  signalSide: "home" | "away";
+  signalScore: number; // Raw Goal Radar score (0–100) — first signal
+  calibratedP: number; // Calibrated probability (0–1) — first signal
+  poissonP: number; // Dixon-Coles Poisson probability — first signal
+  signalLevel: "low" | "medium" | "high" | "critical";
+  activeFactors: string[]; // Factors at first signal time
 
-  // Factors at signal time
-  activeFactors: string[];
-  homeScore: number;           // Home threat score component
-  awayScore: number;           // Away threat score component
+  // ── Latest poll values (updated on every poll while signal is active) ──
+  lastScore: number | null; // Most recent score
+  lastCalibratedP: number | null; // Most recent calibrated probability
+  lastPoissonP: number | null; // Most recent Poisson probability
+  lastFactors: string[]; // Most recent factors
+
+  homeScore: number; // Home threat score component
+  awayScore: number; // Away threat score component
 
   // Match state at signal time
   currentHomeGoals: number;
   currentAwayGoals: number;
 
   // ── Signal metadata ──
-  signalIndex: number;           // Nth signal for this match (1-based)
-  isEscalation: boolean;
-  previousSignalScore: number | null;
-  signalTimestamp: number;       // Unix timestamp (ms) when signal was created
+  signalTimestamp: number; // Unix timestamp (ms) when signal was first created
+  lastSignalTimestamp: number | null; // Unix timestamp (ms) of last poll update
 
   // ── Goal verification (filled later by checkForGoals / expire) ──
-  goalHappened: boolean | null;  // null=pending, true=goal happened, false=expired/no goal
+  goalHappened: boolean | null; // null=pending, true=goal happened, false=expired/no goal
   goalMinute: number | null;
-  goalSide: 'home' | 'away' | null;
-  correctPrediction: boolean | null;  // true if scoring side matched predicted side
-  minutesAfterSignal: number | null;  // minutes waited for goal (capped at SIGNAL_EXPIRY_MINUTES)
+  goalSide: "home" | "away" | null;
+  correctPrediction: boolean | null; // true if scoring side matched predicted side
+  minutesAfterSignal: number | null; // minutes waited for goal (capped at SIGNAL_EXPIRY_MINUTES)
   goalTimestamp: number | null;
 
   // ── Match result (filled by finalizeMatchSignals) ──
@@ -129,10 +134,6 @@ export interface SignalAccuracyStats {
 // ── Internal state (session-local only) ────────────────────────
 
 interface ActiveMatchState {
-  signalCount: number;
-  lastSignalScore: number | null;
-  lastSignalSide: string | null;
-  hasAnyGoalVerification: boolean;
   lastKnownHomeGoals: number;
   lastKnownAwayGoals: number;
 }
@@ -142,10 +143,7 @@ const activeMatches = new Map<number, ActiveMatchState>();
 // ── Constants ──────────────────────────────────────────────────
 
 const SIGNAL_THRESHOLD = 60;
-const ESCALATION_THRESHOLD = 10;   // Score increase to count as escalation
-const SIGNAL_COOLDOWN_MINUTES = 3; // Min minutes between signals for same match+side
-const MAX_SIGNALS_PER_MATCH = 10;
-const SIGNAL_EXPIRY_MINUTES = 10;  // Max minutes to wait for goal before expiring
+const SIGNAL_EXPIRY_MINUTES = 15;  // Max minutes to wait for goal before expiring
 const EXPIRY_CHECK_INTERVAL_MS = 30000; // Check every 30s
 
 // ── Core tracking functions ───────────────────────────────────
@@ -182,10 +180,6 @@ export async function checkAndRecordSignal(
   let state = activeMatches.get(matchCode);
   if (!state) {
     state = {
-      signalCount: 0,
-      lastSignalScore: null,
-      lastSignalSide: null,
-      hasAnyGoalVerification: false,
       lastKnownHomeGoals: currentHomeGoals,
       lastKnownAwayGoals: currentAwayGoals,
     };
@@ -212,17 +206,24 @@ export async function checkAndRecordSignal(
 
   const signalSide = goalProbability.side as "home" | "away";
 
-  const isEscalation =
-    state.lastSignalScore !== null &&
-    signalSide === state.lastSignalSide &&
-    goalProbability.score - state.lastSignalScore >= ESCALATION_THRESHOLD;
+  // ── Upsert logic ──────────────────────────────────────────────
+  // If this match+side+date already has a signal row, update only the
+  // "last" fields. If it doesn't exist, create with first-signal values.
+  const existing = await repoFindExisting(matchCode, today, signalSide);
 
-  state.signalCount++;
-  const signalIndex = state.signalCount;
-  const previousScore = state.lastSignalScore;
-  state.lastSignalScore = goalProbability.score;
-  state.lastSignalSide = signalSide;
+  if (existing) {
+    // Signal exists — only update "last" values (don't touch first-signal fields)
+    const updated = await repoUpdateLastValues(existing.id!, {
+      lastScore: goalProbability.score,
+      lastCalibratedP: goalProbability.calibratedP,
+      lastPoissonP: goalProbability.poissonP,
+      lastFactors: goalProbability.factors,
+      lastSignalTimestamp: now,
+    });
+    return updated;
+  }
 
+  // Brand new signal → create with first-signal values
   const record: GoalSignalRecord = {
     matchCode,
     homeTeam,
@@ -237,18 +238,20 @@ export async function checkAndRecordSignal(
     calibratedP: goalProbability.calibratedP,
     poissonP: goalProbability.poissonP,
     signalLevel: goalProbability.level,
-
     activeFactors: goalProbability.factors,
+
+    lastScore: goalProbability.score,
+    lastCalibratedP: goalProbability.calibratedP,
+    lastPoissonP: goalProbability.poissonP,
+    lastFactors: goalProbability.factors,
+
     homeScore: goalProbability.homeScore,
     awayScore: goalProbability.awayScore,
-
     currentHomeGoals,
     currentAwayGoals,
 
-    signalIndex,
-    isEscalation,
-    previousSignalScore: previousScore,
     signalTimestamp: now,
+    lastSignalTimestamp: now,
 
     goalHappened: null,
     goalMinute: null,
@@ -274,7 +277,7 @@ export async function checkForGoals(
   currentHomeGoals: number,
   currentAwayGoals: number,
   currentMinute: number,
-  _today: string,
+  today: string,
 ): Promise<void> {
   const state = activeMatches.get(matchCode);
   if (!state) return;
@@ -287,7 +290,6 @@ export async function checkForGoals(
   state.lastKnownAwayGoals = currentAwayGoals;
 
   if (!homeScored && !awayScored) return;
-  state.hasAnyGoalVerification = true;
 
   const scoredSides: Array<"home" | "away"> = [];
   if (homeScored) scoredSides.push("home");
@@ -299,7 +301,7 @@ export async function checkForGoals(
 
     // Most recent pending first.
     const matched = pending.sort((a, b) => b.signalMinute - a.signalMinute)[0]!;
-    const id = await loadByKey(matchCode, matched.date, matched.signalIndex);
+    const id = matched.id ?? (await loadById(matchCode, today, goalSide));
     if (!id) continue;
     await repoUpdateVerification(id, {
       goalHappened: true,
@@ -312,15 +314,14 @@ export async function checkForGoals(
   }
 
   // Opposite-side expiry: only for sides that did NOT score in this cycle.
-  // Single-owner pattern — expireStaleSignals owns stale cleanup (#5).
   if (scoredSides.length === 1) {
     const scoringSide = scoredSides[0]!;
     const opposite: "home" | "away" = scoringSide === "home" ? "away" : "home";
     const oppositePending = await repoFindPendingForMatch(matchCode, opposite);
     for (const s of oppositePending) {
-      const anchored = await loadByKey(matchCode, s.date, s.signalIndex);
-      if (!anchored) continue;
-      await repoUpdateVerification(anchored, {
+      const id = s.id ?? (await loadById(matchCode, today, opposite));
+      if (!id) continue;
+      await repoUpdateVerification(id, {
         goalHappened: false,
         goalSide: scoringSide,
         correctPrediction: false,
@@ -332,18 +333,16 @@ export async function checkForGoals(
 }
 
 /**
- * Look up the prisma row id by (matchCode, date, signalIndex) unique key.
- * Returns the row id (string) or null.
+ * Look up the prisma row id by (matchCode, date, signalSide) unique key.
  */
-async function loadByKey(
+async function loadById(
   matchCode: number,
   date: string,
-  signalIndex: number,
+  signalSide: string,
 ): Promise<string | null> {
-  // We don't have a direct repository helper for this; query via db.
-  const { db } = await import('./db');
+  const { db } = await import("./db");
   const row = await db.signal.findUnique({
-    where: { matchCode_date_signalIndex: { matchCode, date, signalIndex } },
+    where: { matchCode_date_signalSide: { matchCode, date, signalSide } },
     select: { id: true },
   });
   return row?.id ?? null;
@@ -360,7 +359,7 @@ async function expireStaleSignals(): Promise<number> {
   const stale = await repoFindPending(expiryMs);
   let expired = 0;
   for (const s of stale) {
-    const id = await loadByKey(s.matchCode, s.date, s.signalIndex);
+    const id = s.id ?? (await loadById(s.matchCode, s.date, s.signalSide));
     if (!id) continue;
     await repoUpdateVerification(id, {
       goalHappened: false,
@@ -382,7 +381,7 @@ export async function expireSignalsForHalftime(
   for (const matchCode of halftimeMatchCodes) {
     const pending = await repoFindAllPending(matchCode);
     for (const s of pending) {
-      const id = await loadByKey(matchCode, s.date, s.signalIndex);
+      const id = s.id ?? (await loadById(matchCode, s.date, s.signalSide));
       if (!id) continue;
       await repoUpdateVerification(id, {
         goalHappened: false,
@@ -406,12 +405,8 @@ export async function checkPendingSignals(): Promise<{
   stillPending: number;
 }> {
   const expired = await expireStaleSignals();
-
-  let stillPending = 0;
-  for (const [, state] of activeMatches) {
-    if (state.hasAnyGoalVerification) stillPending++;
-  }
-
+  // stillPending = matches tracked in activeMatches (rough estimate)
+  const stillPending = activeMatches.size;
   return { total: expired, expired, stillPending };
 }
 
@@ -462,7 +457,7 @@ export async function finalizeMatchSignals(
 ): Promise<void> {
   const pending = await repoFindAllPending(matchCode);
   for (const s of pending) {
-    const id = await loadByKey(matchCode, s.date, s.signalIndex);
+    const id = s.id ?? (await loadById(matchCode, s.date, s.signalSide));
     if (!id) continue;
     await repoUpdateVerification(id, {
       goalHappened: false,
@@ -475,7 +470,7 @@ export async function finalizeMatchSignals(
   const all = await repoFindAllForMatch(matchCode);
   for (const s of all) {
     if (s.finalHomeScore != null) continue;
-    const id = await loadByKey(matchCode, s.date, s.signalIndex);
+    const id = s.id ?? (await loadById(matchCode, s.date, s.signalSide));
     if (!id) continue;
     await repoUpdateFinalScore(id, homeScore, awayScore);
   }
@@ -494,10 +489,9 @@ export async function cleanupStaleSignals(
   const activeSet = new Set(activeMatchCodes);
   for (const [code] of activeMatches) {
     if (activeSet.has(code)) continue;
-    // Expire all pending signals of this match before dropping state.
     const pending = await repoFindAllPending(code);
     for (const s of pending) {
-      const id = await loadByKey(code, s.date, s.signalIndex);
+      const id = s.id ?? (await loadById(code, s.date, s.signalSide));
       if (!id) continue;
       await repoUpdateVerification(id, {
         goalHappened: false,

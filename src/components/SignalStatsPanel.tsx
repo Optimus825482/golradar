@@ -308,7 +308,7 @@ function SignalRow({ signal }: { signal: GoalSignalRecord }) {
   const sigMin = signal.signalMinute ?? (signal as any).signal1Minute ?? 0
   const sigScore = signal.signalScore ?? (signal as any).signal1Score ?? 0
   const sigSide = signal.signalSide ?? (signal as any).signal1Side ?? 'home'
-  const sigIndex = signal.signalIndex ?? 0
+  const lastScore = (signal as any).lastScore ?? signal.signalScore
 
   return (
     <div className="flex items-center gap-2 py-1 px-2 rounded-lg bg-white/60 border border-gray-100">
@@ -335,17 +335,10 @@ function SignalRow({ signal }: { signal: GoalSignalRecord }) {
       {/* Probability score */}
       <div className="w-8 text-center">
         <span className="text-[10px] font-mono font-bold text-indigo-500">{sigScore}%</span>
+        {lastScore !== sigScore && lastScore != null && (
+          <div className="text-[7px] text-gray-400">{lastScore}%</div>
+        )}
       </div>
-
-      {/* Signal index badge */}
-      {sigIndex > 1 && (
-        <span className="text-[7px] bg-indigo-50 text-indigo-500 px-1 py-0.5 rounded font-mono">#{sigIndex}</span>
-      )}
-
-      {/* Escalation badge */}
-      {signal.isEscalation && (
-        <span className="text-[7px] bg-amber-50 text-amber-600 px-1 py-0.5 rounded font-bold">↑</span>
-      )}
 
       {/* Status badge */}
       {statusBadge}

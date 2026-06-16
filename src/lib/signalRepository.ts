@@ -23,7 +23,10 @@ import type {
  *  - null passthrough
  */
 export function toGoalSignalRecord(row: Signal): GoalSignalRecord {
-  return {
+  // Prisma row may include the `id` field we don't expose in GoalSignalRecord.
+  // We spread it via a cast so we can use it in lookup paths.
+  const base = {
+    id: row.id,
     matchCode: row.matchCode,
     homeTeam: row.homeTeam,
     awayTeam: row.awayTeam,
@@ -32,28 +35,35 @@ export function toGoalSignalRecord(row: Signal): GoalSignalRecord {
     date: row.date,
 
     signalMinute: row.signalMinute,
-    signalSide: row.signalSide as 'home' | 'away',
+    signalSide: row.signalSide as "home" | "away",
     signalScore: row.signalScore,
     calibratedP: row.calibratedP,
     poissonP: row.poissonP,
-    signalLevel: row.signalLevel as GoalSignalRecord['signalLevel'],
-
+    signalLevel: row.signalLevel as GoalSignalRecord["signalLevel"],
     activeFactors: Array.isArray(row.activeFactors)
       ? (row.activeFactors as string[])
       : [],
+
+    lastScore: (row as any).lastScore ?? row.signalScore,
+    lastCalibratedP: (row as any).lastCalibratedP ?? row.calibratedP,
+    lastPoissonP: (row as any).lastPoissonP ?? row.poissonP,
+    lastFactors: Array.isArray((row as any).lastFactors)
+      ? ((row as any).lastFactors as string[])
+      : [],
+
     homeScore: row.homeScore,
     awayScore: row.awayScore,
     currentHomeGoals: row.currentHomeGoals,
     currentAwayGoals: row.currentAwayGoals,
 
-    signalIndex: row.signalIndex,
-    isEscalation: row.isEscalation,
-    previousSignalScore: row.previousSignalScore,
     signalTimestamp: row.signalTimestamp.getTime(),
+    lastSignalTimestamp: (row as any).lastSignalTimestamp
+      ? (row as any).lastSignalTimestamp.getTime()
+      : null,
 
     goalHappened: row.goalHappened,
     goalMinute: row.goalMinute,
-    goalSide: row.goalSide as 'home' | 'away' | null,
+    goalSide: row.goalSide as "home" | "away" | null,
     correctPrediction: row.correctPrediction,
     minutesAfterSignal: row.minutesAfterSignal,
     goalTimestamp: row.goalTimestamp ? row.goalTimestamp.getTime() : null,
@@ -61,6 +71,7 @@ export function toGoalSignalRecord(row: Signal): GoalSignalRecord {
     finalHomeScore: row.finalHomeScore,
     finalAwayScore: row.finalAwayScore,
   };
+  return base as GoalSignalRecord & { id: string };
 }
 
 // ── Convert in-memory record → Prisma create input ──────────────
@@ -86,15 +97,21 @@ function fromGoalSignalRecord(record: GoalSignalRecord) {
     signalLevel: record.signalLevel,
     activeFactors: record.activeFactors,
 
+    lastScore: record.lastScore,
+    lastCalibratedP: record.lastCalibratedP,
+    lastPoissonP: record.lastPoissonP,
+    lastFactors: record.lastFactors,
+
     homeScore: record.homeScore,
     awayScore: record.awayScore,
     currentHomeGoals: record.currentHomeGoals,
     currentAwayGoals: record.currentAwayGoals,
 
-    signalIndex: record.signalIndex,
-    isEscalation: record.isEscalation,
-    previousSignalScore: record.previousSignalScore,
     signalTimestamp: new Date(record.signalTimestamp),
+    lastSignalTimestamp:
+      record.lastSignalTimestamp != null
+        ? new Date(record.lastSignalTimestamp)
+        : null,
 
     goalHappened: record.goalHappened,
     goalMinute: record.goalMinute,
@@ -216,35 +233,65 @@ export async function findRecent(days: number): Promise<GoalSignalRecord[]> {
   return rows.map(toGoalSignalRecord);
 }
 
+/**
+ * Find an existing signal by (matchCode, date, signalSide). Returns the
+ * row (with id) or null. Used by checkAndRecordSignal to decide upsert vs create.
+ */
+export async function findExisting(
+  matchCode: number,
+  date: string,
+  signalSide: string,
+): Promise<(GoalSignalRecord & { id: string }) | null> {
+  const row = await db.signal.findUnique({
+    where: { matchCode_date_signalSide: { matchCode, date, signalSide } },
+  });
+  if (!row) return null;
+  return toGoalSignalRecord(row) as GoalSignalRecord & { id: string };
+}
+
+/**
+ * Update only the "last" value fields for an existing signal. Does NOT
+ * touch first-signal fields (signalScore, calibratedP, etc.).
+ */
+export async function updateLastValues(
+  id: string,
+  fields: {
+    lastScore: number;
+    lastCalibratedP: number;
+    lastPoissonP: number;
+    lastFactors: string[];
+    lastSignalTimestamp: number;
+  },
+): Promise<GoalSignalRecord | null> {
+  try {
+    const row = await db.signal.update({
+      where: { id },
+      data: {
+        lastScore: fields.lastScore,
+        lastCalibratedP: fields.lastCalibratedP,
+        lastPoissonP: fields.lastPoissonP,
+        lastFactors: fields.lastFactors,
+        lastSignalTimestamp: new Date(fields.lastSignalTimestamp),
+      },
+    });
+    return toGoalSignalRecord(row);
+  } catch {
+    return null;
+  }
+}
+
 // ── Writes ──────────────────────────────────────────────────────
 
 /**
- * Idempotent insert: create a new signal record, or update the existing
- * one if (matchCode, date, signalIndex) already exists. The composite
- * unique key prevents duplicate writes when relay workers race or
- * reconnect storms replay the same payload. Returns the persisted
- * record; if a duplicate was overwritten, returns the post-update row.
- *
- * Why upsert over create+catch-P2002: catches the race window between
- * concurrent workers where both pass the existence check and one fails
- * late. Upsert collapses that to a single round-trip.
+ * Create a new signal record. Used only for brand-new signals.
+ * (matchCode, date, signalSide) unique constraint prevents duplicates.
  */
 export async function createSignal(
   record: GoalSignalRecord,
 ): Promise<GoalSignalRecord | null> {
   const data = fromGoalSignalRecord(record);
   try {
-    const row = await db.signal.upsert({
-      where: {
-        matchCode_date_signalIndex: {
-          matchCode: record.matchCode,
-          date: record.date,
-          signalIndex: record.signalIndex,
-        },
-      },
-      create: data,
-      update: data,
-    });
+    const row = await db.signal.create({ data });
     return toGoalSignalRecord(row);
   } catch (err: unknown) {
     if (isPrismaUniqueViolation(err)) return null;
@@ -423,8 +470,8 @@ export async function calculateSignalStats(
     if (s.correctPrediction === true) levelDistribution[s.signalLevel].correct++;
   }
 
-  const escalationSignals = allSignals.filter((s) => s.isEscalation).length;
-  const escalationWithGoal = allSignals.filter((s) => s.isEscalation && s.goalHappened === true).length;
+  const escalationSignals = 0; // No escalation concept — one row per (matchCode, date, signalSide)
+  const escalationWithGoal = 0;
 
   const recentSignals = [...allSignals]
     .sort((a, b) => (b.signalTimestamp || 0) - (a.signalTimestamp || 0))

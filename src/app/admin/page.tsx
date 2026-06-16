@@ -681,7 +681,7 @@ function EloImportTab({ token }: { token: string }) {
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card title="Süper Lig İçe Aktar">
-          <p className="text-xs text-gray-500 mb-3">ClubElo.com'dan Türk takımlarının Elo rating'lerini çeker.</p>
+          <p className="text-xs text-gray-500 mb-3">Türk takımlarının Elo rating'lerini çoklu kaynaktan çeker.</p>
           <button
             onClick={() => doImport('fetch-league', { country: 'TUR' })}
             disabled={loading}
@@ -715,8 +715,8 @@ function EloImportTab({ token }: { token: string }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card title="Takım Listesi ile Çek (ClubElo)">
-          <p className="text-xs text-gray-500 mb-2">ClubElo takım isimlerini virgülle ayırarak girin.</p>
+        <Card title="Takım Listesi ile Çek (Çoklu Kaynak)">
+          <p className="text-xs text-gray-500 mb-2">Takım isimlerini virgülle ayırarak girin. ClubElo → FootballDB → Tahmin.</p>
           <textarea
             value={fetchTeams}
             onChange={(e) => setFetchTeams(e.target.value)}

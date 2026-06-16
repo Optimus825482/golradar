@@ -713,7 +713,11 @@ export async function fetchGoalooMatchEvents(matchId: number): Promise<GoalooMat
   if (!data) return [];
 
   try {
-    const events: GoalooMatchEvent[] = JSON.parse(data);
+    let events: any[] = JSON.parse(data);
+    // gettextlivedetail endpoint returns double-encoded JSON
+    if (typeof events === "string") {
+      events = JSON.parse(events);
+    }
     return events.map((e: any) => {
       const content = e.content || '';
       const minuteMatch = content.match(/(\d+)'/);

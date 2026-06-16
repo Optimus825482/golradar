@@ -94,8 +94,17 @@ function parseGoalEvents(events: GoalooMatchEvent[], homeTeam: string, awayTeam:
   const result: { minute: number; isHome: boolean; player: string }[] = [];
   for (const e of events) {
     if (e.type !== "goal" || !e.minute) continue;
+    // Determine side from detail text: "Goal! Inter Milan 1, Torino 0"
     const detail = e.detail.toLowerCase();
-    const isHome = detail.includes(homeTeam.toLowerCase());
+    const homeLower = homeTeam.toLowerCase();
+    const awayLower = awayTeam.toLowerCase();
+    // Simple heuristic: whoever's name appears first after "Goal!"
+    const goalIdx = detail.indexOf("goal");
+    const afterGoal = detail.substring(goalIdx + 4);
+    const isHome =
+      afterGoal.includes(homeLower) &&
+      (!afterGoal.includes(awayLower) ||
+        afterGoal.indexOf(homeLower) < afterGoal.indexOf(awayLower));
     result.push({ minute: e.minute, isHome, player: e.player || "" });
   }
   return result;

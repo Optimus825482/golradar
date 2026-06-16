@@ -107,19 +107,32 @@ function parseGoalooEvents(
   for (const e of events) {
     if (e.type !== "goal" || !e.minute) continue;
 
-    // Determine side: Goaloo event format includes team name in detail
+    // Goaloo format: "18' Goal! Inter Milan 1, Torino 0. Player (Team)"
+    // BOTH team names appear. First team after "Goal!" = scoring team.
     const detail = e.detail.toLowerCase();
+    const goalIdx = detail.indexOf("goal");
+    const afterGoal = goalIdx >= 0 ? detail.substring(goalIdx + 4) : detail;
     const homeLower = homeTeam.toLowerCase();
     const awayLower = awayTeam.toLowerCase();
 
-    // Example: "10' Goal! Fiorentina 1, Atalanta 0. Roberto Piccoli (Fiorentina)"
-    // Try to parse who scored
-    const isHome =
-      detail.includes(homeLower) && !detail.includes(awayLower)
-        ? true
-        : detail.includes(awayLower) && !detail.includes(homeLower)
-          ? false
-          : e.team === "home";
+    // Find which team name appears first after "Goal!"
+    const homePos = afterGoal.indexOf(homeLower);
+    const awayPos = afterGoal.indexOf(awayLower);
+
+    let isHome: boolean;
+    if (homePos >= 0 && (awayPos < 0 || homePos < awayPos)) {
+      isHome = true;
+    } else if (awayPos >= 0 && (homePos < 0 || awayPos < homePos)) {
+      isHome = false;
+    } else {
+      // Fallback: check if scored player's team matches home
+      isHome =
+        detail.includes(homeLower) && !detail.includes(awayLower)
+          ? true
+          : detail.includes(awayLower) && !detail.includes(homeLower)
+            ? false
+            : true; // default home
+    }
 
     result.push({
       minute: e.minute,

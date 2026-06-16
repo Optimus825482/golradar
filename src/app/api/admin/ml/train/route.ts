@@ -91,49 +91,35 @@ export const POST = adminRoute(async (request: Request) => {
   let resolvedPath = body.dataset_path ?? null;
   let dataset_id = body.dataset_id ?? null;
 
-  // Auto-resolve dataset: if no explicit dataset, find the latest
-  // ready TrainingDataset for this horizon
-  if (!resolvedPath && !dataset_id) {
-    const latestDataset = await db.trainingDataset.findFirst({
-      where: { horizonMin: horizon_min, status: "ready" },
-      orderBy: { createdAt: "desc" },
-    });
-    if (latestDataset) {
-      dataset_id = latestDataset.id;
-      resolvedPath = latestDataset.path;
+  // Always force a fresh export before training
+  // This ensures the JSONL file has the latest data with proper goalScored labels
+  try {
+    const exportResult = await triggerExportNow(horizon_min as 5 | 10 | 15);
+    if (exportResult) {
+      dataset_id = exportResult.datasetId;
+      resolvedPath = exportResult.path;
     }
-  } else if (dataset_id) {
-    const ds = await db.trainingDataset.findUnique({
-      where: { id: dataset_id },
-    });
-    if (!ds) {
-      return NextResponse.json(
-        { error: `dataset_id ${dataset_id} not found` },
-        { status: 404 },
-      );
-    }
-    if (ds.horizonMin !== horizon_min) {
-      return NextResponse.json(
-        {
-          error: "horizon_min mismatch",
-          message: `dataset was built for ${ds.horizonMin}min, request asked for ${horizon_min}min`,
-        },
-        { status: 400 },
-      );
-    }
-    resolvedPath = ds.path;
+  } catch {
+    /* fall through to DB lookup */
   }
 
+  // Fallback: if export failed, look for existing dataset
   if (!resolvedPath) {
-    // No dataset at all — try to export one on-demand
-    try {
-      const exportResult = await triggerExportNow(horizon_min as 5 | 10 | 15);
-      if (exportResult) {
-        dataset_id = exportResult.datasetId;
-        resolvedPath = exportResult.path;
+    if (dataset_id) {
+      const ds = await db.trainingDataset.findUnique({
+        where: { id: dataset_id },
+      });
+      if (ds) resolvedPath = ds.path;
+    }
+    if (!resolvedPath) {
+      const latestDataset = await db.trainingDataset.findFirst({
+        where: { horizonMin: horizon_min, status: "ready" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (latestDataset) {
+        dataset_id = latestDataset.id;
+        resolvedPath = latestDataset.path;
       }
-    } catch {
-      /* fall through to error */
     }
   }
 
@@ -259,5 +245,5 @@ export const POST = adminRoute(async (request: Request) => {
     metrics: completed.metrics,
     registered,
   });
-});
+};);
 

@@ -447,7 +447,7 @@ function MLModelsTab({ token }: { token: string }) {
       <Panel title="Model Egit">
         <div className="flex flex-wrap gap-2">
           {['gbdt', 'xgb', 'inplay'].map((name) => (
-            <button key={name} onClick={() => { const v = prompt(`${name} model versiyonu (or: 1.0.0):`); if (v) doAction(`train-${name}`, '/api/admin/ml/train', { name, version: v }); }} disabled={!!actionLoading}
+            <button key={name} onClick={() => doAction(`train-${name}`, '/api/admin/ml/train', { name })} disabled={!!actionLoading}
               className="px-4 py-2 text-sm text-white font-medium rounded transition-colors disabled:opacity-50" style={{ background: G.blue }}>
               {actionLoading === `train-${name}` ? <Spinner /> : `Train ${name}`}
             </button>

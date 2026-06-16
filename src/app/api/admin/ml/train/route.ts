@@ -50,18 +50,29 @@ export const POST = adminRoute(async (request: Request) => {
     return NextResponse.json({ error: 'invalid-json' }, { status: 400 });
   }
 
-  const { name, version } = body;
+  const { name } = body;
+
   if (!name || !["gbdt", "xgb", "inplay"].includes(name)) {
     return NextResponse.json(
       { error: "name must be one of gbdt|xgb|inplay" },
       { status: 400 },
     );
   }
-  if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
-    return NextResponse.json(
-      { error: "version must be semver (e.g. 1.0.0)" },
-      { status: 400 },
-    );
+
+  // ── Auto-version: find latest artifact and bump patch ───────
+  let version = body.version ?? "";
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    const latest = await db.modelArtifact.findFirst({
+      where: { name: name as string },
+      orderBy: { createdAt: "desc" },
+    });
+    if (latest) {
+      const parts = latest.version.split(".").map(Number);
+      parts[2] = (parts[2] ?? 0) + 1;
+      version = parts.join(".");
+    } else {
+      version = "1.0.0";
+    }
   }
 
   // ── Smart defaults: horizon_min + dataset auto-discovery ─────

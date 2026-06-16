@@ -93,7 +93,7 @@ class JobHandle(BaseModel):
     version: str
     horizonMin: int
     artifactPath: Optional[str] = None
-    metrics: Dict[str, float] = Field(default_factory=dict)
+    metrics: Dict[str, Any] = Field(default_factory=dict)
     error: Optional[str] = None
     startedAt: float
     finishedAt: float

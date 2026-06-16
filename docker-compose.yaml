@@ -45,8 +45,6 @@ services:
       NEXT_PUBLIC_PWA_THEME_COLOR: ${NEXT_PUBLIC_PWA_THEME_COLOR:-#10b981}
       SIGNAL_RESET: "1"
       IMPORT_FOTMOB_TEAMS: "1"
-      # Seed ML training data from Sofascore (30d/3000 matches, ~30-60min)
-      SEED_BACKFILL: ${SEED_BACKFILL:-0}
       # ML Trainer sidecar
       ML_TRAINER_URL: "http://ml-trainer:9100"
     networks:

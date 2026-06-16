@@ -66,11 +66,6 @@ COPY --from=build /app/.next/static /app/web/.next/static
 COPY --from=build /app/public /app/web/public
 COPY --from=build /app/prisma /app/web/prisma
 
-# TypeScript source for seed scripts (bun runs TS natively at runtime)
-COPY --from=build /app/src /app/web/src
-COPY --from=build /app/tsconfig.json /app/web/tsconfig.json
-COPY --from=build /app/package.json /app/web/package.json
-
 # Prisma CLI + client (the entrypoint runs `prisma db push` from these)
 COPY --from=build /app/node_modules/.prisma /app/web/node_modules/.prisma
 COPY --from=build /app/node_modules/prisma /app/web/node_modules/prisma

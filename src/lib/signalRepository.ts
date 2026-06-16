@@ -70,6 +70,8 @@ export function toGoalSignalRecord(row: Signal): GoalSignalRecord {
 
     finalHomeScore: row.finalHomeScore,
     finalAwayScore: row.finalAwayScore,
+
+    escalated: (row as any).escalated ?? false,
   };
   return base as GoalSignalRecord & { id: string };
 }
@@ -250,8 +252,8 @@ export async function findExisting(
 }
 
 /**
- * Update only the "last" value fields for an existing signal. Does NOT
- * touch first-signal fields (signalScore, calibratedP, etc.).
+ * Update "last" value fields for an existing signal. Detects escalation:
+ * when lastScore >= signalScore + 10, marks escalated=true permanently.
  */
 export async function updateLastValues(
   id: string,
@@ -264,6 +266,17 @@ export async function updateLastValues(
   },
 ): Promise<GoalSignalRecord | null> {
   try {
+    // Read current signalScore to check for escalation
+    const current = await db.signal.findUnique({
+      where: { id },
+      select: { signalScore: true, escalated: true },
+    });
+    const previousEscalated = current?.escalated ?? false;
+    const previousSignalScore = current?.signalScore ?? 0;
+
+    const isEscalation =
+      !previousEscalated && fields.lastScore >= previousSignalScore + 10;
+
     const row = await db.signal.update({
       where: { id },
       data: {
@@ -272,6 +285,7 @@ export async function updateLastValues(
         lastPoissonP: fields.lastPoissonP,
         lastFactors: fields.lastFactors,
         lastSignalTimestamp: new Date(fields.lastSignalTimestamp),
+        escalated: isEscalation ? true : previousEscalated,
       },
     });
     return toGoalSignalRecord(row);
@@ -470,8 +484,12 @@ export async function calculateSignalStats(
     if (s.correctPrediction === true) levelDistribution[s.signalLevel].correct++;
   }
 
-  const escalationSignals = 0; // No escalation concept — one row per (matchCode, date, signalSide)
-  const escalationWithGoal = 0;
+  const escalationSignals = allSignals.filter(
+    (s) => (s as any).escalated === true,
+  ).length;
+  const escalationWithGoal = allSignals.filter(
+    (s) => (s as any).escalated === true && s.goalHappened === true,
+  ).length;
 
   const recentSignals = [...allSignals]
     .sort((a, b) => (b.signalTimestamp || 0) - (a.signalTimestamp || 0))

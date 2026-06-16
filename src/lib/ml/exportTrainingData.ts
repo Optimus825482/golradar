@@ -139,7 +139,7 @@ export async function exportTrainingData(
   // batch size up front; the trainer is fine with up to ~100k rows.
   const predictionLogs = await db.predictionLog.findMany({
     where: { createdAt: { gte: cutoff } },
-    orderBy: [{ matchCode: 'asc' }, { createdAt: 'asc' }],
+    orderBy: [{ matchCode: "asc" }, { createdAt: "asc" }],
     take: maxRows > 0 ? maxRows : 100_000,
   });
 
@@ -148,11 +148,13 @@ export async function exportTrainingData(
   }
 
   // Collect match codes and fetch goal events for all of them in one query
-  const matchCodes = Array.from(new Set(predictionLogs.map((l) => l.matchCode)));
+  const matchCodes = Array.from(
+    new Set(predictionLogs.map((l) => l.matchCode)),
+  );
   const goalEvents = await db.matchEvent.findMany({
     where: {
       matchCode: { in: matchCodes },
-      eventType: 'goal',
+      eventType: "goal",
     },
     select: { matchCode: true, minute: true, createdAt: true },
   });
@@ -215,33 +217,64 @@ export async function exportTrainingData(
     return null;
   }
 
+  // Label distribution sanity check
+  const positives = rows.filter((r) => r.label === 1).length;
+  const negatives = rows.length - positives;
+  console.log(
+    `[Export] ${rows.length} rows, ${positives} positives (${((positives / rows.length) * 100).toFixed(1)}%), ` +
+      `${negatives} negatives for horizon=${horizon}min`,
+  );
+
+  if (positives === 0 || negatives === 0) {
+    // Record failed export — trainer needs both classes
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const fileName = `${horizon}min-${dateStr}.jsonl`;
+    const filePath = join(TRAINING_DIR, fileName);
+    const jsonl = rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
+    await writeFile(filePath, jsonl, "utf-8");
+    const sha256 = hashRows(rows);
+    await db.trainingDataset.create({
+      data: {
+        horizonMin: horizon,
+        rowCount: rows.length,
+        brier: null,
+        logLoss: null,
+        path: filePath,
+        sha256,
+        status: "failed",
+        errorMsg: `Only one label class: ${positives} positives, ${negatives} negatives. Need goal events in the data.`,
+        dataStart: predictionLogs[0].createdAt,
+        dataEnd: predictionLogs[predictionLogs.length - 1].createdAt,
+      },
+    });
+    return null;
+  }
+
   // Write JSONL file
   await mkdir(TRAINING_DIR, { recursive: true });
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const fileName = `${horizon}min-${dateStr}.jsonl`;
   const filePath = join(TRAINING_DIR, fileName);
-  const jsonl = rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
-  await writeFile(filePath, jsonl, 'utf-8');
+  const jsonl = rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
+  await writeFile(filePath, jsonl, "utf-8");
 
   const sha256 = hashRows(rows);
 
   // Quick sanity metrics on the export itself
-  const positives = rows.filter((r) => r.label === 1).length;
   const baseRate = positives / rows.length;
   // Brier of "always predict base rate" — useful ceiling metric
-  const brierBaseline = rows.reduce(
-    (acc, r) => acc + (r.label - baseRate) ** 2,
-    0,
-  ) / rows.length;
+  const brierBaseline =
+    rows.reduce((acc, r) => acc + (r.label - baseRate) ** 2, 0) / rows.length;
   // Log loss of "always predict base rate" — useful ceiling metric
   const eps = 1e-9;
-  const logLossBaseline = -rows.reduce(
-    (acc, r) =>
-      acc +
-      r.label * Math.log(Math.max(baseRate, eps)) +
-      (1 - r.label) * Math.log(Math.max(1 - baseRate, eps)),
-    0,
-  ) / rows.length;
+  const logLossBaseline =
+    -rows.reduce(
+      (acc, r) =>
+        acc +
+        r.label * Math.log(Math.max(baseRate, eps)) +
+        (1 - r.label) * Math.log(Math.max(1 - baseRate, eps)),
+      0,
+    ) / rows.length;
 
   // Create the TrainingDataset row
   const dataset = await db.trainingDataset.create({
@@ -252,7 +285,7 @@ export async function exportTrainingData(
       logLoss: logLossBaseline,
       path: filePath,
       sha256,
-      status: 'ready',
+      status: "ready",
       dataStart: predictionLogs[0].createdAt,
       dataEnd: predictionLogs[predictionLogs.length - 1].createdAt,
     },

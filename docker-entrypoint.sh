@@ -86,6 +86,14 @@ await p.\$disconnect();
 " 2>&1 || echo "[DB] FotMob import failed (ignored)"
 fi
 
+# Seed ML training data from Sofascore (first deploy only)
+if [ "${SEED_BACKFILL:-0}" = "1" ]; then
+    echo "[DB] Seeding ML training data from Sofascore (30 days, 3000 matches, 8 workers)..."
+    echo "[DB] This may take 30-60 minutes. Progress will be written to PredictionLog table."
+    NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
+        bun run scripts/seed-backfill.ts --days=30 --max-matches=3000 --workers=8 2>&1 || echo "[DB] Seed backfill failed (ignored)"
+fi
+
 # Start Next.js
 echo "[WEB] Starting Next.js on port ${PORT:-3012}..."
 NODE_ENV=production DATABASE_URL="$DATABASE_URL" HOSTNAME=0.0.0.0 PORT=${PORT:-3012} bun server.js &

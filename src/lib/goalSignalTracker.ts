@@ -44,6 +44,7 @@ const getLocalDateString = (d: Date = new Date()): string => {
 // ── Types ────────────────────────────────────────────────────────
 
 export interface GoalSignalRecord {
+  id?: string; // DB row id — populated by repository when reading from DB
   // ── Match identification ──
   matchCode: number;
   homeTeam: string;

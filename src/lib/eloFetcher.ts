@@ -294,6 +294,15 @@ export interface EloFetchResult {
 export async function fetchTeamRating(
   teamName: string,
 ): Promise<EloFetchResult | null> {
+  // Fast pre-check: skip network calls entirely for unknown teams
+  // Only try API sources if the team is in our known dictionaries
+  const isKnown =
+    estimateFromMatchHistory(teamName) !== null ||
+    FOOTBALLDB_TEAM_MAP[teamName] !== undefined;
+  if (!isKnown) {
+    return null;
+  }
+
   // 1. ClubElo API (best source)
   const clubelo = await fetchClubElo(teamName);
   if (clubelo !== null) {

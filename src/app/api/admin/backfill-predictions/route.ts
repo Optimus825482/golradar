@@ -13,12 +13,13 @@ import { adminRoute } from '@/lib/adminRoute';
 import { db } from '@/lib/db';
 import {
   LIVESCORE_API,
+  UNLIVE_API,
   HEADERS,
   FINISHED_STATUSES,
   parseMatch,
   calculateGoalProbability,
   type ParsedMatch,
-} from '@/lib/nesine';
+} from "@/lib/nesine";
 import { generateSyntheticSnapshots } from '@/lib/advancedAnalytics';
 import { extractFeatures, featuresToArray } from '@/lib/featureEngineering';
 import { getRating, autoFetchMissingRatings } from '@/lib/eloRating';
@@ -27,7 +28,7 @@ export const dynamic = 'force-dynamic';
 
 async function fetchFinishedMatchesForDate(date: string): Promise<ParsedMatch[]> {
   try {
-    const resp = await fetch(`${LIVESCORE_API}?sportType=1&date=${date}`, {
+    const resp = await fetch(`${UNLIVE_API}?sportType=1`, {
       headers: HEADERS,
       signal: AbortSignal.timeout(15000),
     });

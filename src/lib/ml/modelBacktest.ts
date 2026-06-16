@@ -212,9 +212,8 @@ export async function runModelBacktest(
     createdAt: { gte: cutoff },
   };
   if (kind === 'champion') {
-    // Use the legacy "champion" discriminator (default for all rows
-    // written by the existing inference path).
-    whereFilter.modelVariant = 'champion';
+    // champion backtest: use ALL model variants (goaloo-season currently)
+    // Don't filter by modelVariant — champion tests against all available data
   } else {
     whereFilter.modelVariant = variantFilter;
   }

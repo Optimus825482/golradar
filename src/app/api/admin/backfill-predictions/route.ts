@@ -94,17 +94,23 @@ function parseGoalEvents(events: GoalooMatchEvent[], homeTeam: string, awayTeam:
   const result: { minute: number; isHome: boolean; player: string }[] = [];
   for (const e of events) {
     if (e.type !== "goal" || !e.minute) continue;
-    // Determine side from detail text: "Goal! Inter Milan 1, Torino 0"
+    // Goaloo format: "18' Goal! Inter Milan 1, Torino 0. Player (Team)"
+    // BOTH team names appear. First team after "Goal!" = scoring team.
     const detail = e.detail.toLowerCase();
+    const goalIdx = detail.indexOf("goal");
+    const afterGoal = goalIdx >= 0 ? detail.substring(goalIdx + 4) : detail;
     const homeLower = homeTeam.toLowerCase();
     const awayLower = awayTeam.toLowerCase();
-    // Simple heuristic: whoever's name appears first after "Goal!"
-    const goalIdx = detail.indexOf("goal");
-    const afterGoal = detail.substring(goalIdx + 4);
-    const isHome =
-      afterGoal.includes(homeLower) &&
-      (!afterGoal.includes(awayLower) ||
-        afterGoal.indexOf(homeLower) < afterGoal.indexOf(awayLower));
+    const homePos = afterGoal.indexOf(homeLower);
+    const awayPos = afterGoal.indexOf(awayLower);
+    let isHome: boolean;
+    if (homePos >= 0 && (awayPos < 0 || homePos < awayPos)) {
+      isHome = true;
+    } else if (awayPos >= 0 && (homePos < 0 || awayPos < homePos)) {
+      isHome = false;
+    } else {
+      isHome = true; // default
+    }
     result.push({ minute: e.minute, isHome, player: e.player || "" });
   }
   return result;

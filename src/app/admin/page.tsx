@@ -663,7 +663,7 @@ function EloImportTab({ token }: { token: string }) {
   const [progress, setProgress] = useState<any>(null);
   const [manualEntries, setManualEntries] = useState('');
   const [fetchTeams, setFetchTeams] = useState('');
-  const progressRef = useRef<jobId | null>(null);
+  const progressRef = useRef<string | null>(null);
 
   // Poll progress when job is running
   useEffect(() => {

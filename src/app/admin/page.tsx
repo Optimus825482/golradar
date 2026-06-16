@@ -404,6 +404,9 @@ function MLModelsTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
   const [actionResult, setActionResult] = useState('');
+  const [backtestDays, setBacktestDays] = useState(14);
+  const [backtestResult, setBacktestResult] = useState<any>(null);
+  const [backtestLoading, setBacktestLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -418,10 +421,24 @@ function MLModelsTab({ token }: { token: string }) {
     try {
       const res = await authFetch(url, { method: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : undefined });
       const data = await res.json();
-      setActionResult(`${name}: ${res.ok ? 'Basarili' : 'Hata'} — ${JSON.stringify(data).slice(0, 200)}`);
+      setActionResult(`${name}: ${res.ok ? 'Basarili' : 'Hata'} — ${JSON.stringify(data).slice(0, 300)}`);
       if (res.ok) load();
     } catch (e: any) { setActionResult(`${name}: Hata — ${e.message}`); }
     setActionLoading('');
+  };
+
+  const runBacktest = async (nm: string, ver: string) => {
+    setBacktestLoading(true); setBacktestResult(null);
+    try {
+      const res = await authFetch('/api/admin/ml/model-backtest', {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'artifact', name: nm, version: ver, days: backtestDays }),
+      });
+      const data = await res.json();
+      if (data.ok) setBacktestResult(data.result);
+      else setBacktestResult({ error: data.error });
+    } catch (e: any) { setBacktestResult({ error: e.message }); }
+    setBacktestLoading(false);
   };
 
   if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
@@ -442,6 +459,100 @@ function MLModelsTab({ token }: { token: string }) {
             ))}
           </div>
         ) : <p className="text-xs text-gray-400">Henuz champion model yok</p>}
+      </Panel>
+
+      {/* ── Model Performance Metrics ────────────────────────── */}
+      {status?.latestMetrics && (
+        <Panel title="Model Performans Metrikleri (Son Gun)">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatPanel label="Champion Brier" value={status.latestMetrics.brierScore?.toFixed(4) ?? '-'} color={G.blue} />
+            <StatPanel label="GBDT Brier" value={status.latestMetrics.gbdtBrier?.toFixed(4) ?? '-'} color={G.green} />
+            <StatPanel label="XGB Brier" value={status.latestMetrics.xgbBrier?.toFixed(4) ?? '-'} color={G.orange} />
+            <StatPanel label="InPlay Brier" value={status.latestMetrics.inPlayBrier?.toFixed(4) ?? '-'} color={G.purple} />
+          </div>
+          {status.latestMetrics.shadowBrierDelta != null && (
+            <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-100 text-xs">
+              <span className="text-gray-400">Shadow Delta:</span>
+              <span className="font-mono font-semibold" style={{ color: status.latestMetrics.shadowBrierDelta < 0 ? G.green : G.red }}>
+                {status.latestMetrics.shadowBrierDelta > 0 ? '+' : ''}{status.latestMetrics.shadowBrierDelta?.toFixed(4)}
+              </span>
+              <span className="text-gray-400">(n={status.latestMetrics.nShadowSamples})</span>
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {/* ── Model Artifact List ─────────────────────────────── */}
+      {status?.allArtifacts?.length > 0 && (
+        <Panel title="Tum Model Surumleri">
+          <div className="overflow-x-auto max-h-48 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-left text-gray-400 border-b border-gray-100 sticky top-0 bg-white">
+                <th className="py-1.5 pr-3 font-medium">Model</th><th className="py-1.5 pr-3 font-medium">Surum</th><th className="py-1.5 pr-3 font-medium">Egitim Brier</th><th className="py-1.5 pr-3 font-medium">Egitim Acc</th><th className="py-1.5 pr-3 font-medium">Champion</th><th className="py-1.5 font-medium">Islem</th>
+              </tr></thead>
+              <tbody>
+                {status.allArtifacts.map((a: any) => (
+                  <tr key={`${a.name}-${a.version}`} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-1.5 pr-3 font-medium text-gray-700">{a.name}</td>
+                    <td className="py-1.5 pr-3 font-mono text-gray-500">{a.version}</td>
+                    <td className="py-1.5 pr-3 font-mono text-gray-600">{a.metrics?.brier?.toFixed(4) ?? '-'}</td>
+                    <td className="py-1.5 pr-3 font-mono text-gray-600">{a.metrics?.accuracy != null ? `${(a.metrics.accuracy * 100).toFixed(1)}%` : '-'}</td>
+                    <td className="py-1.5 pr-3">{a.isChampion ? <StatusBadge ok={true} label="Champion" /> : <span className="text-gray-300">-</span>}</td>
+                    <td className="py-1.5">
+                      <button onClick={() => runBacktest(a.name, a.version)} disabled={backtestLoading}
+                        className="text-[10px] font-medium rounded px-2 py-0.5 transition-colors disabled:opacity-50"
+                        style={{ background: '#edf2fb', color: G.blue }}>
+                        {backtestLoading ? <Spinner /> : 'Backtest'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+
+      {/* ── Backtest Result ─────────────────────────────────── */}
+      {backtestResult && (
+        <Panel title="Backtest Sonucu">
+          {backtestResult.error ? (
+            <p className="text-xs text-red-500">{backtestResult.error}</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <StatPanel label="Brier Skor" value={backtestResult.brierScore?.toFixed(4) ?? '-'} color={G.blue} />
+                <StatPanel label="Dogruluk" value={backtestResult.accuracy != null ? `${(backtestResult.accuracy * 100).toFixed(1)}%` : '-'} color={G.green} />
+                <StatPanel label="Kalibrasyon Hatasi" value={backtestResult.calibrationError?.toFixed(4) ?? '-'} color={G.orange} />
+                <StatPanel label="Ornek Sayisi" value={backtestResult.totalPredictions?.toLocaleString() ?? '-'} color={G.purple} />
+              </div>
+              {backtestResult.sideAccuracy && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-center py-2 rounded" style={{ background: '#fef3e8' }}>
+                    <div className="text-xs font-bold" style={{ color: G.orange }}>{((backtestResult.sideAccuracy.home ?? 0) * 100).toFixed(0)}%</div>
+                    <div className="text-[10px] text-gray-400">Ev Sahibi Dogrulugu</div>
+                  </div>
+                  <div className="text-center py-2 rounded" style={{ background: '#edf2fb' }}>
+                    <div className="text-xs font-bold" style={{ color: G.blue }}>{((backtestResult.sideAccuracy.away ?? 0) * 100).toFixed(0)}%</div>
+                    <div className="text-[10px] text-gray-400">Deplasman Dogrulugu</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {/* ── Backtest Controls ───────────────────────────────── */}
+      <Panel title="Backtest Parametreleri">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">Gun:</span>
+            <input type="number" value={backtestDays} onChange={(e) => setBacktestDays(Math.min(90, Math.max(1, parseInt(e.target.value) || 14)))}
+              className="w-16 px-2 py-1 border border-gray-200 text-xs rounded focus:border-blue-400 outline-none" />
+          </div>
+          <span className="text-[10px] text-gray-400">Backtest yapmak icin yukaridaki model satirindaki butona tikla</span>
+        </div>
       </Panel>
 
       <Panel title="Model Egit">

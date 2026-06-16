@@ -276,6 +276,12 @@ async function processMatch(match: EnrichedMatch): Promise<number> {
 
       const featuresArr = featuresToArray(features);
 
+      // Determine label: is there a goal after this minute in the same match?
+      const nextGoalMinute = goalEvents
+        .map((g) => g.time)
+        .filter((t) => t > minNum)
+        .sort((a, b) => a - b)[0] ?? null;
+
       predictionLogs.push({
         matchCode,
         minute: minNum,
@@ -295,13 +301,15 @@ async function processMatch(match: EnrichedMatch): Promise<number> {
         poissonAwayP: null,
         modelVariant: "historical-backfill",
         featuresJson: JSON.stringify(featuresArr),
+        goalScored: nextGoalMinute ? true : false,
+        minutesToGoal: nextGoalMinute ? nextGoalMinute - minNum : null,
       });
     } catch {
       // Skip
     }
   }
 
-  // 6. Batch insert
+  // 6. Batch insert (goalScored & minutesToGoal already set above)
   if (predictionLogs.length > 0) {
     await db.predictionLog.createMany({
       data: predictionLogs,

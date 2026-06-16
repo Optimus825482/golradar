@@ -21,6 +21,35 @@ import { getRating, autoFetchMissingRatings } from "@/lib/eloRating";
 
 export const dynamic = "force-dynamic";
 
+// ── In-memory progress tracker ────────────────────────────────────
+
+interface BackfillProgress {
+  status: "running" | "done" | "failed";
+  daysBack: number;
+  maxMatches: number;
+  totalDates: number;
+  processedDates: number;
+  failedDates: number;
+  totalMatches: number;
+  totalPredictions: number;
+  currentDate: string;
+  currentMatch: string;
+  teamsCollected: number;
+  progressPct: number;
+  error?: string;
+}
+
+const globalForBackfill = globalThis as unknown as {
+  __backfillProgress: Record<string, BackfillProgress> | undefined;
+};
+
+function getProgressStore(): Record<string, BackfillProgress> {
+  if (!globalForBackfill.__backfillProgress) {
+    globalForBackfill.__backfillProgress = {};
+  }
+  return globalForBackfill.__backfillProgress;
+}
+
 // ── Convert Goaloo momentum intensity → pressure snapshot ─────────
 // Goaloo's jsq gives us real per-minute attack intensity (0-100+)
 // which maps directly to our PressureSnapshot format.
@@ -241,6 +270,7 @@ export const POST = adminRoute(async (request: Request) => {
     2000,
     Math.max(10, parseInt(body.maxMatches) || 500),
   );
+  const jobId = body.jobId || crypto.randomUUID();
 
   // Build date list
   const dates: string[] = [];
@@ -249,68 +279,113 @@ export const POST = adminRoute(async (request: Request) => {
     dates.push(date.toISOString().slice(0, 10));
   }
 
-  let totalMatches = 0;
-  let totalPredictions = 0;
-  let failedDates = 0;
-  const allTeams = new Set<string>();
+  // Create progress entry
+  const progress: BackfillProgress = {
+    status: "running",
+    daysBack,
+    maxMatches,
+    totalDates: dates.length,
+    processedDates: 0,
+    failedDates: 0,
+    totalMatches: 0,
+    totalPredictions: 0,
+    currentDate: "",
+    currentMatch: "",
+    teamsCollected: 0,
+    progressPct: 0,
+  };
+  getProgressStore()[jobId] = progress;
 
-  // First pass: collect all team names for Elo auto-fetch (Goaloo matches already have names)
-  // Second pass below enriches so we collect teams from the raw fetch
-  for (const date of dates) {
-    if (totalMatches >= maxMatches * 2) break; // just enough to plan Elo
-    const matches = await fetchGoalooMatchesByDate(date);
-    for (const m of matches) {
-      allTeams.add(m.homeTeam);
-      allTeams.add(m.awayTeam);
-    }
-  }
+  // Run async — don't block the response
+  void (async () => {
+    try {
+      let totalMatches = 0;
+      let totalPredictions = 0;
+      let failedDates = 0;
+      const allTeams = new Set<string>();
 
-  // Auto-fetch missing Elo ratings
-  if (allTeams.size > 0) {
-    await autoFetchMissingRatings([...allTeams]).catch(() => {});
-  }
-
-  // Second pass: process matches with full enrichment
-  for (const date of dates) {
-    if (totalMatches >= maxMatches) break;
-
-    const enriched = await fetchFinishedMatchesByDate(date);
-    if (enriched.length === 0) {
-      failedDates++;
-      continue;
-    }
-
-    for (const match of enriched) {
-      if (totalMatches >= maxMatches) break;
-
-      try {
-        const count = await processMatch(match);
-        totalPredictions += count;
-        totalMatches++;
-        console.log(
-          `[Backfill] ${date} ${match.homeTeam}-${match.awayTeam}: ${count} predictions`,
-        );
-      } catch (err) {
-        console.error(
-          `[Backfill] Failed ${match.homeTeam}-${match.awayTeam}:`,
-          err,
-        );
+      // Phase 1: collect team names (10% of progress)
+      for (const date of dates) {
+        if (totalMatches >= maxMatches * 2) break;
+        progress.currentDate = date;
+        const matches = await fetchGoalooMatchesByDate(date);
+        for (const m of matches) {
+          allTeams.add(m.homeTeam);
+          allTeams.add(m.awayTeam);
+        }
       }
-    }
+      progress.teamsCollected = allTeams.size;
 
-    // Delay between dates to avoid rate limiting
-    await new Promise((r) => setTimeout(r, 500));
+      // Auto-fetch missing Elo ratings
+      if (allTeams.size > 0) {
+        await autoFetchMissingRatings([...allTeams]).catch(() => {});
+      }
+
+      // Phase 2: process matches (90% of progress)
+      const phase2Start = 0.1;
+      for (let i = 0; i < dates.length; i++) {
+        const date = dates[i];
+        if (totalMatches >= maxMatches) break;
+
+        progress.currentDate = date;
+        progress.processedDates = i;
+        progress.progressPct = Math.round(
+          (phase2Start + (i / dates.length) * 0.9) * 100,
+        );
+
+        const enriched = await fetchFinishedMatchesByDate(date);
+        if (enriched.length === 0) {
+          failedDates++;
+          continue;
+        }
+
+        for (const match of enriched) {
+          if (totalMatches >= maxMatches) break;
+
+          progress.currentMatch = `${match.homeTeam}-${match.awayTeam}`;
+
+          try {
+            const count = await processMatch(match);
+            totalPredictions += count;
+            totalMatches++;
+          } catch {
+            // skip failed
+          }
+        }
+
+        // Delay between dates
+        await new Promise((r) => setTimeout(r, 500));
+      }
+
+      progress.status = "done";
+      progress.totalMatches = totalMatches;
+      progress.totalPredictions = totalPredictions;
+      progress.failedDates = failedDates;
+      progress.processedDates = dates.length;
+      progress.progressPct = 100;
+    } catch (err: any) {
+      progress.status = "failed";
+      progress.error = err?.message || String(err);
+    }
+  })();
+
+  return NextResponse.json({ ok: true, jobId, totalDates: dates.length });
+});
+
+// ── GET: poll job progress ────────────────────────────────────────
+
+export const GET = adminRoute(async (request: Request) => {
+  const { searchParams } = new URL(request.url);
+  const jobId = searchParams.get("jobId");
+  if (!jobId) {
+    return NextResponse.json({ error: "jobId required" }, { status: 400 });
   }
 
-  return NextResponse.json({
-    ok: true,
-    summary: {
-      daysBack,
-      datesProcessed: dates.length,
-      failedDates,
-      totalMatches,
-      totalPredictions,
-      teamsEloFetched: allTeams.size,
-    },
-  });
+  const store = getProgressStore();
+  const progress = store[jobId];
+  if (!progress) {
+    return NextResponse.json({ error: "job not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(progress);
 });

@@ -249,8 +249,6 @@ function estimateFromMatchHistory(teamName: string): number | null {
     Olympiakos: 1580,
     PAOK: 1560,
     Panathinaikos: 1550,
-    Fenerbahce: 1690,
-    Galatasaray: 1720,
     Kobenhavn: 1560,
     Midtjylland: 1530,
     Brugge: 1600,

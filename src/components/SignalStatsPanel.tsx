@@ -34,7 +34,7 @@ export default function SignalStatsPanel() {
 
   if (loading) {
     return (
-      <div className="mt-4 mx-3 p-4 bg-gradient-to-br from-slate-50 to-gray-50 rounded-xl border border-gray-200 shadow-sm">
+      <div className="mt-4 mx-3 p-4 bg-linear-to-br from-slate-50 to-gray-50 rounded-xl border border-gray-200 shadow-sm">
         <div className="animate-pulse h-4 bg-gray-200 rounded w-40 mb-3" />
         <div className="animate-pulse h-20 bg-gray-100 rounded" />
       </div>
@@ -43,7 +43,7 @@ export default function SignalStatsPanel() {
 
   if (!stats || stats.totalSignals === 0) {
     return (
-      <div className="mt-4 mx-3 p-4 bg-gradient-to-br from-slate-50 to-gray-50 rounded-xl border border-gray-200 shadow-sm">
+      <div className="mt-4 mx-3 p-4 bg-linear-to-br from-slate-50 to-gray-50 rounded-xl border border-gray-200 shadow-sm">
         <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-1.5">
           <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -59,7 +59,7 @@ export default function SignalStatsPanel() {
   const goalRateColor = stats.goalAfterSignalRate >= 40 ? 'text-emerald-600' : stats.goalAfterSignalRate >= 25 ? 'text-amber-600' : 'text-red-500'
 
   return (
-    <div className="mt-4 mx-3 bg-gradient-to-br from-slate-50 to-gray-50 rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div className="mt-4 mx-3 bg-linear-to-br from-slate-50 to-gray-50 rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       {/* Header */}
       <div className="px-4 pt-3 pb-2 border-b border-gray-100 flex items-center justify-between">
         <h3 className="text-sm font-bold text-gray-700 flex items-center gap-1.5">

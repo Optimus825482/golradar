@@ -321,47 +321,80 @@ export const POST = adminRoute(async (request: Request) => {
         await autoFetchMissingRatings([...allTeams]).catch(() => {});
       }
 
-      // Phase 2: process matches (90% of progress)
-      const phase2Start = 0.1;
-      for (let i = 0; i < dates.length; i++) {
-        const date = dates[i];
-        if (totalMatches >= maxMatches) break;
+      // Phase 2: process matches in parallel (90% of progress)
+      const BACKFILL_WORKERS = 4;
+      let dateCursor = 0;
+      let processedDatesCount = 0;
 
-        progress.currentDate = date;
-        progress.processedDates = i;
-        progress.progressPct = Math.round(
-          (phase2Start + (i / dates.length) * 0.9) * 100,
-        );
-
-        const enriched = await fetchFinishedMatchesByDate(date);
-        if (enriched.length === 0) {
-          failedDates++;
-          continue;
+      const phase2Lock = new (class {
+        _total = 0;
+        _preds = 0;
+        _failedDates = 0;
+        update(date: string, match: string, mc: number, preds: number) {
+          this._total += mc;
+          this._preds += preds;
+          progress.currentDate = date;
+          progress.currentMatch = match;
+          progress.totalMatches = this._total;
+          progress.totalPredictions = this._preds;
+          progress.failedDates = this._failedDates;
+          progress.processedDates = processedDatesCount;
+          progress.progressPct = Math.round(
+            (0.1 + (processedDatesCount / dates.length) * 0.9) * 100,
+          );
         }
+      })();
 
-        for (const match of enriched) {
-          if (totalMatches >= maxMatches) break;
+      async function dateWorker(id: number) {
+        while (true) {
+          const idx = dateCursor++;
+          if (idx >= dates.length) break;
+          const date = dates[idx];
 
-          progress.currentMatch = `${match.homeTeam}-${match.awayTeam}`;
-
-          try {
-            const count = await processMatch(match);
-            totalPredictions += count;
-            totalMatches++;
-          } catch {
-            // skip failed
+          const enriched = await fetchFinishedMatchesByDate(date);
+          if (enriched.length === 0) {
+            phase2Lock._failedDates++;
+            processedDatesCount++;
+            phase2Lock.update(date, "", 0, 0);
+            continue;
           }
-        }
 
-        // Delay between dates
-        await new Promise((r) => setTimeout(r, 500));
+          // Process matches within this date sequentially
+          // (Goaloo API rate limit, same date = same data)
+          let dateMatches = 0;
+          let datePreds = 0;
+          for (const match of enriched) {
+            if (progress.totalMatches >= progress.maxMatches) break;
+            try {
+              const count = await processMatch(match);
+              datePreds += count;
+              dateMatches++;
+              phase2Lock.update(
+                date,
+                `${match.homeTeam}-${match.awayTeam}`,
+                1,
+                count,
+              );
+            } catch {
+              /* skip */
+            }
+          }
+
+          if (dateMatches === 0) {
+            phase2Lock._failedDates++;
+          }
+          processedDatesCount++;
+          phase2Lock.update(date, "", 0, 0);
+        }
       }
 
+      // Launch all workers in parallel
+      const workers = Array.from({ length: BACKFILL_WORKERS }, (_, i) =>
+        dateWorker(i),
+      );
+      await Promise.all(workers);
+
       progress.status = "done";
-      progress.totalMatches = totalMatches;
-      progress.totalPredictions = totalPredictions;
-      progress.failedDates = failedDates;
-      progress.processedDates = dates.length;
       progress.progressPct = 100;
     } catch (err: any) {
       progress.status = "failed";

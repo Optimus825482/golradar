@@ -141,6 +141,58 @@ async function goalooFetch(url: string): Promise<string | null> {
   return null;
 }
 
+// Direct fetch for football.goaloo.com JSON (handles BOM via Python)
+let _pythonPath: string | undefined;
+function findPythonPath(): string | null {
+  if (_pythonPath !== undefined) return _pythonPath || null;
+  const candidates = [process.env.PYTHON_PATH, "C:\\Python313\\python.exe", "python3", "python"].filter(Boolean) as string[];
+  for (const py of candidates) {
+    try {
+      const { execFileSync } = require('child_process') as typeof import('child_process');
+      const r = execFileSync(py!, ["--version"], { timeout: 3000, encoding: 'utf-8' });
+      if (r.includes("Python")) { _pythonPath = py; return py; }
+    } catch { continue; }
+  }
+  _pythonPath = '';
+  return null;
+}
+
+async function goalooFetchSeasonJson(url: string): Promise<string | null> {
+  const python = findPythonPath();
+  if (!python) {
+    devError('[Goaloo] No Python found for season JSON');
+    return null;
+  }
+  try {
+    const { execFile } = require('child_process') as typeof import('child_process');
+    const { join } = require('path') as typeof import('path');
+    const script = join(process.cwd(), 'scripts', '_goaloo_fetch.py');
+    return await new Promise<string | null>((resolve) => {
+      execFile(python!, [script, url], {
+        encoding: 'utf-8',
+        timeout: 30000,
+        maxBuffer: 5 * 1024 * 1024,
+      }, (err: any, stdout: string) => {
+        if (err || !stdout) { resolve(null); return; }
+        try {
+          // Validate it's JSON
+          JSON.parse(stdout);
+          resolve(stdout);
+        } catch {
+          // Try stripping BOM
+          try {
+            const stripped = stdout.replace(/^\uFEFF/, '');
+            JSON.parse(stripped);
+            resolve(stripped);
+          } catch {
+            resolve(null);
+          }
+        }
+      });
+    });
+  } catch { return null; }
+}
+
 // ── Parse match data JS format ────────────────────────────────
 // The bf_us1.js and SoccerAjax type=6 return data as:
 // var A=Array(N);
@@ -340,6 +392,100 @@ function parseGoalooDate(dateStr: string): { date: string; time: string } {
   }
 
   return { date: '', time: '' };
+}
+
+// ── Public API: Fetch all matches for a league season ────────
+// Uses football.goaloo.com/jsData/matchResult/json/{season}/s{leagueId}_en.json
+// which contains the ENTIRE season — no 7-day limit!
+
+export interface GoalooSeasonMatch {
+  scheduleId: number;
+  leagueId: number;
+  state: number;            // -1=finished
+  date: string;             // YYYY-MM-DD HH:MM
+  homeTeamId: number;
+  awayTeamId: number;
+  homeTeam: string;
+  awayTeam: string;
+  score: string;            // "1-0"
+  htScore: string;          // "1-0"
+  homeRank: string;
+  awayRank: string;
+  ahLine: string;
+  ahHome: string;
+  ouLine: string;
+  ouHome: string;
+  round: string;            // "R_14"
+}
+
+export async function fetchGoalooSeasonMatches(
+  leagueId: number,
+  season: string,
+): Promise<GoalooSeasonMatch[]> {
+  const url = `https://football.goaloo.com/jsData/matchResult/json/${season}/s${leagueId}_en.json`;
+  const data = await goalooFetchSeasonJson(url);
+
+  if (!data) {
+    console.error(`[Goaloo] Failed to fetch season matches for ${leagueId} ${season}`);
+    return [];
+  }
+
+  try {
+    const json = JSON.parse(data);
+
+    // Team lookup
+    const teamMap = new Map<number, string>();
+    if (json.TeamInfo) {
+      for (const t of json.TeamInfo) {
+        teamMap.set(Number(t[0]), String(t[1]));
+      }
+    }
+
+    // ScheduleList is { "sub_XXXX": { "R_1": [...], "R_2": [...] } }
+    const matches: GoalooSeasonMatch[] = [];
+    const scheduleList = json.ScheduleList || {};
+    for (const subKey of Object.keys(scheduleList)) {
+      const rounds = scheduleList[subKey];
+      for (const roundKey of Object.keys(rounds)) {
+        const roundMatches = rounds[roundKey];
+        if (!Array.isArray(roundMatches)) continue;
+        for (const row of roundMatches) {
+          if (!Array.isArray(row) || row.length < 8) continue;
+          // Row: [scheduleId, leagueId, state, dateStr, homeTeamId, awayTeamId, score, htScore, homeRank, awayRank, ahLine, ahHome, ouLine, ouHome, ...]
+          const scheduleId = Number(row[0]) || 0;
+          const state = Number(row[2]) ?? 0;
+          const dateStr = String(row[3] || '');
+          const homeTeamId = Number(row[4]) || 0;
+          const awayTeamId = Number(row[5]) || 0;
+          const score = String(row[6] || '0-0');
+          const htScore = String(row[7] || '0-0');
+          const homeRank = String(row[8] || '');
+          const awayRank = String(row[9] || '');
+          const ahLine = String(row[10] || '');
+          const ahHome = String(row[11] || '');
+          const ouLine = String(row[12] || '');
+          const ouHome = String(row[13] || '');
+
+          const homeTeam = teamMap.get(homeTeamId) || `Team#${homeTeamId}`;
+          const awayTeam = teamMap.get(awayTeamId) || `Team#${awayTeamId}`;
+
+          matches.push({
+            scheduleId, leagueId, state, date: dateStr,
+            homeTeamId, awayTeamId, homeTeam, awayTeam,
+            score, htScore, homeRank, awayRank,
+            ahLine, ahHome, ouLine, ouHome,
+            round: roundKey,
+          });
+        }
+      }
+    }
+
+    console.log(`[Goaloo] Season ${season} league ${leagueId}: ${matches.length} matches`);
+    return matches;
+  } catch (err: any) {
+    console.error(`[Goaloo] Parse error for season ${leagueId} ${season}:`, err?.message?.substring(0, 100));
+    return [];
+  }
 }
 
 // ── Public API: Fetch matches by date ────────────────────────

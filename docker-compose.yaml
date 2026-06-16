@@ -57,6 +57,8 @@ services:
       timeout: 5s
       retries: 10
       start_period: 120s
+    labels:
+      - "traefik.http.services.golradar.loadbalancer.server.port=3012"
 
   # ── ML Trainer Sidecar (XGBoost) ──
   ml-trainer:

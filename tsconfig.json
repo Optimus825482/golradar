@@ -38,6 +38,9 @@
   ],
   "exclude": [
     "node_modules",
+    "scripts",
+    "mini-services",
+    "docs",
     "mini-services"
   ]
 }

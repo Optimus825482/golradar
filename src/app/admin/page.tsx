@@ -861,16 +861,44 @@ function BackfillTab({ token }: { token: string }) {
   const [result, setResult] = useState<any>(null);
   const [daysBack, setDaysBack] = useState(30);
   const [maxMatches, setMaxMatches] = useState(300);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<any>(null);
+
+  // Poll progress when job is running
+  useEffect(() => {
+    if (!jobId) return;
+    const poll = setInterval(async () => {
+      try {
+        const res = await authFetch(`/api/admin/backfill-predictions?jobId=${jobId}`);
+        const data = await res.json();
+        setProgress(data);
+        if (data.status === 'done' || data.status === 'failed') {
+          clearInterval(poll);
+          setJobId(null);
+          setResult(data);
+        }
+      } catch { }
+    }, 1500);
+    return () => clearInterval(poll);
+  }, [jobId]);
 
   const startBackfill = async () => {
     setLoading(true);
     setResult(null);
+    setProgress(null);
+    const newJobId = crypto.randomUUID();
     try {
       const res = await authFetch('/api/admin/backfill-predictions', {
         method: 'POST',
-        body: JSON.stringify({ daysBack, maxMatches }),
+        body: JSON.stringify({ daysBack, maxMatches, jobId: newJobId }),
       });
-      setResult(await res.json());
+      const data = await res.json();
+      if (data.jobId) {
+        setJobId(data.jobId);
+        setProgress({ status: 'running', progressPct: 0, totalDates: data.totalDates, processedDates: 0, totalMatches: 0, totalPredictions: 0 });
+      } else {
+        setResult(data);
+      }
     } catch (e: any) {
       setResult({ error: e.message });
     }
@@ -879,11 +907,11 @@ function BackfillTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-4">
-      <Card title="Geçmiş Veri İçe Aktarma">
+      <Card title="Geçmiş Veri İçe Aktarma (Goaloo)">
         <p className="text-xs text-gray-500 mb-4">
-          Nesine API'den bitmiş maçları çeker, her maç için 5 dakikalık aralıklarla tahmin hesaplar
-          ve PredictionLog tablosuna yazar. Bu veriler ML model eğitimi için kullanılır.
-          Ayrıca gol olayları MatchEvent tablosuna yazılır (labeling için).
+          Goaloo'dan bitmiş maçları gerçek gol dakikaları ve hücum momentum verisiyle çeker,
+          her maç için 5 dakikalık aralıklarla tahmin hesaplar ve PredictionLog tablosuna yazar.
+          Bu veriler ML model eğitimi için kullanılır. Artık sayfayı kapatabilirsin!
         </p>
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
@@ -912,17 +940,12 @@ function BackfillTab({ token }: { token: string }) {
           </div>
         </div>
 
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-700">
-          ⚠️ Bu işlem uzun sürebilir (30 gün ≈ 5-10 dakika). Her maç için 17 snapshot hesabı yapılır.
-          İşlem sırasında sayfayı kapatmayın.
-        </div>
-
         <button
           onClick={startBackfill}
-          disabled={loading}
+          disabled={loading || !!jobId}
           className="w-full py-3 bg-emerald-600 text-white rounded-lg text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
         >
-          {loading ? (
+          {loading || !!jobId ? (
             <span className="flex items-center justify-center gap-2"><Spinner /> Veri çekiliyor...</span>
           ) : (
             `📊 ${daysBack} Gün Geriye Git (${maxMatches} Max Maç)`
@@ -930,25 +953,51 @@ function BackfillTab({ token }: { token: string }) {
         </button>
       </Card>
 
-      {result?.summary && (
-        <Card title="Sonuç">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <Stat label="İşlenen Gün" value={result.summary.datesProcessed} />
-            <Stat label="Toplam Maç" value={result.summary.totalMatches} />
-            <Stat label="Toplam Tahmin" value={result.summary.totalPredictions?.toLocaleString()} />
-            <Stat label="Başarısız Gün" value={result.summary.failedDates} />
-            <Stat label="Elo Çekilen Takım" value={result.summary.teamsEloFetched} />
-          </div>
-          <div className="mt-3 p-2 bg-emerald-50 rounded-lg text-xs text-emerald-700">
-            ✅ {result.summary.totalPredictions} tahmin kaydedildi. 
-            ML trainer otomatik olarak training data export edecek (her gün 03:00).
-            Veya admin panelinden "ML Modelleri" → "Export" ile manuel tetikleyebilirsin.
+      {/* Progress Bar */}
+      {progress && (
+        <Card title="İlerleme">
+          <div className="space-y-3">
+            <div className="flex justify-between text-xs text-gray-600">
+              <span>{progress.status === 'done' ? '✅ Tamamlandı' : progress.status === 'failed' ? '❌ Başarısız' : '⏳ Çalışıyor...'}</span>
+              <span className="font-mono">{progress.processedDates ?? 0} / {progress.totalDates ?? 0} gün</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2.5">
+              <div className={`h-2.5 rounded-full transition-all duration-700 ${progress.status === 'done' ? 'bg-emerald-500' : progress.status === 'failed' ? 'bg-red-500' : 'bg-blue-500'
+                }`} style={{ width: `${progress.progressPct ?? 0}%` }} />
+            </div>
+            <div className="flex justify-between text-[10px] text-gray-400">
+              <span>Maç: {progress.totalMatches ?? 0}</span>
+              <span>Tahmin: {(progress.totalPredictions ?? 0).toLocaleString()}</span>
+              <span>Başarısız Gün: {progress.failedDates ?? 0}</span>
+              <span>{progress.currentDate ? `${progress.currentDate}` : ''}</span>
+            </div>
+            {progress.currentMatch && (
+              <div className="text-[10px] text-gray-500 text-center">
+                Şu an: {progress.currentMatch}
+              </div>
+            )}
           </div>
         </Card>
       )}
 
-      {result?.error && (
-        <div className="p-3 bg-red-50 rounded-lg text-xs text-red-600">{result.error}</div>
+      {result?.status === 'done' && (
+        <Card title="Sonuç">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <Stat label="İşlenen Gün" value={result.processedDates} />
+            <Stat label="Toplam Maç" value={result.totalMatches} />
+            <Stat label="Toplam Tahmin" value={result.totalPredictions?.toLocaleString()} />
+            <Stat label="Başarısız Gün" value={result.failedDates} />
+            <Stat label="Toplanan Takım" value={result.teamsCollected} />
+          </div>
+          <div className="mt-3 p-2 bg-emerald-50 rounded-lg text-xs text-emerald-700">
+            ✅ {result.totalPredictions} tahmin kaydedildi. 
+            ML trainer otomatik olarak training data export edecek (her gün 03:00).
+          </div>
+        </Card>
+      )}
+
+      {result?.status === 'failed' && (
+        <div className="p-3 bg-red-50 rounded-lg text-xs text-red-600">{result.error || 'Bilinmeyen hata'}</div>
       )}
     </div>
   );

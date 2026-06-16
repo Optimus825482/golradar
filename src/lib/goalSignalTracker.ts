@@ -165,8 +165,8 @@ export async function checkAndRecordSignal(
     score: number;
     homeScore: number;
     awayScore: number;
-    side: 'home' | 'away' | 'both' | null;
-    level: 'low' | 'medium' | 'high' | 'critical';
+    side: "home" | "away" | "both" | null;
+    level: "low" | "medium" | "high" | "critical";
     factors: string[];
     calibratedP: number;
     poissonP: number;
@@ -174,14 +174,11 @@ export async function checkAndRecordSignal(
   currentHomeGoals: number,
   currentAwayGoals: number,
 ): Promise<GoalSignalRecord | null> {
-  if (goalProbability.score < SIGNAL_THRESHOLD) return null;
-  if (!goalProbability.side || goalProbability.side === 'both') return null;
-
   const now = Date.now();
-  const minNum = parseInt(minute.replace(/[^0-9]/g, ''), 10) || 0;
+  const minNum = parseInt(minute.replace(/[^0-9]/g, ""), 10) || 0;
   const today = getLocalDateString();
-  const signalSide = goalProbability.side as 'home' | 'away';
 
+  // ── Always update state & check for goals FIRST ────────────────
   let state = activeMatches.get(matchCode);
   if (!state) {
     state = {
@@ -195,21 +192,28 @@ export async function checkAndRecordSignal(
     activeMatches.set(matchCode, state);
   }
 
-  // Cooldown: same side within SIGNAL_COOLDOWN_MINUTES, no escalation → skip.
-  if (state.lastSignalScore !== null && state.lastSignalSide === signalSide) {
-    const lastRecord = await repoFindPendingForMatch(matchCode, signalSide);
-    const lastUnverified = lastRecord
-      .sort((a, b) => b.signalMinute - a.signalMinute)[0];
-    if (lastUnverified && (minNum - lastUnverified.signalMinute) < SIGNAL_COOLDOWN_MINUTES) {
-      if (goalProbability.score - state.lastSignalScore < ESCALATION_THRESHOLD) {
-        return null;
-      }
-    }
+  // Check if a goal was scored since last check — independent of signal threshold
+  if (
+    currentHomeGoals !== state.lastKnownHomeGoals ||
+    currentAwayGoals !== state.lastKnownAwayGoals
+  ) {
+    await checkForGoals(
+      matchCode,
+      currentHomeGoals,
+      currentAwayGoals,
+      minNum,
+      today,
+    );
   }
 
-  if (state.signalCount >= MAX_SIGNALS_PER_MATCH) return null;
+  // ── Signal threshold checks ───────────────────────────────────
+  if (goalProbability.score < SIGNAL_THRESHOLD) return null;
+  if (!goalProbability.side || goalProbability.side === "both") return null;
 
-  const isEscalation = state.lastSignalScore !== null &&
+  const signalSide = goalProbability.side as "home" | "away";
+
+  const isEscalation =
+    state.lastSignalScore !== null &&
     signalSide === state.lastSignalSide &&
     goalProbability.score - state.lastSignalScore >= ESCALATION_THRESHOLD;
 
@@ -265,7 +269,7 @@ export async function checkAndRecordSignal(
  * Called when a goal is detected during match polling. Handles both
  * same-minute double goals (home+away in same poll cycle).
  */
-async function checkForGoals(
+export async function checkForGoals(
   matchCode: number,
   currentHomeGoals: number,
   currentAwayGoals: number,
@@ -285,9 +289,9 @@ async function checkForGoals(
   if (!homeScored && !awayScored) return;
   state.hasAnyGoalVerification = true;
 
-  const scoredSides: Array<'home' | 'away'> = [];
-  if (homeScored) scoredSides.push('home');
-  if (awayScored) scoredSides.push('away');
+  const scoredSides: Array<"home" | "away"> = [];
+  if (homeScored) scoredSides.push("home");
+  if (awayScored) scoredSides.push("away");
 
   for (const goalSide of scoredSides) {
     const pending = await repoFindPendingForMatch(matchCode, goalSide);
@@ -311,7 +315,7 @@ async function checkForGoals(
   // Single-owner pattern — expireStaleSignals owns stale cleanup (#5).
   if (scoredSides.length === 1) {
     const scoringSide = scoredSides[0]!;
-    const opposite: 'home' | 'away' = scoringSide === 'home' ? 'away' : 'home';
+    const opposite: "home" | "away" = scoringSide === "home" ? "away" : "home";
     const oppositePending = await repoFindPendingForMatch(matchCode, opposite);
     for (const s of oppositePending) {
       const anchored = await loadByKey(matchCode, s.date, s.signalIndex);

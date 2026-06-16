@@ -5,6 +5,7 @@ import {
   getSignalForMatch,
   getAvailableDates,
   checkAndRecordSignal,
+  checkForGoals,
   finalizeMatchSignals,
   cleanupStaleSignals,
   expireSignalsForHalftime,

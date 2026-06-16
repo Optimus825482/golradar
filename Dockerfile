@@ -25,7 +25,7 @@ FROM oven/bun:1-alpine
 LABEL description="golradar — web app + nesine relay"
 
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=3012
 
 # nodejs for prisma CLI; python3 + build tooling for Scrapling (curl_cffi
 # compiles a C extension at install time). libstdc++ is needed for the

@@ -12,22 +12,32 @@ const CLUBELO_TIMEOUT = 8000;
 // ── Source 1: ClubElo API ────────────────────────────────────────
 
 async function fetchClubElo(teamName: string): Promise<number | null> {
-  try {
-    const resp = await fetch(`http://api.clubelo.com/${teamName}`, {
-      signal: AbortSignal.timeout(CLUBELO_TIMEOUT),
-    });
-    if (!resp.ok) return null;
-    const csv = await resp.text();
-    const lines = csv.trim().split("\n");
-    if (lines.length < 2) return null;
-    const lastLine = lines[lines.length - 1];
-    const parts = lastLine.split(",");
-    if (parts.length < 2) return null;
-    const rating = parseFloat(parts[1]);
-    if (isNaN(rating) || rating < 500 || rating > 3000) return null;
-    return Math.round(rating);
-  } catch {
-    return null;
+  // clubelo.com sometimes only responds on one protocol depending on
+  // network conditions. Try both HTTP and HTTPS.
+  const urls = [
+    `https://api.clubelo.com/${teamName}`,
+    `http://api.clubelo.com/${teamName}`,
+  ];
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url, {
+        signal: AbortSignal.timeout(CLUBELO_TIMEOUT),
+      });
+      if (!resp.ok) continue;
+      const csv = await resp.text();
+      const lines = csv.trim().split("\n");
+      if (lines.length < 2) continue;
+      const lastLine = lines[lines.length - 1];
+      const parts = lastLine.split(",");
+      if (parts.length < 2) continue;
+      const rating = parseFloat(parts[1]);
+      if (isNaN(rating) || rating < 500 || rating > 3000) continue;
+      return Math.round(rating);
+    } catch {
+      // try next URL
+    }
+  }
+  return null;
   }
 }
 

@@ -285,7 +285,6 @@ export const POST = adminRoute(async (request: Request) => {
   // Fetch ALL teams from TeamMapping as background job
   if (action === "fetch-all-mappings") {
     const mappings = await db.teamMapping.findMany({
-      where: { fotmobId: { not: null } },
       select: { canonicalName: true },
     });
     const teams = mappings.map((m) => m.canonicalName);

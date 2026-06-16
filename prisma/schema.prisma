@@ -200,21 +200,25 @@ model Signal {
 
   signalMinute        Int
   signalSide          String   // "home" | "away"
-  signalScore         Int      // Raw Goal Radar score 0-100
-  calibratedP         Float    // Calibrated probability 0-1
-  poissonP            Float    // Dixon-Coles Poisson probability
+  signalScore         Int      // Raw Goal Radar score 0-100 (first signal)
+  calibratedP         Float    // Calibrated probability 0-1 (first signal)
+  poissonP            Float    // Dixon-Coles Poisson probability (first signal)
   signalLevel         String   // "low" | "medium" | "high" | "critical"
   activeFactors       Json     // string[]
+
+  // Updated every poll while signal is active (score keeps changing)
+  lastScore           Int?     // Most recent score from latest poll
+  lastCalibratedP     Float?   // Most recent calibrated probability
+  lastPoissonP        Float?   // Most recent Poisson probability
+  lastFactors         Json     @default("[]") // Most recent factors
 
   homeScore           Int      // Home threat score component
   awayScore           Int      // Away threat score component
   currentHomeGoals    Int
   currentAwayGoals    Int
 
-  signalIndex         Int      // Nth signal for this match (1-based)
-  isEscalation        Boolean
-  previousSignalScore Float?
-  signalTimestamp     DateTime // Unix ms
+  signalTimestamp     DateTime // First signal creation time
+  lastSignalTimestamp DateTime? // Last poll update time
 
   // Goal verification (filled later by checkForGoals / expire)
   goalHappened        Boolean?
@@ -231,7 +235,8 @@ model Signal {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  @@unique([matchCode, date, signalIndex])
+  // One signal per match per side — upserted on every poll
+  @@unique([matchCode, date, signalSide])
   @@index([date])
   @@index([matchCode])
   @@index([goalHappened])

@@ -18,7 +18,8 @@ interface GoalSignalRecord {
   correctPrediction: boolean | null;
   minutesAfterSignal: number | null;
   signalTimestamp: number;
-  isEscalation?: boolean;
+  lastScore?: number | null;
+  lastCalibratedP?: number | null;
 }
 
 interface BacktestRun {

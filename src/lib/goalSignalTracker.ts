@@ -449,6 +449,50 @@ function stopExpiryChecker(): void {
 // ── Match finalization ────────────────────────────────────────
 
 /**
+ * Report a goal scored in a match. Called by the frontend when it
+ * detects a goal (goal count changed between polls). This is the
+ * independent gol-tespit kanali — API'de checkAndRecordSignal'dan
+ * ayri, sadece skor degisikligine dayali calisir.
+ */
+export async function reportGoal(
+  matchCode: number,
+  goalSide: "home" | "away",
+  goalMinute: number,
+): Promise<void> {
+  const today = getLocalDateString();
+
+  // Mark pending signals for this side as verified
+  const pending = await repoFindPendingForMatch(matchCode, goalSide);
+  for (const s of pending) {
+    const id = s.id ?? (await loadById(matchCode, today, goalSide));
+    if (!id) continue;
+    await repoUpdateVerification(id, {
+      goalHappened: true,
+      goalMinute,
+      goalSide,
+      correctPrediction: s.signalSide === goalSide,
+      minutesAfterSignal: goalMinute - s.signalMinute,
+      goalTimestamp: Date.now(),
+    });
+  }
+
+  // Expire opposite side pending signals
+  const opposite: "home" | "away" = goalSide === "home" ? "away" : "home";
+  const oppositePending = await repoFindPendingForMatch(matchCode, opposite);
+  for (const s of oppositePending) {
+    const id = s.id ?? (await loadById(matchCode, today, opposite));
+    if (!id) continue;
+    await repoUpdateVerification(id, {
+      goalHappened: false,
+      goalSide,
+      correctPrediction: false,
+      minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
+      goalTimestamp: null,
+    });
+  }
+}
+
+/**
  * Called when match ends — finalize all remaining pending signals.
  */
 export async function finalizeMatchSignals(

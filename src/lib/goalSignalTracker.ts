@@ -287,7 +287,6 @@ export async function checkForGoals(
   const state = activeMatches.get(matchCode);
   if (!state) return;
 
-  // Determine which side(s) scored since last check.
   const homeScored = currentHomeGoals > state.lastKnownHomeGoals;
   const awayScored = currentAwayGoals > state.lastKnownAwayGoals;
 
@@ -296,46 +295,22 @@ export async function checkForGoals(
 
   if (!homeScored && !awayScored) return;
 
-  const scoredSides: Array<"home" | "away"> = [];
-  if (homeScored) scoredSides.push("home");
-  if (awayScored) scoredSides.push("away");
+  const goalSide: "home" | "away" = homeScored ? "home" : "away";
 
-  // Get ALL pending signals for this match (both sides)
+  // Gol Radarı mantığı: gol olduysa sinyal BAŞARILIDIR, taraf ekstra
+  // Tüm pending sinyalleri gol oldu diye işaretle
   const allPending = await repoFindAllPending(matchCode);
-
-  for (const goalSide of scoredSides) {
-    // Match: same-side pending signals get verified as correct
-    const sameSidePending = allPending.filter((s) => s.signalSide === goalSide);
-    for (const s of sameSidePending) {
-      const id = s.id ?? (await loadById(matchCode, today, s.signalSide));
-      if (!id) continue;
-      await repoUpdateVerification(id, {
-        goalHappened: true,
-        goalMinute: currentMinute,
-        goalSide,
-        correctPrediction: s.signalSide === goalSide,
-        minutesAfterSignal: currentMinute - s.signalMinute,
-        goalTimestamp: Date.now(),
-      });
-    }
-
-    // Opposite-side pending: goal DID happen, but wrong side predicted
-    const oppositeSide = goalSide === "home" ? "away" : "home";
-    const oppositePending = allPending.filter(
-      (s) => s.signalSide === oppositeSide,
-    );
-    for (const s of oppositePending) {
-      const id = s.id ?? (await loadById(matchCode, today, oppositeSide));
-      if (!id) continue;
-      await repoUpdateVerification(id, {
-        goalHappened: false,
-        goalMinute: currentMinute,
-        goalSide,
-        correctPrediction: false,
-        minutesAfterSignal: currentMinute - s.signalMinute,
-        goalTimestamp: Date.now(),
-      });
-    }
+  for (const s of allPending) {
+    const id = s.id ?? (await loadById(matchCode, today, s.signalSide));
+    if (!id) continue;
+    await repoUpdateVerification(id, {
+      goalHappened: true,
+      goalMinute: currentMinute,
+      goalSide,
+      correctPrediction: true, // gol oldu → sinyal başarılı
+      minutesAfterSignal: currentMinute - s.signalMinute,
+      goalTimestamp: Date.now(),
+    });
   }
 }
 
@@ -467,36 +442,19 @@ export async function reportGoal(
 ): Promise<void> {
   const today = getLocalDateString();
 
-  // Get ALL pending signals (both sides), not just the scoring side
+  // Gol Radarı: gol olduysa TÜM pending sinyaller başarılıdır
   const allPending = await repoFindAllPending(matchCode);
-  const opposite: "home" | "away" = goalSide === "home" ? "away" : "home";
-
   for (const s of allPending) {
-    const side = s.signalSide;
-    const id = s.id ?? (await loadById(matchCode, today, side));
+    const id = s.id ?? (await loadById(matchCode, today, s.signalSide));
     if (!id) continue;
-
-    if (side === goalSide) {
-      // Same side: goal happened, correct prediction
-      await repoUpdateVerification(id, {
-        goalHappened: true,
-        goalMinute,
-        goalSide,
-        correctPrediction: side === goalSide,
-        minutesAfterSignal: goalMinute - s.signalMinute,
-        goalTimestamp: Date.now(),
-      });
-    } else {
-      // Opposite side: goal happened but wrong side predicted
-      await repoUpdateVerification(id, {
-        goalHappened: false,
-        goalMinute,
-        goalSide,
-        correctPrediction: false,
-        minutesAfterSignal: goalMinute - s.signalMinute,
-        goalTimestamp: Date.now(),
-      });
-    }
+    await repoUpdateVerification(id, {
+      goalHappened: true,
+      goalMinute,
+      goalSide,
+      correctPrediction: true, // gol oldu → sinyal başarılı
+      minutesAfterSignal: goalMinute - s.signalMinute,
+      goalTimestamp: Date.now(),
+    });
   }
 }
 

@@ -278,6 +278,13 @@ async function main() {
           const snap = snapshots.find((s) => s.minute === minNum);
           if (!snap) continue;
 
+          // Find next goal after this minute for label
+          const nextGoalMinute =
+            goalEvents
+              .map((g) => g.minute)
+              .filter((t) => t > minNum)
+              .sort((a, b) => a - b)[0] ?? null;
+
           const minuteStr = `${minNum}'`;
           const pressureHistory = snapshots
             .filter((s) => s.minute <= minNum)
@@ -335,6 +342,9 @@ async function main() {
               poissonAwayP: null,
               modelVariant: "goaloo-season",
               featuresJson: JSON.stringify(featuresArr),
+              goalScored: nextGoalMinute != null,
+              minutesToGoal:
+                nextGoalMinute != null ? nextGoalMinute - minNum : null,
             });
           } catch {
             /* skip */

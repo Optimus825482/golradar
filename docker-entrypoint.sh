@@ -41,31 +41,34 @@ echo "[DB] Syncing schema..."
 cd /app/web
 
 if [ "${PRISMA_ACCEPT_DATA_LOSS:-}" = "1" ]; then
-    echo "[DB] Running prisma db push --accept-data-loss..."
+    echo "[DB] ⚠️  PRISMA_ACCEPT_DATA_LOSS=1 — running db push --accept-data-loss (DESTRUCTIVE)"
     NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
         node ./node_modules/prisma/build/index.js db push --accept-data-loss 2>&1 || true
 else
     echo "[DB] Running prisma migrate deploy..."
     if ! NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
         node ./node_modules/prisma/build/index.js migrate deploy 2>&1; then
-        echo "[WARN] migrate deploy failed, trying db push..."
+        echo "[WARN] migrate deploy failed — trying db push (NON-DESTRUCTIVE)..."
         NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
             node ./node_modules/prisma/build/index.js db push 2>&1 || true
     fi
 fi
 echo "[DB] Schema sync complete"
 
-# Clean old Signal rows that used the old unique key (matchCode, date, signalIndex).
-# New schema uses (matchCode, date, signalSide) — old rows are incompatible.
+# ⚠️ DESTRUCTIVE — Only enabled via SIGNAL_RESET=1 env var
+# This clears ALL signal records. DO NOT enable in production unless
+# the Signal table schema has changed incompatibly.
 if [ "${SIGNAL_RESET:-0}" = "1" ]; then
-    echo "[DB] Resetting Signal table for new schema..."
+    echo "[DB] ⚠️  SIGNAL_RESET=1 — Clearing ALL Signal records (DESTRUCTIVE)"
+    echo "[DB]    If this was not intentional, set SIGNAL_RESET=0 in docker-compose.yaml"
     NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
         node -e "const{PrismaClient}=require('@prisma/client');const p=new PrismaClient({datasourceUrl:process.env.\$DATABASE_URL});p.\$executeRawUnsafe('DELETE FROM \"Signal\"').then(r=>{console.log('[DB] Signal table cleared ('+r+' rows)');process.exit(0)}).catch(e=>{console.error(e);process.exit(1)})" 2>&1 || echo "[DB] Signal cleanup failed (ignored)"
 fi
 
-# Import FotMob teams from CSV into TeamMapping (first deploy only)
+# Import FotMob teams from CSV into TeamMapping (only on first deploy)
+# Set IMPORT_FOTMOB_TEAMS=1 to enable. Safe to keep at 0 after initial import.
 if [ "${IMPORT_FOTMOB_TEAMS:-0}" = "1" ]; then
-    echo "[DB] Importing FotMob teams..."
+    echo "[DB] Importing FotMob teams (one-time initial seed)..."
     NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
         node -e "
 (async()=>{

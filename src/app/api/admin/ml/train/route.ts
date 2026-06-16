@@ -50,32 +50,44 @@ export const POST = adminRoute(async (request: Request) => {
     return NextResponse.json({ error: 'invalid-json' }, { status: 400 });
   }
 
-  const { name, version, horizon_min, dataset_id, dataset_path } = body;
-  if (!name || !['gbdt', 'xgb', 'inplay'].includes(name)) {
+  const { name, version } = body;
+  if (!name || !["gbdt", "xgb", "inplay"].includes(name)) {
     return NextResponse.json(
-      { error: 'name must be one of gbdt|xgb|inplay' },
+      { error: "name must be one of gbdt|xgb|inplay" },
       { status: 400 },
     );
   }
   if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
     return NextResponse.json(
-      { error: 'version must be semver (e.g. 1.0.0)' },
-      { status: 400 },
-    );
-  }
-  if (typeof horizon_min !== 'number' || horizon_min < 1) {
-    return NextResponse.json(
-      { error: 'horizon_min must be a positive integer' },
+      { error: "version must be semver (e.g. 1.0.0)" },
       { status: 400 },
     );
   }
 
-  // Resolve dataset path: prefer the DB record's path (it has the
-  // validated sha256). Fall back to a raw path only if the caller
-  // provided one and the DB lookup failed.
-  let resolvedPath = dataset_path;
-  if (dataset_id) {
-    const ds = await db.trainingDataset.findUnique({ where: { id: dataset_id } });
+  // ── Smart defaults: horizon_min + dataset auto-discovery ─────
+  const horizon_min =
+    typeof body.horizon_min === "number" && body.horizon_min >= 1
+      ? body.horizon_min
+      : 5; // default to 5-min horizon
+
+  let resolvedPath = body.dataset_path ?? null;
+  let dataset_id = body.dataset_id ?? null;
+
+  // Auto-resolve dataset: if no explicit dataset, find the latest
+  // ready TrainingDataset for this horizon
+  if (!resolvedPath && !dataset_id) {
+    const latestDataset = await db.trainingDataset.findFirst({
+      where: { horizonMin: horizon_min, status: "ready" },
+      orderBy: { createdAt: "desc" },
+    });
+    if (latestDataset) {
+      dataset_id = latestDataset.id;
+      resolvedPath = latestDataset.path;
+    }
+  } else if (dataset_id) {
+    const ds = await db.trainingDataset.findUnique({
+      where: { id: dataset_id },
+    });
     if (!ds) {
       return NextResponse.json(
         { error: `dataset_id ${dataset_id} not found` },
@@ -85,7 +97,7 @@ export const POST = adminRoute(async (request: Request) => {
     if (ds.horizonMin !== horizon_min) {
       return NextResponse.json(
         {
-          error: 'horizon_min mismatch',
+          error: "horizon_min mismatch",
           message: `dataset was built for ${ds.horizonMin}min, request asked for ${horizon_min}min`,
         },
         { status: 400 },
@@ -93,9 +105,13 @@ export const POST = adminRoute(async (request: Request) => {
     }
     resolvedPath = ds.path;
   }
+
   if (!resolvedPath) {
     return NextResponse.json(
-      { error: 'either dataset_id or dataset_path is required' },
+      {
+        error:
+          "no training dataset available — export data first or provide dataset_id/dataset_path",
+      },
       { status: 400 },
     );
   }

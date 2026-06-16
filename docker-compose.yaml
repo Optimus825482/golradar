@@ -47,6 +47,8 @@ services:
       IMPORT_FOTMOB_TEAMS: "0"
       # ML Trainer sidecar
       ML_TRAINER_URL: "http://ml-trainer:9100"
+    volumes:
+      - golradar_ml_data:/app/web/data
     networks:
       - golradar-net
     ports:

@@ -77,12 +77,18 @@ export async function checkTrainerHealth(): Promise<{
   }
 }
 
-/** Kick off a training job. Returns the job handle immediately. */
-export async function startTraining(req: TrainRequest): Promise<JobHandle | null> {
+/** Kick off a training job. Returns the job handle immediately.
+ *  Translates TS-side paths (`/app/web/data/...`) to trainer-side
+ *  paths (`/data/...`) since both containers share `golradar_ml_data`. */
+export async function startTraining(
+  req: TrainRequest,
+): Promise<JobHandle | null> {
   if (!TRAINER_URL) return null;
-  return trainerFetch<JobHandle>('/train', {
-    method: 'POST',
-    body: JSON.stringify(req),
+  // Translate dataset path for the trainer container's mount point
+  const trainerPath = req.dataset_path.replace(/^\/app\/web\/data\//, "/data/");
+  return trainerFetch<JobHandle>("/train", {
+    method: "POST",
+    body: JSON.stringify({ ...req, dataset_path: trainerPath }),
   });
 }
 

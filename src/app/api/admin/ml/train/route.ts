@@ -17,12 +17,19 @@
 //   { ok: true, jobId, status, artifactPath, metrics, registered: bool }
 
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { startTraining, pollJob, markArtifactReady, ML_TRAINER_ENABLED } from '@/lib/ml/mlClient';
-import { registerArtifact } from '@/lib/ml/modelRouter';
-import { adminRoute } from '@/lib/adminRoute';
+import { existsSync } from "fs";
+import { db } from "@/lib/db";
+import {
+  startTraining,
+  pollJob,
+  markArtifactReady,
+  ML_TRAINER_ENABLED,
+} from "@/lib/ml/mlClient";
+import { registerArtifact } from "@/lib/ml/modelRouter";
+import { triggerExportNow } from "@/lib/ml/trainingScheduler";
+import { adminRoute } from "@/lib/adminRoute";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 interface TrainRequestBody {
   name?: string;
@@ -33,12 +40,12 @@ interface TrainRequestBody {
 }
 
 export const POST = adminRoute(async (request: Request) => {
-  if (typeof window !== 'undefined') {
-    return NextResponse.json({ error: 'server-only' }, { status: 503 });
+  if (typeof window !== "undefined") {
+    return NextResponse.json({ error: "server-only" }, { status: 503 });
   }
   if (!ML_TRAINER_ENABLED) {
     return NextResponse.json(
-      { error: 'trainer-sidecar-disabled', message: 'ML_TRAINER_URL not set' },
+      { error: "trainer-sidecar-disabled", message: "ML_TRAINER_URL not set" },
       { status: 503 },
     );
   }
@@ -47,7 +54,7 @@ export const POST = adminRoute(async (request: Request) => {
   try {
     body = (await request.json()) as TrainRequestBody;
   } catch {
-    return NextResponse.json({ error: 'invalid-json' }, { status: 400 });
+    return NextResponse.json({ error: "invalid-json" }, { status: 400 });
   }
 
   const { name } = body;
@@ -118,6 +125,19 @@ export const POST = adminRoute(async (request: Request) => {
   }
 
   if (!resolvedPath) {
+    // No dataset at all — try to export one on-demand
+    try {
+      const exportResult = await triggerExportNow(horizon_min as 5 | 10 | 15);
+      if (exportResult) {
+        dataset_id = exportResult.datasetId;
+        resolvedPath = exportResult.path;
+      }
+    } catch {
+      /* fall through to error */
+    }
+  }
+
+  if (!resolvedPath) {
     return NextResponse.json(
       {
         error:
@@ -127,39 +147,63 @@ export const POST = adminRoute(async (request: Request) => {
     );
   }
 
+  // Verify the file actually exists on disk (survives container rebuilds)
+  if (!existsSync(resolvedPath)) {
+    // File lost (container rebuild). Re-export.
+    try {
+      const exportResult = await triggerExportNow(horizon_min as 5 | 10 | 15);
+      if (exportResult) {
+        dataset_id = exportResult.datasetId;
+        resolvedPath = exportResult.path;
+      }
+    } catch {
+      /* fall through to error */
+    }
+  }
+
+  if (!existsSync(resolvedPath)) {
+    return NextResponse.json(
+      {
+        error:
+          "dataset file not found on disk — container may have been rebuilt, try exporting data first",
+      },
+      { status: 400 },
+    );
+  }
+
   // Start the job
   const job = await startTraining({
-    name: name as 'gbdt' | 'xgb' | 'inplay',
+    name: name as "gbdt" | "xgb" | "inplay",
     version,
     horizon_min,
     dataset_path: resolvedPath,
   });
   if (!job) {
-    return NextResponse.json(
-      { error: 'trainer-unreachable' },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: "trainer-unreachable" }, { status: 502 });
   }
 
   // Poll until done (up to 5 min for a single XGBoost run)
-  const completed = await pollJob(job.jobId, { timeoutMs: 300_000, pollMs: 3_000 });
+  const completed = await pollJob(job.jobId, {
+    timeoutMs: 300_000,
+    pollMs: 3_000,
+  });
   if (!completed) {
     return NextResponse.json(
       {
         ok: false,
         jobId: job.jobId,
-        status: 'timeout',
-        message: 'trainer did not complete within 5 min',
+        status: "timeout",
+        message: "trainer did not complete within 5 min",
       },
       { status: 504 },
     );
   }
-  if (completed.status === 'failed') {
+  if (completed.status === "failed") {
     return NextResponse.json(
       {
         ok: false,
         jobId: job.jobId,
-        status: 'failed',
+        status: "failed",
         error: completed.error,
       },
       { status: 500 },
@@ -171,30 +215,34 @@ export const POST = adminRoute(async (request: Request) => {
   if (completed.artifactPath) {
     try {
       await registerArtifact({
-        name: name as 'gbdt' | 'xgb' | 'inplay',
+        name: name as "gbdt" | "xgb" | "inplay",
         version,
         artifactPath: completed.artifactPath,
         metrics: completed.metrics,
-        sha256: String(completed.metrics.sha256 ?? ''),
+        sha256: String(completed.metrics.sha256 ?? ""),
         bytes: completed.metrics.artifactBytes ?? null,
-        notes: `Trained on horizon=${horizon_min}min, n=${completed.metrics.n ?? '?'}`,
+        notes: `Trained on horizon=${horizon_min}min, n=${completed.metrics.n ?? "?"}`,
       });
       registered = true;
 
       // Mark the dataset consumed
       if (dataset_id) {
         await db.trainingDataset
-          .update({ where: { id: dataset_id }, data: { status: 'consumed' } })
+          .update({ where: { id: dataset_id }, data: { status: "consumed" } })
           .catch(() => {});
       }
 
       // Tell the trainer sidecar the file is ready (writes .ready marker)
-      await markArtifactReady(name, version, 'auto-marked after successful train');
+      await markArtifactReady(
+        name,
+        version,
+        "auto-marked after successful train",
+      );
     } catch (err) {
       return NextResponse.json({
         ok: true,
         jobId: job.jobId,
-        status: 'success',
+        status: "success",
         artifactPath: completed.artifactPath,
         metrics: completed.metrics,
         registered: false,
@@ -206,7 +254,7 @@ export const POST = adminRoute(async (request: Request) => {
   return NextResponse.json({
     ok: true,
     jobId: job.jobId,
-    status: 'success',
+    status: "success",
     artifactPath: completed.artifactPath,
     metrics: completed.metrics,
     registered,

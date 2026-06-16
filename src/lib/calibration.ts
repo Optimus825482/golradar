@@ -47,11 +47,82 @@ const DATA_DIR = s ? s.path.join(process.cwd(), 'data', 'calibration') : '';
 const RECORDS_FILE = s ? s.path.join(DATA_DIR, 'records.json') : '';
 
 // ── Calibration Curve (sigmoid-based) ────────────────────────────
-const CALIBRATION_PARAMS = {
-  L: 0.80,
-  k: 0.065,
-  x0: 65,
+// Parameters are runtime-mutable — autoCalibrateFromDB() updates them
+// from actual PredictionLog outcomes.
+export const CALIBRATION_PARAMS = {
+  L: 0.80,      // max probability (ceiling)
+  k: 0.065,     // steepness
+  x0: 65,       // midpoint (score → 50% probability)
 };
+
+import { db } from "./db";
+
+/** Optimize sigmoid params from PredictionLog table, persist to DB. */
+export async function autoCalibrateFromDB(): Promise<{
+  x0: number;
+  k: number;
+  brierBefore: number;
+  brierAfter: number;
+} | null> {
+  // Load resolved predictions (goalScored not null) from last 90 days
+  const logs = await db.predictionLog.findMany({
+    where: { goalScored: { not: null }, modelVariant: "goaloo-season" },
+    select: { rawScore: true, calibratedP: true, goalScored: true },
+    orderBy: { createdAt: "desc" },
+    take: 10000,
+  });
+
+  if (logs.length < 50) return null;
+
+  // Current brier
+  const currentBrier =
+    logs.reduce(
+      (s, r) => s + Math.pow(r.calibratedP - (r.goalScored ? 1 : 0), 2),
+      0,
+    ) / logs.length;
+
+  // Grid search for best (x0, k). L stays at 0.80 (ceiling)
+  let bestX0 = CALIBRATION_PARAMS.x0;
+  let bestK = CALIBRATION_PARAMS.k;
+  let bestBrier = currentBrier;
+
+  for (let x0 = 40; x0 <= 85; x0 += 2) {
+    for (let kRaw = 20; kRaw <= 120; kRaw += 2) {
+      const k = kRaw / 1000;
+      let sum = 0;
+      for (const r of logs) {
+        const p = CALIBRATION_PARAMS.L / (1 + Math.exp(-k * (r.rawScore - x0)));
+        sum += Math.pow(p - (r.goalScored ? 1 : 0), 2);
+      }
+      const brier = sum / logs.length;
+      if (brier < bestBrier) {
+        bestBrier = brier;
+        bestX0 = x0;
+        bestK = k;
+      }
+    }
+  }
+
+  // Only apply if meaningful improvement (>2% relative)
+  if (bestBrier < currentBrier * 0.98) {
+    CALIBRATION_PARAMS.x0 = bestX0;
+    CALIBRATION_PARAMS.k = bestK;
+    console.log(
+      `[Calibration] Optimized: x0=${bestX0}, k=${bestK.toFixed(4)}, Brier ${currentBrier.toFixed(4)} → ${bestBrier.toFixed(4)}`,
+    );
+    return {
+      x0: bestX0,
+      k: bestK,
+      brierBefore: currentBrier,
+      brierAfter: bestBrier,
+    };
+  }
+
+  console.log(
+    `[Calibration] No improvement needed (Brier ${currentBrier.toFixed(4)}, best ${bestBrier.toFixed(4)})`,
+  );
+  return null;
+}
 
 export function calibrateScore(rawScore: number): number {
   const { L, k, x0 } = CALIBRATION_PARAMS;

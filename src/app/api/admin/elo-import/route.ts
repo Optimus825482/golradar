@@ -135,4 +135,4 @@ export const POST = adminRoute(async (request: Request) => {
     { error: "Unknown action. Use: fetch, manual, fetch-league" },
     { status: 400 },
   );
-};);
+});

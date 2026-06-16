@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>datafc Tester</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <h1>datafc Tester</h1>
+    <p class="sub">Quick local UI for exercising the <code>datafc</code> Python package.</p>
+  </header>
+
+  <div id="tournament-bar" class="tournament-bar">
+    <div class="tournament-bar-row">
+      <div class="tinfo-item">
+        <span class="tinfo-label">Country</span>
+        <select id="country-select" class="tselect">
+          <option value="">— pick country —</option>
+        </select>
+      </div>
+      <div class="tinfo-item">
+        <span class="tinfo-label">Tournament</span>
+        <select id="tournament-select" class="tselect" disabled>
+          <option value="">— pick country first —</option>
+        </select>
+      </div>
+      <div class="tinfo-item">
+        <span class="tinfo-label">Season</span>
+        <select id="global-season-id" class="tselect" disabled>
+          <option>— pick tournament first —</option>
+        </select>
+      </div>
+    </div>
+    <div class="tournament-bar-meta" id="tinfo-meta"></div>
+  </div>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="standings">Standings</button>
+    <button class="tab" data-tab="fixtures">Fixtures</button>
+    <button class="tab" data-tab="live">Live</button>
+    <button class="tab" data-tab="match">Match</button>
+    <button class="tab" data-tab="shots">Shots</button>
+    <button class="tab" data-tab="squad">Squad</button>
+    <button class="tab" data-tab="league_player_stats">League Player Stats</button>
+    <button class="tab" data-tab="parquet">Save Parquet</button>
+  </nav>
+
+  <main>
+    <!-- Standings -->
+    <section class="panel active" data-panel="standings">
+      <h2>standings_data</h2>
+      <form data-fn="standings_data" data-endpoint="/api/standings" data-uses-global-ids="true">
+        <button type="submit">Fetch</button>
+      </form>
+    </section>
+
+    <!-- Fixtures -->
+    <section class="panel" data-panel="fixtures">
+      <h2>Matches by Date</h2>
+      <p class="hint">All football matches worldwide for a specific date (Sofascore).</p>
+      <form id="fixtures-form" data-endpoint="/api/scheduled_events">
+        <label>Date <input type="date" name="date" id="fixture-date" required></label>
+        <button type="submit">Search Matches</button>
+      </form>
+      <div id="fixture-list" class="fixture-list"></div>
+    </section>
+
+    <!-- Live -->
+    <section class="panel" data-panel="live">
+      <h2>Live Matches</h2>
+      <p class="hint">Currently live football matches. Auto-refreshes every 15s.</p>
+      <div id="live-status" class="live-status">Loading...</div>
+      <div id="live-list" class="fixture-list"></div>
+    </section>
+
+    <!-- Match -->
+    <section class="panel" data-panel="match">
+      <h2>match_data</h2>
+      <form data-fn="match_data" data-endpoint="/api/match" data-uses-global-ids="true">
+        <label>week_number <input name="week_number" value="1" required></label>
+        <button type="submit">Fetch</button>
+      </form>
+    </section>
+
+    <!-- Shots -->
+    <section class="panel" data-panel="shots">
+      <h2>shots_data</h2>
+      <p class="hint">Requires cached <code>match_data</code> from the Match tab.</p>
+      <form data-fn="shots_data" data-endpoint="/api/shots">
+        <button type="submit">Fetch from cached match</button>
+      </form>
+    </section>
+
+    <!-- Squad -->
+    <section class="panel" data-panel="squad">
+      <h2>squad_data</h2>
+      <p class="hint">Requires cached <code>standings_data</code> from the Standings tab.</p>
+      <form data-fn="squad_data" data-endpoint="/api/squad">
+        <button type="submit">Fetch from cached standings</button>
+      </form>
+    </section>
+
+    <!-- League Player Stats -->
+    <section class="panel" data-panel="league_player_stats">
+      <h2>league_player_stats_data</h2>
+      <form data-fn="league_player_stats_data" data-endpoint="/api/league_player_stats" data-uses-global-ids="true">
+        <label>order <input name="order" value="-rating"></label>
+        <label>accumulation
+          <select name="accumulation">
+            <option>total</option><option>per90</option><option>perMatch</option>
+          </select>
+        </label>
+        <label>position
+          <select name="position">
+            <option value="">(any)</option>
+            <option>G</option><option>D</option><option>M</option><option>F</option>
+          </select>
+        </label>
+        <label>fields (csv, blank=default)
+          <input name="fields" value="goals,assists,rating">
+        </label>
+        <label>max_players <input name="max_players" value="50"></label>
+        <button type="submit">Fetch</button>
+      </form>
+    </section>
+
+    <!-- Parquet -->
+    <section class="panel" data-panel="parquet">
+      <h2>save_parquet</h2>
+      <p class="hint">Persists the last-fetched DataFrame for the chosen function as a Parquet file.</p>
+      <form data-endpoint="/api/save_parquet">
+        <label>function
+          <select name="function">
+            <option>standings_data</option>
+            <option>match_data</option>
+            <option>shots_data</option>
+            <option>squad_data</option>
+            <option>league_player_stats_data</option>
+          </select>
+        </label>
+        <label>country <input name="country" id="pq-country" value="Turkey"></label>
+        <label>tournament <input name="tournament" id="pq-tournament" value="Trendyol Super Lig"></label>
+        <label>season <input name="season" id="pq-season" value="25/26"></label>
+        <label>output_dir <input name="output_dir" value="datafc_exports/parquet"></label>
+        <button type="submit">Save Parquet</button>
+      </form>
+    </section>
+  </main>
+
+  <!-- Result area shared across tabs -->
+  <section id="result" class="result" hidden>
+    <div class="result-head">
+      <h3 id="result-title">Result</h3>
+      <div class="result-actions">
+        <a id="dl-json" href="#" download>JSON</a>
+        <a id="dl-csv" href="#" download>CSV</a>
+        <a id="dl-xlsx" href="#" download>Excel</a>
+        <button id="result-close" type="button">Close</button>
+      </div>
+    </div>
+    <p id="result-meta" class="meta"></p>
+    <div id="result-error" class="error" hidden></div>
+    <div id="table-wrap" class="table-wrap"></div>
+  </section>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

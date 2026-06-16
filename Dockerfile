@@ -56,7 +56,10 @@ RUN pip3 install --no-cache-dir --break-system-packages \
       'lxml>=5' \
       'w3lib>=2' \
       'tld>=0.13' \
-      'tldextract>=5'
+      'tldextract>=5' \
+      'datafc>=2.7,<3' \
+      # Sofascore datafc uses httpx + orjson internally — already pulled above
+      'httpx>=0.27'
 
 # Next.js standalone
 COPY --from=build /app/.next/standalone /app/web

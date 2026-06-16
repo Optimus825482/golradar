@@ -316,4 +316,4 @@ export const POST = adminRoute(async (request: Request) => {
     },
     { status: 400 },
   );
-};);
+});

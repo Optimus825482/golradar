@@ -25,6 +25,21 @@ model User {
   @@index([username])
 }
 
+// ── Gol Radarı: Elo Import Job ───────────────────────────────────
+model EloImportJob {
+  id            String   @id @default(cuid())
+  status        String   @default("running") // running | done | failed
+  totalTeams    Int
+  fetchedTeams  Int      @default(0)
+  failedTeams   Int      @default(0)
+  currentTeam   String?  // Currently fetching
+  progressPct   Int      @default(0) // 0-100
+  resultJson    String?  // Final results summary
+  startedAt     DateTime @default(now())
+  finishedAt    DateTime?
+  createdAt     DateTime @default(now())
+}
+
 // ── Gol Radarı: Match Pressure Snapshots ─────────────────────────
 // Stores periodic snapshots of match stats for momentum/trend analysis
 model MatchSnapshot {
@@ -145,9 +160,14 @@ model TeamMapping {
   scoremerName    String?  // Team name from Scoremer
   fotmobId        Int?     // FotMob team ID
   fotmobName      String?  // Team name from FotMob
+  fotmobSlug      String?  // FotMob URL slug
+  fotmobLogoUrl   String?  // https://images.fotmob.com/.../teamlogo/{id}_large.png
   netscoresId     String?  // NetScores team ID
   netscoresName   String?  // Team name from NetScores
   canonicalName   String   // Our canonical team name
+  eloRating       Int?     // Imported Elo rating
+  eloSource       String?  // Source of Elo rating (clubelo, estimate, etc.)
+  country         String?  // Country code (TR, GB, DE, etc.)
   confidence      Float    @default(0) // Mapping confidence score (0-1)
   lastVerified    DateTime @default(now())
 
@@ -155,6 +175,7 @@ model TeamMapping {
   @@index([nesineName])
   @@index([scoremerId])
   @@index([fotmobId])
+  @@index([country])
 }
 
 // ── Gol Radarı: Model Metrics ────────────────────────────────────

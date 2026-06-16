@@ -61,6 +61,7 @@ export default function OptimusGolRadariPage() {
   const [sortBy, setSortBy] = useState<'league' | 'time'>('league')
   const [statsHalf, setStatsHalf] = useState<'full' | '1h' | '2h'>('full')
   const [allPressureData, setAllPressureData] = useState<Record<number, PressureSnapshot[]>>({})
+  const [teamLogos, setTeamLogos] = useState<Record<string, string>>({})
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const retryCountRef = useRef(0)
   const MAX_RETRIES = 5
@@ -142,6 +143,7 @@ export default function OptimusGolRadariPage() {
       const data = await resp.json()
       setMatches(data.matches || [])
       setAllPressureData(data.pressureData || {})
+      setTeamLogos(data.teamLogos || {})
       setLastUpdate(new Date())
       setError(null)
       retryCountRef.current = 0

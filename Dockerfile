@@ -81,6 +81,9 @@ RUN ls -la /app/web/node_modules/prisma/build/index.js && \
 # runtime but execFile fails on a missing script.
 COPY --from=build /app/scripts /app/web/scripts
 
+# FotMob teams CSV for TeamMapping import
+COPY --from=build /app/docs/fotmob_teams.csv /app/web/docs/fotmob_teams.csv
+
 # Nesine-live relay
 WORKDIR /app/nesine
 COPY --from=build /app/mini-services/nesine-live/package.json ./

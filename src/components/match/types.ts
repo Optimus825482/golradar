@@ -21,31 +21,33 @@ import type {
 export type { MatchStats, PressureSnapshot }
 
 export interface Match {
-  code: number
-  bid: number
-  league: string
-  leagueId: number
-  home: string
-  away: string
-  homeTr: string
-  awayTr: string
-  homeGoals: number
-  awayGoals: number
-  firstHalfScore: string
-  minute: string
-  status: number
-  statusText: string
-  time: string
-  isLive: boolean
-  isFinished: boolean
-  country: string
-  stats: MatchStats
-  hasStats: boolean
-  homeColor: string | null
-  awayColor: string | null
-  homeAbbrev: string | null
-  awayAbbrev: string | null
-  goalRadar?: GoalProbability
+  code: number;
+  bid: number;
+  league: string;
+  leagueId: number;
+  home: string;
+  away: string;
+  homeTr: string;
+  awayTr: string;
+  homeGoals: number;
+  awayGoals: number;
+  firstHalfScore: string;
+  minute: string;
+  status: number;
+  statusText: string;
+  time: string;
+  isLive: boolean;
+  isFinished: boolean;
+  country: string;
+  stats: MatchStats;
+  hasStats: boolean;
+  homeColor: string | null;
+  awayColor: string | null;
+  homeAbbrev: string | null;
+  awayAbbrev: string | null;
+  homeLogoUrl: string | null;
+  awayLogoUrl: string | null;
+  goalRadar?: GoalProbability;
 }
 
 export interface GoalNotification {

@@ -253,6 +253,9 @@ model Signal {
   finalHomeScore      Int?
   finalAwayScore      Int?
 
+  // Escalation tracking: how many times the score jumped >=10 pts
+  escalated           Boolean  @default(false) // True when lastScore >= signalScore + 10
+
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

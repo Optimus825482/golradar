@@ -144,10 +144,26 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         X = np.array(df["features"].tolist(), dtype=np.float32)
         y = np.array(df["label"].tolist(), dtype=np.int32)
 
-        # Stratified split
-        Xtr, Xte, ytr, yte = train_test_split(
-            X, y, test_size=req.test_size, stratify=y, random_state=req.random_state
-        )
+        n_pos = int(y.sum())
+        n_neg = int(len(y) - n_pos)
+
+        if n_pos == 0 or n_neg == 0:
+            raise ValueError(
+                f"dataset has only one label class: {n_pos} positives, {n_neg} negatives. "
+                "Need at least a few goals in the training window."
+            )
+
+        # Stratified split — fall back to random split if too few positives
+        test_size = req.test_size
+        min_test_pos = max(1, int(n_pos * test_size * 0.5))
+        if n_pos >= 4 and n_neg >= 4:
+            Xtr, Xte, ytr, yte = train_test_split(
+                X, y, test_size=test_size, stratify=y, random_state=req.random_state
+            )
+        else:
+            Xtr, Xte, ytr, yte = train_test_split(
+                X, y, test_size=test_size, random_state=req.random_state
+            )
 
         # Train XGBoost
         model = xgb.XGBClassifier(

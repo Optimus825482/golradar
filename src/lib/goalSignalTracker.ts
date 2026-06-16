@@ -90,6 +90,9 @@ export interface GoalSignalRecord {
   // ── Match result (filled by finalizeMatchSignals) ──
   finalHomeScore: number | null;
   finalAwayScore: number | null;
+
+  // ── Escalation (true when lastScore >= signalScore + 10) ──
+  escalated: boolean;
 }
 
 export interface ProbabilityBucket {
@@ -263,6 +266,7 @@ export async function checkAndRecordSignal(
 
     finalHomeScore: null,
     finalAwayScore: null,
+    escalated: false,
   };
 
   const created = await repoCreate(record);

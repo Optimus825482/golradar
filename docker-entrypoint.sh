@@ -65,7 +65,7 @@ echo "[OK] Next.js started (PID $WEB_PID)"
 echo "[AUTH] Seeding default admin user..."
 SEED_READY=0
 for i in $(seq 1 30); do
-    if curl -sf "http://localhost:${PORT:-3012}/api/admin/auth?action=seed" > /dev/null 2>&1; then
+    if node -e "fetch('http://localhost:${PORT:-3012}/api/admin/auth?action=seed').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" 2>/dev/null; then
         echo "[AUTH] Admin seed complete"
         SEED_READY=1
         break

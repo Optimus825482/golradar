@@ -245,5 +245,5 @@ export const POST = adminRoute(async (request: Request) => {
     metrics: completed.metrics,
     registered,
   });
-};);
+});
 

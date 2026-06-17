@@ -8,7 +8,11 @@ import { existsSync } from "fs";
 import { db } from "@/lib/db";
 import { ML_TRAINER_ENABLED, checkTrainerHealth } from "@/lib/ml/mlClient";
 import { getTrainingSchedulerStatus } from "@/lib/ml/trainingScheduler";
-import { listArtifacts, type ModelName } from "@/lib/ml/modelRouter";
+import {
+  listArtifacts,
+  resolveArtifactPath,
+  type ModelName,
+} from "@/lib/ml/modelRouter";
 import { adminRoute } from "@/lib/adminRoute";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +43,7 @@ export const GET = adminRoute(async () => {
     isChampion: a.isChampion,
     metrics: a.metrics,
     createdAt: a.createdAt,
-    fileExists: existsSync(a.artifactPath),
+    fileExists: existsSync(resolveArtifactPath(a.artifactPath)),
   }));
 
   // Latest TrainingDataset rows (last 5)

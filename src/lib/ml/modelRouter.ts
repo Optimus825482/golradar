@@ -87,7 +87,7 @@ async function getChampionPath(name: ModelName): Promise<{
   const entry: ModelEntry = {
     name,
     version: artifact.version,
-    path: artifact.artifactPath,
+    path: resolveArtifactPath(artifact.artifactPath),
     metrics,
     loadedAt: Date.now(),
     sha256: artifact.sha256,
@@ -318,4 +318,24 @@ export type { XtGrid } from './xtGrid';
 // Helper to compute the default artifact path (same convention as trainer)
 export function defaultArtifactPath(name: ModelName, version: string): string {
   return join(process.cwd(), 'data', 'ml-models', `${name}-v${version}.json`);
+}
+
+/**
+ * Resolve an artifact path that might have been written by the
+ * trainer container (which mounts the shared volume at /data)
+ * instead of the app container (which mounts it at <cwd>/data).
+ *
+ * If the stored path starts with /data/, rewrite it to <cwd>/data/
+ * so the file is found regardless of which container saved the path.
+ *
+ * This is a pure string-transform function — no I/O.
+ * Downstream callers (status route, backtest loader) do their own
+ * existsSync check against the resolved path.
+ */
+export function resolveArtifactPath(storedPath: string): string {
+  // Trainer writes to /data/ml-models/... but app sees <cwd>/data/ml-models/...
+  if (storedPath.startsWith('/data/')) {
+    return join(process.cwd(), storedPath.slice(5)); // strip leading /data
+  }
+  return storedPath;
 }

@@ -16,7 +16,7 @@
 import { db } from '../db';
 import { featuresToArray, type MatchFeatures } from '../featureEngineering';
 import { getXgbModelCached, predictXgb, type XgbModel } from './xgbLoader';
-import type { ModelName } from './modelRouter';
+import { resolveArtifactPath, type ModelName } from "./modelRouter";
 
 export type ModelSelector =
   | { kind: 'champion' }
@@ -163,7 +163,9 @@ export async function runModelBacktest(
       return null;
     }
     try {
-      xgbModel = await getXgbModelCached(meta.artifactPath);
+      xgbModel = await getXgbModelCached(
+        resolveArtifactPath(meta.artifactPath),
+      );
     } catch (e: unknown) {
       modelLoadError = `Model yuklenemedi: ${(e as Error)?.message ?? e}`;
     }
@@ -180,7 +182,9 @@ export async function runModelBacktest(
       return null;
     }
     try {
-      xgbModel = await getXgbModelCached(meta.artifactPath);
+      xgbModel = await getXgbModelCached(
+        resolveArtifactPath(meta.artifactPath),
+      );
     } catch (e: unknown) {
       modelLoadError = `Model yuklenemedi: ${(e as Error)?.message ?? e}`;
     }

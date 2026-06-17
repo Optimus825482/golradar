@@ -167,9 +167,20 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
     const pts: [number, number][] = md.map(d => [xS(d.minuteNum, maxMinute), yS(d.m)])
     const zy = yS(0)
     const cp = (p: [number, number][]) => { if (p.length >= 2) return catmullRomPath(p); return '' }
-    const lp = cp(pts)
+
+    // Split at halftime (45') to prevent false interpolation across the break
+    const breakIdx = pts.findIndex((_, i) => md[i].minuteNum > 45)
+    const pts1 = breakIdx > 0 ? pts.slice(0, breakIdx) : pts
+    const pts2 = breakIdx > 0 ? pts.slice(breakIdx) : []
+    const lps = [cp(pts1), pts2.length >= 2 ? cp(pts2) : ''].filter(Boolean)
+    const lp = lps.join(' ')
+
+    // Area path: close each half to baseline independently
+    let ap = ''
+    if (pts1.length >= 2) { const a = cp(pts1); if (a) { const l = pts1[pts1.length - 1], f = pts1[0]; ap += `${a} L ${l[0].toFixed(2)} ${zy.toFixed(2)} L ${f[0].toFixed(2)} ${zy.toFixed(2)} Z ` } }
+    if (pts2.length >= 2) { const a = cp(pts2); if (a) { const l = pts2[pts2.length - 1], f = pts2[0]; ap += `${a} L ${l[0].toFixed(2)} ${zy.toFixed(2)} L ${f[0].toFixed(2)} ${zy.toFixed(2)} Z` } }
+    ap = ap.trim()
     const lastP = pts[pts.length - 1]
-    const ap = lp ? `${lp} L ${lastP[0].toFixed(2)} ${zy.toFixed(2)} L ${pts[0][0].toFixed(2)} ${zy.toFixed(2)} Z` : ''
 
     if (lpRef.current) lpRef.current.setAttribute('d', lp)
     if (apRef.current) apRef.current.setAttribute('d', ap)

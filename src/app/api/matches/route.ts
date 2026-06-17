@@ -18,6 +18,8 @@ import { autoFetchMissingRatings, getRating } from "@/lib/eloRating";
 import { db } from "@/lib/db";
 import { checkForGoals } from "@/lib/goalSignalTracker";
 import { extractFeatures, featuresToArray } from "@/lib/featureEngineering";
+import { loadXgbChampion } from "@/lib/ml/modelRouter";
+import { predictXgb } from "@/lib/ml/xgbLoader";
 
 export const dynamic = "force-dynamic";
 
@@ -260,15 +262,17 @@ export async function GET(request: Request) {
         undefined,
         fotmobData,
       );
-      if (goalRadar.score < 55) goalRadar = undefined;
-
-      // Auto-log predictions to PredictionLog for ML training pipeline
-      if (goalRadar && parsed.isLive && goalRadar.score >= 40) {
+      // Log ALL predictions for ML pipeline (no minimum score filter).
+      // Level is determined by goalRadar.level — let low/medium signals
+      // accumulate so the calibration + backtest systems see the full
+      // distribution.
+      if (goalRadar && parsed.isLive) {
         const homeElo = getRating(parsed.home)?.rating ?? null;
         const awayElo = getRating(parsed.away)?.rating ?? null;
         const matchMinute = parseInt(parsed.minute) || 0;
         void (async () => {
           let featuresJson: string | null = null;
+          let championP: number | null = null;
           try {
             const features = await extractFeatures({
               stats: parsed.stats,
@@ -287,10 +291,28 @@ export async function GET(request: Request) {
               })),
               skipXtGrid: true,
             });
-            featuresJson = JSON.stringify(featuresToArray(features));
+            const fa = featuresToArray(features);
+            featuresJson = JSON.stringify(fa);
+            // Run champion XGB/GBDT model on the same features for ensemble-calibratedP
+            for (const championName of ["xgb", "gbdt"] as const) {
+              try {
+                const champ = await loadXgbChampion(championName);
+                if (champ) {
+                  championP = predictXgb(champ.model, fa);
+                  break;
+                }
+              } catch {
+                /* try next */
+              }
+            }
           } catch {
             // features not available — log without them
           }
+          // Use champion ML probability when available, fall back to sigmoid calibration
+          const finalCalibratedP =
+            championP != null
+              ? Math.max(0, Math.min(1, championP))
+              : goalRadar.calibratedP;
           await db.predictionLog
             .create({
               data: {
@@ -299,7 +321,7 @@ export async function GET(request: Request) {
                 rawScore: goalRadar.score,
                 homeScore: goalRadar.homeScore,
                 awayScore: goalRadar.awayScore,
-                calibratedP: goalRadar.calibratedP,
+                calibratedP: finalCalibratedP,
                 side: goalRadar.side ?? "none",
                 level: goalRadar.level,
                 factorsJson: JSON.stringify(goalRadar.factors),
@@ -313,7 +335,7 @@ export async function GET(request: Request) {
               },
             })
             .catch(() => {});
-        })();
+        };)();
       }
     }
     matches.push({ ...parsed, goalRadar });

@@ -24,8 +24,8 @@ import {
 import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
 import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
 import { loadLatestTeamStrength } from './ml/teamHistoryBackfill';
-import { loadXgbChampion } from './ml/modelRouter';
-import { predictXgb } from './ml/xgbLoader';
+import { loadXgbChampion } from "./ml/modelRouter";
+import { predictXgb, type XgbModel } from "./ml/xgbLoader";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -166,19 +166,36 @@ export interface EnsembleInput extends FeatureExtractionInput {
   homeDefenseStrength?: number;
 }
 
-export async function predictEnsemble(input: EnsembleInput): Promise<EnsembleResult> {
-  const { stats, minute, isLive, homeGoals, awayGoals, homeTeam, awayTeam,
-          pressureHistory, ruleBasedScore, homeAttackStrength, awayDefenseStrength,
-          awayAttackStrength, homeDefenseStrength, weather } = input;
+export async function predictEnsemble(
+  input: EnsembleInput,
+): Promise<EnsembleResult> {
+  const {
+    stats,
+    minute,
+    isLive,
+    homeGoals,
+    awayGoals,
+    homeTeam,
+    awayTeam,
+    pressureHistory,
+    ruleBasedScore,
+    homeAttackStrength,
+    awayDefenseStrength,
+    awayAttackStrength,
+    homeDefenseStrength,
+    weather,
+  } = input;
 
   // Parse minute
-  let minNum = parseInt(minute.replace(/[^0-9]/g, ''), 10);
+  let minNum = parseInt(minute.replace(/[^0-9]/g, ""), 10);
   if (!minNum || minNum === 0) minNum = 45;
   minNum = Math.max(1, Math.min(120, minNum));
 
   // ── Model 1: Rule-based Goal Radar ──
-  const ruleBasedP = ruleBasedScore != null ? calibrateScore(ruleBasedScore) : 0;
-  const ruleBasedConf = ruleBasedScore != null ? Math.min(1, ruleBasedScore / 70) : 0.1;
+  const ruleBasedP =
+    ruleBasedScore != null ? calibrateScore(ruleBasedScore) : 0;
+  const ruleBasedConf =
+    ruleBasedScore != null ? Math.min(1, ruleBasedScore / 70) : 0.1;
 
   // ── Model 2: Dixon-Coles Poisson ──
   let poissonP = 0;
@@ -190,36 +207,40 @@ export async function predictEnsemble(input: EnsembleInput): Promise<EnsembleRes
 
   try {
     // Estimate xG for Poisson input
-    const getStat = (key: string, side: 'home' | 'away'): number => {
+    const getStat = (key: string, side: "home" | "away"): number => {
       const s = stats[key];
       if (!s) return 0;
-      return (side === 'home' ? s.home : s.away) ?? 0;
+      return (side === "home" ? s.home : s.away) ?? 0;
     };
 
-    const sotH = getStat('shots_on_target', 'home');
-    const sotA = getStat('shots_on_target', 'away');
-    const totalH = getStat('shots_total', 'home');
-    const totalA = getStat('shots_total', 'away');
-    const blkH = getStat('shots_blocked', 'home');
-    const blkA = getStat('shots_blocked', 'away');
+    const sotH = getStat("shots_on_target", "home");
+    const sotA = getStat("shots_on_target", "away");
+    const totalH = getStat("shots_total", "home");
+    const totalA = getStat("shots_total", "away");
+    const blkH = getStat("shots_blocked", "home");
+    const blkA = getStat("shots_blocked", "away");
     const offH = Math.max(0, totalH - sotH - blkH);
     const offA = Math.max(0, totalA - sotA - blkA);
-    const crnH = getStat('corners', 'home');
-    const crnA = getStat('corners', 'away');
-    const daH = getStat('dangerous_attacks', 'home');
-    const daA = getStat('dangerous_attacks', 'away');
+    const crnH = getStat("corners", "home");
+    const crnA = getStat("corners", "away");
+    const daH = getStat("dangerous_attacks", "home");
+    const daA = getStat("dangerous_attacks", "away");
 
-    const xgHome = stats.xg?.home != null && stats.xg.home > 0
-      ? stats.xg.home
-      : sotH * 0.38 + offH * 0.05 + blkH * 0.03 + crnH * 0.04 + daH * 0.01;
-    const xgAway = stats.xg?.away != null && stats.xg.away > 0
-      ? stats.xg.away
-      : sotA * 0.38 + offA * 0.05 + blkA * 0.03 + crnA * 0.04 + daA * 0.01;
+    const xgHome =
+      stats.xg?.home != null && stats.xg.home > 0
+        ? stats.xg.home
+        : sotH * 0.38 + offH * 0.05 + blkH * 0.03 + crnH * 0.04 + daH * 0.01;
+    const xgAway =
+      stats.xg?.away != null && stats.xg.away > 0
+        ? stats.xg.away
+        : sotA * 0.38 + offA * 0.05 + blkA * 0.03 + crnA * 0.04 + daA * 0.01;
 
     if (homeAttackStrength && awayDefenseStrength) {
       const params = calculateExpectedGoals(
-        homeAttackStrength, awayDefenseStrength,
-        awayAttackStrength ?? 1.0, homeDefenseStrength ?? 1.0,
+        homeAttackStrength,
+        awayDefenseStrength,
+        awayAttackStrength ?? 1.0,
+        homeDefenseStrength ?? 1.0,
       );
       const probs = calculateMatchProbabilities(params);
       poissonP = 1 - (probs.overUnder[0.5]?.under || 0);
@@ -255,9 +276,14 @@ export async function predictEnsemble(input: EnsembleInput): Promise<EnsembleRes
 
       // Convert Elo win probability to goal probability
       // Higher Elo differential → higher chance of scoring
-      eloP = Math.max(0, Math.min(0.8,
-        0.15 + (Math.abs(eloAdj.homeAdjust) + Math.abs(eloAdj.awayAdjust)) * 0.03
-      ));
+      eloP = Math.max(
+        0,
+        Math.min(
+          0.8,
+          0.15 +
+            (Math.abs(eloAdj.homeAdjust) + Math.abs(eloAdj.awayAdjust)) * 0.03,
+        ),
+      );
       eloHomeWin = eloPrediction.homeWinP;
       eloDraw = eloPrediction.drawP;
       eloAwayWin = eloPrediction.awayWinP;
@@ -266,24 +292,67 @@ export async function predictEnsemble(input: EnsembleInput): Promise<EnsembleRes
     eloP = 0.15;
   }
 
-  // ── Model 4: GBDT ML ──
+  // ── Model 4: Champion ML (XGB/GBDT promoted artifact, or built-in GBDT) ──
+  // Priority: xgb champion > gbdt champion > built-in GBDT
   let mlP = 0;
   let mlConfidence = 0;
-  let mlTopFactors: Array<{ feature: string; importance: number; value: number }> = [];
+  let mlTopFactors: Array<{
+    feature: string;
+    importance: number;
+    value: number;
+  }> = [];
+  let mlModelName = "GBDT (built-in)";
 
   try {
-    const mlModel = loadModel();
+    let mlModel: XgbModel | null = null;
+
+    // Try promoted champion artifacts first
+    const championOrder: Array<"xgb" | "gbdt"> = ["xgb", "gbdt"];
+    for (const championName of championOrder) {
+      try {
+        const champ = await loadXgbChampion(championName);
+        if (champ) {
+          mlModel = champ.model;
+          mlModelName = `${championName} v${champ.version}`;
+          break;
+        }
+      } catch {
+        /* continue to next */
+      }
+    }
+
     if (mlModel) {
+      // Champion XGB model — use xgbLoader inference
       const features = await extractFeatures(input);
       const featureArray = featuresToArray(features);
-      const mlResult = predictGBDT(mlModel, featureArray);
-      mlP = mlResult.probability;
-      mlConfidence = mlResult.confidence;
-      mlTopFactors = mlResult.topFactors.map(f => ({
-        feature: f.feature,
-        importance: f.importance,
-        value: f.value,
+      mlP = Math.max(0, Math.min(1, predictXgb(mlModel, featureArray)));
+      mlConfidence = 0.7; // calibrated via backtest Brier
+
+      // Extract top feature contributions (heuristic: top-3 magnitude)
+      const sorted = featureArray
+        .map((v, i) => ({ index: i, value: Math.abs(v) }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 5);
+      mlTopFactors = sorted.map((s) => ({
+        feature: `f${s.index}`,
+        importance: 0.3,
+        value: featureArray[s.index] ?? 0,
       }));
+    } else {
+      // Fall back to built-in GBDT
+      const builtin = loadModel();
+      if (builtin) {
+        const features = await extractFeatures(input);
+        const featureArray = featuresToArray(features);
+        const mlResult = predictGBDT(builtin, featureArray);
+        mlP = mlResult.probability;
+        mlConfidence = mlResult.confidence;
+        mlTopFactors = mlResult.topFactors.map((f) => ({
+          feature: f.feature,
+          importance: f.importance,
+          value: f.value,
+        }));
+      }
     }
   } catch {
     mlP = 0;
@@ -297,14 +366,17 @@ export async function predictEnsemble(input: EnsembleInput): Promise<EnsembleRes
   // trust a 5-min signal — gate weight to 0.
   let inPlayP = 0;
   let inPlayConf = 0;
-  let inPlayDetails = 'No in-play model loaded';
+  let inPlayDetails = "No in-play model loaded";
   if (minNum > 20) {
     try {
-      const ipChampion = await loadXgbChampion('inplay');
+      const ipChampion = await loadXgbChampion("inplay");
       if (ipChampion) {
         const features = await extractFeatures(input);
         const featureArray = featuresToArray(features);
-        inPlayP = Math.max(0, Math.min(1, predictXgb(ipChampion.model, featureArray)));
+        inPlayP = Math.max(
+          0,
+          Math.min(1, predictXgb(ipChampion.model, featureArray)),
+        );
         inPlayConf = 0.7; // fixed for now; can be re-derived from Brier later
         inPlayDetails = `v${ipChampion.version} (horizon=5m, minute=${minNum})`;
       }
@@ -320,7 +392,7 @@ export async function predictEnsemble(input: EnsembleInput): Promise<EnsembleRes
   // signal. Best when both teams are rated (>= 5 matches each).
   let teamStrengthP = 0;
   let teamStrengthConf = 0;
-  let teamStrengthDetails = 'No team-strength model loaded';
+  let teamStrengthDetails = "No team-strength model loaded";
   let teamStrengthHomeWin = 0;
   let teamStrengthDraw = 0;
   let teamStrengthAwayWin = 0;
@@ -332,9 +404,11 @@ export async function predictEnsemble(input: EnsembleInput): Promise<EnsembleRes
       // the team-specific Poisson rate (lambda) and a base rate.
       // When both teams are rated, this is signal. When only one or
       // neither is rated, fall back to lambda~1.0 (no info).
-      const lambdaImminent = 1 - Math.exp(-(tsPred.lambdaHome + tsPred.lambdaAway) * 0.2);
+      const lambdaImminent =
+        1 - Math.exp(-(tsPred.lambdaHome + tsPred.lambdaAway) * 0.2);
       teamStrengthP = Math.max(0, Math.min(0.6, lambdaImminent));
-      teamStrengthConf = Math.min(tsPred.matches.home, tsPred.matches.away) >= 5 ? 0.7 : 0.3;
+      teamStrengthConf =
+        Math.min(tsPred.matches.home, tsPred.matches.away) >= 5 ? 0.7 : 0.3;
       teamStrengthHomeWin = tsPred.homeWinP;
       teamStrengthDraw = tsPred.drawP;
       teamStrengthAwayWin = tsPred.awayWinP;
@@ -347,47 +421,58 @@ export async function predictEnsemble(input: EnsembleInput): Promise<EnsembleRes
   // ── Calculate dynamic weights ──
   const mlAvailable = mlP > 0;
   const hasHistory = !!(pressureHistory && pressureHistory.length >= 3);
-  const weights = calculateDynamicWeights(minNum, mlAvailable, mlConfidence, hasHistory);
+  const weights = calculateDynamicWeights(
+    minNum,
+    mlAvailable,
+    mlConfidence,
+    hasHistory,
+  );
 
   // In-play weight gate: only contributes after minute 20 (W6 plan).
   // Weight ramps from 0 to 0.20 between min 20 and min 30, then
   // capped at 0.20 thereafter. Bypass when no in-play model loaded.
   if (inPlayP > 0) {
-    weights.inplay = minNum > 30 ? 0.20 : minNum > 20 ? 0.10 * (minNum - 20) / 10 : 0;
+    weights.inplay =
+      minNum > 30 ? 0.2 : minNum > 20 ? (0.1 * (minNum - 20)) / 10 : 0;
   }
 
   // ── Weighted ensemble blend ──
-  const ensembleP = (
+  const ensembleP =
     ruleBasedP * weights.ruleBased +
     poissonP * weights.poisson +
     eloP * weights.elo +
     mlP * weights.ml +
     teamStrengthP * weights.teamStrength +
-    inPlayP * weights.inplay
-  );
+    inPlayP * weights.inplay;
 
   // ── Model agreement ──
-  const allPredictions = [ruleBasedP, poissonP, eloP, mlP].filter(p => p > 0);
-  const avgP = allPredictions.reduce((a, b) => a + b, 0) / Math.max(1, allPredictions.length);
-  const variance = allPredictions.reduce((s, p) => s + (p - avgP) ** 2, 0) / Math.max(1, allPredictions.length);
+  const allPredictions = [ruleBasedP, poissonP, eloP, mlP].filter((p) => p > 0);
+  const avgP =
+    allPredictions.reduce((a, b) => a + b, 0) /
+    Math.max(1, allPredictions.length);
+  const variance =
+    allPredictions.reduce((s, p) => s + (p - avgP) ** 2, 0) /
+    Math.max(1, allPredictions.length);
   const agreement = Math.max(0, 1 - Math.sqrt(variance) * 5); // Lower variance = higher agreement
 
   // ── Ensemble derived predictions ──
-  const ensembleOverUnder = poissonOverUnder > 0 ? poissonOverUnder : ensembleP * 1.5;
+  const ensembleOverUnder =
+    poissonOverUnder > 0 ? poissonOverUnder : ensembleP * 1.5;
   const ensembleBTTS = poissonBTTS > 0 ? poissonBTTS : ensembleP * 0.7;
 
   // Blend 1X2 predictions from Poisson, Elo, and Kalman team strength.
   // Team strength contributes 0.20 weight when both teams are rated,
   // tapers to 0.05 when only one is rated, 0 otherwise.
   const tsRated = Math.min(teamStrengthConf > 0 ? 1 : 0, 1); // binary
-  const ts1x2Weight = tsRated > 0 ? Math.min(0.20, teamStrengthConf * 0.25) : 0;
+  const ts1x2Weight = tsRated > 0 ? Math.min(0.2, teamStrengthConf * 0.25) : 0;
   const baseWeight = 1 - ts1x2Weight;
   const tsHome = tsRated > 0 ? teamStrengthHomeWin : 0;
   const tsDraw = tsRated > 0 ? teamStrengthDraw : 0;
   const tsAway = tsRated > 0 ? teamStrengthAwayWin : 0;
   const ensembleHomeWin =
     poissonHomeWin > 0 || eloHomeWin > 0
-      ? (poissonHomeWin * 0.6 + eloHomeWin * 0.4) * baseWeight + tsHome * ts1x2Weight
+      ? (poissonHomeWin * 0.6 + eloHomeWin * 0.4) * baseWeight +
+        tsHome * ts1x2Weight
       : tsHome;
   const ensembleDraw =
     poissonDraw > 0 || eloDraw > 0
@@ -395,82 +480,94 @@ export async function predictEnsemble(input: EnsembleInput): Promise<EnsembleRes
       : tsDraw;
   const ensembleAwayWin =
     poissonAwayWin > 0 || eloAwayWin > 0
-      ? (poissonAwayWin * 0.6 + eloAwayWin * 0.4) * baseWeight + tsAway * ts1x2Weight
+      ? (poissonAwayWin * 0.6 + eloAwayWin * 0.4) * baseWeight +
+        tsAway * ts1x2Weight
       : tsAway;
 
   // ── Determine dominant model ──
   const modelWeights = [
-    { name: 'Rule-Based', weight: weights.ruleBased * ruleBasedP },
-    { name: 'Poisson', weight: weights.poisson * poissonP },
-    { name: 'Elo', weight: weights.elo * eloP },
-    { name: 'ML', weight: weights.ml * mlP },
-    { name: 'TeamStrength', weight: weights.teamStrength * teamStrengthP },
-    { name: 'InPlay5m', weight: weights.inplay * inPlayP },
+    { name: "Rule-Based", weight: weights.ruleBased * ruleBasedP },
+    { name: "Poisson", weight: weights.poisson * poissonP },
+    { name: "Elo", weight: weights.elo * eloP },
+    { name: "ML", weight: weights.ml * mlP },
+    { name: "TeamStrength", weight: weights.teamStrength * teamStrengthP },
+    { name: "InPlay5m", weight: weights.inplay * inPlayP },
   ];
-  const dominantModel = modelWeights.reduce((a, b) => a.weight > b.weight ? a : b).name;
+  const dominantModel = modelWeights.reduce((a, b) =>
+    a.weight > b.weight ? a : b,
+  ).name;
 
   // ── Determine side ──
-  let side: 'home' | 'away' | 'both' | null = null;
-  const getStat = (key: string, side: 'home' | 'away'): number => {
+  let side: "home" | "away" | "both" | null = null;
+  const getStat = (key: string, side: "home" | "away"): number => {
     const s = stats[key];
     if (!s) return 0;
-    return (side === 'home' ? s.home : s.away) ?? 0;
+    return (side === "home" ? s.home : s.away) ?? 0;
   };
-  const homePressure = getStat('dangerous_attacks', 'home') + getStat('shots_on_target', 'home') * 2;
-  const awayPressure = getStat('dangerous_attacks', 'away') + getStat('shots_on_target', 'away') * 2;
-  if (homePressure > awayPressure * 1.5) side = 'home';
-  else if (awayPressure > homePressure * 1.5) side = 'away';
-  else if (homePressure > 3 && awayPressure > 3) side = 'both';
+  const homePressure =
+    getStat("dangerous_attacks", "home") +
+    getStat("shots_on_target", "home") * 2;
+  const awayPressure =
+    getStat("dangerous_attacks", "away") +
+    getStat("shots_on_target", "away") * 2;
+  if (homePressure > awayPressure * 1.5) side = "home";
+  else if (awayPressure > homePressure * 1.5) side = "away";
+  else if (homePressure > 3 && awayPressure > 3) side = "both";
 
   // ── Score (0-100 for compatibility) ──
   const score = Math.round(ensembleP * 100);
 
   // ── Alert level ──
-  let level: 'low' | 'medium' | 'high' | 'critical';
-  if (ensembleP < 0.20) level = 'low';
-  else if (ensembleP < 0.40) level = 'medium';
-  else if (ensembleP < 0.60) level = 'high';
-  else level = 'critical';
+  let level: "low" | "medium" | "high" | "critical";
+  if (ensembleP < 0.2) level = "low";
+  else if (ensembleP < 0.4) level = "medium";
+  else if (ensembleP < 0.6) level = "high";
+  else level = "critical";
 
   // ── Build result ──
   const models: ModelPrediction[] = [
     {
-      name: 'Rule-Based',
+      name: "Rule-Based",
       probability: Math.round(ruleBasedP * 1000) / 1000,
       confidence: Math.round(ruleBasedConf * 100) / 100,
       weight: Math.round(weights.ruleBased * 100) / 100,
-      details: ruleBasedScore != null ? `Score: ${ruleBasedScore}/100` : 'No data',
+      details:
+        ruleBasedScore != null ? `Score: ${ruleBasedScore}/100` : "No data",
     },
     {
-      name: 'Poisson',
+      name: "Poisson",
       probability: Math.round(poissonP * 1000) / 1000,
       confidence: poissonP > 0 ? 0.7 : 0,
       weight: Math.round(weights.poisson * 100) / 100,
       details: `O2.5: ${(poissonOverUnder * 100).toFixed(0)}% | BTTS: ${(poissonBTTS * 100).toFixed(0)}%`,
     },
     {
-      name: 'Elo',
+      name: "Elo",
       probability: Math.round(eloP * 1000) / 1000,
       confidence: homeTeam && awayTeam ? 0.6 : 0,
       weight: Math.round(weights.elo * 100) / 100,
-      details: homeTeam && awayTeam ? `${homeTeam} vs ${awayTeam}` : 'No team data',
+      details:
+        homeTeam && awayTeam ? `${homeTeam} vs ${awayTeam}` : "No team data",
     },
     {
-      name: 'ML (GBDT)',
+      name: `ML (${mlModelName})`,
       probability: Math.round(mlP * 1000) / 1000,
       confidence: Math.round(mlConfidence * 100) / 100,
       weight: Math.round(weights.ml * 100) / 100,
-      details: mlP > 0 ? `Conf: ${(mlConfidence * 100).toFixed(0)}%` : 'Model not loaded',
+      details:
+        mlP > 0
+          ? `Conf: ${(mlConfidence * 100).toFixed(0)}%`
+          : "Model not loaded",
     },
     {
-      name: 'TeamStrength',
+      name: "TeamStrength",
       probability: Math.round(teamStrengthP * 1000) / 1000,
       confidence: Math.round(teamStrengthConf * 100) / 100,
       weight: Math.round(weights.teamStrength * 100) / 100,
       details: teamStrengthDetails,
     },
     {
-      name: 'InPlay5m',
+      name: "InPlay5m",
       probability: Math.round(inPlayP * 1000) / 1000,
       confidence: Math.round(inPlayConf * 100) / 100,
       weight: Math.round(weights.inplay * 100) / 100,

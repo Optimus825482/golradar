@@ -105,8 +105,12 @@ async function getChampionPath(name: ModelName): Promise<{
  * falling back to the legacy `goalPredictor.ts` GBDT.
  */
 export async function loadXgbChampion(
-  name: 'xgb' | 'inplay',
-): Promise<{ model: XgbModel; version: string; metrics: Record<string, number> } | null> {
+  name: "xgb" | "inplay" | "gbdt",
+): Promise<{
+  model: XgbModel;
+  version: string;
+  metrics: Record<string, number>;
+} | null> {
   const meta = await getChampionPath(name);
   if (!meta) return null;
   const model = await getXgbModelCached(meta.path);

@@ -335,7 +335,7 @@ export async function GET(request: Request) {
               },
             })
             .catch(() => {});
-        };)();
+        })();
       }
     }
     matches.push({ ...parsed, goalRadar });

@@ -81,19 +81,36 @@ export interface XgbModel {
 }
 
 // ── Parsing helpers ────────────────────────────────────────────────
-function parseBracketIntArray(s: string): number[] {
-  // XGBoost serializes compactly: "[1,2,-1]" or "[]" or "1,2,-1"
-  const trimmed = s.trim();
-  if (trimmed === '' || trimmed === '[]') return [];
-  const inner = trimmed.replace(/^\[|]$/g, '');
-  return inner.split(',').map((x) => parseInt(x.trim(), 10));
+
+/**
+ * Parse an XGBoost node array field. Handles both formats:
+ * 1. String:  "[1, 2, -1]"  (older xgboost)
+ * 2. Array:   [1, 2, -1]    (newer xgboost writes real JSON arrays)
+ */
+function parseBracketIntArray(v: unknown): number[] {
+  if (v == null) return [];
+  if (typeof v === "string") {
+    const trimmed = v.trim();
+    if (trimmed === "" || trimmed === "[]") return [];
+    const inner = trimmed.replace(/^\[|]$/g, "");
+    return inner.split(",").map((x) => parseInt(x.trim(), 10));
+  }
+  if (Array.isArray(v))
+    return v.map((x) => (typeof x === "number" ? x : parseInt(String(x), 10)));
+  return [];
 }
 
-function parseBracketFloatArray(s: string): number[] {
-  const trimmed = s.trim();
-  if (trimmed === '' || trimmed === '[]') return [];
-  const inner = trimmed.replace(/^\[|]$/g, '');
-  return inner.split(',').map((x) => parseFloat(x.trim()));
+function parseBracketFloatArray(v: unknown): number[] {
+  if (v == null) return [];
+  if (typeof v === "string") {
+    const trimmed = v.trim();
+    if (trimmed === "" || trimmed === "[]") return [];
+    const inner = trimmed.replace(/^\[|]$/g, "");
+    return inner.split(",").map((x) => parseFloat(x.trim()));
+  }
+  if (Array.isArray(v))
+    return v.map((x) => (typeof x === "number" ? x : parseFloat(String(x))));
+  return [];
 }
 
 /**

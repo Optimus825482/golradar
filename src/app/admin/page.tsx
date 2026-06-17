@@ -407,6 +407,7 @@ function MLModelsTab({ token }: { token: string }) {
   const [backtestDays, setBacktestDays] = useState(14);
   const [backtestResult, setBacktestResult] = useState<any>(null);
   const [backtestLoading, setBacktestLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState<string>('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -498,13 +499,33 @@ function MLModelsTab({ token }: { token: string }) {
                     <td className="py-1.5 pr-3 font-mono text-gray-600">{a.metrics?.brier?.toFixed(4) ?? '-'}</td>
                     <td className="py-1.5 pr-3 font-mono text-gray-600">{a.metrics?.accuracy != null ? `${(a.metrics.accuracy * 100).toFixed(1)}%` : '-'}</td>
                     <td className="py-1.5 pr-3">{a.isChampion ? <StatusBadge ok={true} label="Champion" /> : <span className="text-gray-300">-</span>}</td>
-                    <td className="py-1.5">
+                    <td className="py-1.5 flex gap-1">
                       <button onClick={() => runBacktest(a.name, a.version)}
                         disabled={backtestLoading || !a.fileExists}
                         className="text-[10px] font-medium rounded px-2 py-0.5 transition-colors disabled:opacity-50"
                         style={{ background: a.fileExists ? '#edf2fb' : '#f0f0f0', color: a.fileExists ? G.blue : '#bbb' }}>
                         {backtestLoading ? <Spinner /> : (a.fileExists ? 'Backtest' : 'Dosya Yok')}
                       </button>
+                      {!a.isChampion && (
+                        <button onClick={async () => {
+                          if (!confirm(`${a.name}@${a.version} silinsin mi?`)) return;
+                          setDeleteLoading(`${a.name}-${a.version}`);
+                          try {
+                            const res = await authFetch('/api/admin/ml/artifact', {
+                              method: 'DELETE',
+                              body: JSON.stringify({ name: a.name, version: a.version }),
+                            });
+                            const data = await res.json();
+                            if (data.ok) load();
+                            else alert('Hata: ' + (data.error || ''));
+                          } catch (e: any) { alert('Hata: ' + e.message); }
+                          setDeleteLoading('');
+                        }} disabled={deleteLoading === `${a.name}-${a.version}`}
+                          className="text-[10px] font-medium rounded px-2 py-0.5 transition-colors"
+                          style={{ background: '#fee2e2', color: '#dc2626' }}>
+                          {deleteLoading === `${a.name}-${a.version}` ? <Spinner /> : 'Sil'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

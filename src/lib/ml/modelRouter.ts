@@ -11,7 +11,11 @@
 
 import { db } from '../db';
 import { join } from 'path';
-import { getXgbModelCached, type XgbModel } from './xgbLoader';
+import {
+  getXgbModelCached,
+  invalidateXgbModelCache,
+  type XgbModel,
+} from "./xgbLoader";
 import { loadTeamStrength, type TeamStrengthModel } from './teamStrengthKalman';
 import { loadXtGrid, type XtGrid } from './xtGrid';
 
@@ -264,8 +268,50 @@ export function invalidateModelRouterCache(name?: ModelName): void {
   }
 }
 
+/**
+ * Delete an artifact from DB and optionally from disk.
+ * Returns { deleted: true } on success.
+ * Throws if the artifact is the current champion (promote first).
+ */
+export async function deleteArtifact(
+  name: ModelName,
+  version: string,
+  deleteFile = true,
+): Promise<{ deleted: boolean }> {
+  const artifact = await db.modelArtifact.findUnique({
+    where: { name_version: { name, version } },
+  });
+  if (!artifact) throw new Error(`Artifact ${name}@${version} bulunamadi`);
+  if (artifact.isChampion) {
+    throw new Error(
+      `${name}@${version} champion olarak isaretli. Once baska bir modeli champion yap, sonra sil.`,
+    );
+  }
+
+  // Delete file from disk
+  if (deleteFile) {
+    try {
+      const { unlink } = await import('fs/promises');
+      await unlink(artifact.artifactPath).catch(() => {});
+    } catch {
+      // ignore if file doesn't exist
+    }
+  }
+
+  await db.modelArtifact.delete({
+    where: { name_version: { name, version } },
+  });
+
+  // Invalidate cache
+  modelCache.delete(name);
+  invalidateXgbModelCache(artifact.artifactPath);
+
+  return { deleted: true };
+}
+
 // Re-export for convenience
 export type { XgbModel } from './xgbLoader';
+export { invalidateXgbModelCache } from "./xgbLoader";
 export type { TeamStrengthModel } from './teamStrengthKalman';
 export type { XtGrid } from './xtGrid';
 

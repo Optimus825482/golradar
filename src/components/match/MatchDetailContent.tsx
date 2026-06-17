@@ -1,6 +1,5 @@
 'use client'
 
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { GoalProbability } from '@/lib/nesine'
 import type { FotMobMatchDetails } from '@/lib/fotmob'
 import type { MomentumBarDataPoint, xGFlowPoint, ThreatIndex } from '@/lib/advancedAnalytics'
@@ -309,21 +308,8 @@ export function MatchDetailContent({
               goalEvents={fotmobData?.events?.filter(e => e.type === 'Goal')}
               isFotmobLoading={fotmobLoading}
             />
-            <Tabs defaultValue="pressure" className="w-full" onValueChange={setActiveChartTab}>
-              <TabsList className="bg-gray-100 border-0 mb-3 h-8">
-                <TabsTrigger value="pressure" className="text-xs data-[state=active]:bg-orange-500 data-[state=active]:text-white h-7">Baskı</TabsTrigger>
-                <TabsTrigger value="attacks" className="text-xs data-[state=active]:bg-orange-500 data-[state=active]:text-white h-7">Hücum</TabsTrigger>
-                <TabsTrigger value="shots" className="text-xs data-[state=active]:bg-orange-500 data-[state=active]:text-white h-7">Şut</TabsTrigger>
-                <TabsTrigger value="corners" className="text-xs data-[state=active]:bg-orange-500 data-[state=active]:text-white h-7">Korner</TabsTrigger>
-                <TabsTrigger value="possession" className="text-xs data-[state=active]:bg-orange-500 data-[state=active]:text-white h-7">Top</TabsTrigger>
-              </TabsList>
-
-              {activeChartTab === 'pressure' && <MomentumChart data={pressureChartData} homeTeam={match.home} awayTeam={match.away} />}
-              {activeChartTab === 'attacks' && <StatsLineChart data={statsChartData} homeKey="homeDangerousAttacks" awayKey="awayDangerousAttacks" homeName={`${match.home} Tehl. Hücum`} awayName={`${match.away} Tehl. Hücum`} homeTeam={match.home} awayTeam={match.away} title="Tehlikeli Hücum" />}
-              {activeChartTab === 'shots' && <StatsLineChart data={statsChartData} homeKey="homeShotsTotal" awayKey="awayShotsTotal" homeName={`${match.home} Şut`} awayName={`${match.away} Şut`} homeTeam={match.home} awayTeam={match.away} title="Toplam Şut" />}
-              {activeChartTab === 'corners' && <StatsLineChart data={statsChartData} homeKey="homeCorners" awayKey="awayCorners" homeName={`${match.home} Korner`} awayName={`${match.away} Korner`} homeTeam={match.home} awayTeam={match.away} title="Korner" />}
-              {activeChartTab === 'possession' && <StatsLineChart data={statsChartData} homeKey="homePossession" awayKey="awayPossession" homeName={`${match.home} Top %`} awayName={`${match.away} Top %`} yDomain={[0,100]} yFormatter={(v)=>`${v}%`} homeTeam={match.home} awayTeam={match.away} title="Topa Sahip Olma" />}
-            </Tabs>
+            <MomentumChart data={pressureChartData} homeTeam={match.home} awayTeam={match.away} />
+            <StatsLineChart data={statsChartData} homeKey="homeDangerousAttacks" awayKey="awayDangerousAttacks" homeName={`${match.home} Tehl. Hücum`} awayName={`${match.away} Tehl. Hücum`} homeTeam={match.home} awayTeam={match.away} title="Tehlikeli Hücum" />
           </>
         ) : (
           <div className="h-[200px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">

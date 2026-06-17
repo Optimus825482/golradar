@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useCallback, useRef, useMemo, useId } from 'react'
+import { useState, useCallback, useRef, useMemo, memo } from 'react'
 import type { FotMobEvent, FotMobShot, FotMobMomentum } from '@/lib/fotmob'
 import type { MomentumBarDataPoint, xGFlowPoint, ThreatIndex } from '@/lib/advancedAnalytics'
-import { ensureVisible, catmullRomPath } from '@/components/match/utils'
+import { ensureVisible, differentiateColors, catmullRomPath } from '@/components/match/utils'
 
 interface UnifiedMatchMomentumChartProps {
   momentumBars: MomentumBarDataPoint[]
@@ -23,7 +23,7 @@ interface UnifiedMatchMomentumChartProps {
   isFotmobLoading?: boolean
 }
 
-export function UnifiedMatchMomentumChart({
+export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart({
   momentumBars,
   xgFlowData,
   homeTeam,
@@ -40,8 +40,7 @@ export function UnifiedMatchMomentumChart({
   goalEvents: matchGoalEvents,
   isFotmobLoading,
 }: UnifiedMatchMomentumChartProps) {
-  const vHome = ensureVisible(homeColor)
-  const vAway = ensureVisible(awayColor)
+  const [vHome, vAway] = useMemo(() => differentiateColors(homeColor, awayColor), [homeColor, awayColor])
 
   const barData = useMemo(() => {
     const xtHomeBias = threatIndex ? (threatIndex.home / 100) * 25 : 0
@@ -231,8 +230,8 @@ export function UnifiedMatchMomentumChart({
   const finalAwayXg = hasFotmobXg ? fotmobAwayXg : (xgFlowData.length > 0 ? xgFlowData[xgFlowData.length - 1].awayXg : 0)
   const isEstimated = !hasFotmobXg && (xgFlowData.length > 0 ? xgFlowData[xgFlowData.length - 1].isEstimated : false)
 
-  const reactId = useId()
-  const uid = reactId.replace(/:/g, '')
+  const uidRef = useRef(`uid_${Math.random().toString(36).slice(2, 9)}`)
+  const uid = uidRef.current
 
   const [hoverInfo, setHoverInfo] = useState<{
     minuteNum: number; momentum: number; x: number; y: number;
@@ -344,8 +343,8 @@ export function UnifiedMatchMomentumChart({
 
       <div className="flex items-center justify-between px-4 pt-3 pb-2">
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: vHome }} />
-          <span className="text-gray-900 text-[12px] font-bold truncate max-w-[90px]">{homeTeam}</span>
+          <div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: vHome }} />
+          <span className="text-gray-900 text-xs font-bold truncate max-w-22.5">{homeTeam}</span>
           <span className="text-gray-900 text-lg font-black mx-0.5">{homeScore}</span>
           <span
             className="text-[10px] font-bold px-1.5 py-0.5 rounded font-mono whitespace-nowrap"
@@ -362,8 +361,8 @@ export function UnifiedMatchMomentumChart({
             {(finalAwayXg ?? 0).toFixed(2)} xG
           </span>
           <span className="text-gray-900 text-lg font-black mx-0.5">{awayScore}</span>
-          <span className="text-gray-900 text-[12px] font-bold truncate max-w-[90px]">{awayTeam}</span>
-          <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: vAway }} />
+          <span className="text-gray-900 text-xs font-bold truncate max-w-22.5">{awayTeam}</span>
+          <div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: vAway }} />
         </div>
       </div>
 
@@ -377,7 +376,7 @@ export function UnifiedMatchMomentumChart({
       <div className="px-2">
         <div
           ref={chartRef}
-          style={{ position: 'relative', width: '100%', aspectRatio: '16 / 7', cursor: 'crosshair' }}
+          style={{ position: 'relative', width: '100%', aspectRatio: '16 / 7', cursor: 'crosshair', willChange: 'transform' }}
           onMouseMove={handleChartMouseMove}
           onMouseLeave={handleChartMouseLeave}
         >
@@ -412,10 +411,10 @@ export function UnifiedMatchMomentumChart({
                 </feMerge>
               </filter>
               <clipPath id={`clipTop_${uid}`}>
-                <rect x={PAD.l} y={PAD.t} width={innerW} height={zeroY - PAD.t} />
+                <rect x={PAD.l} y={PAD.t} width={innerW} height={Math.max(0, zeroY - PAD.t)} />
               </clipPath>
               <clipPath id={`clipBot_${uid}`}>
-                <rect x={PAD.l} y={zeroY} width={innerW} height={CHART_H - PAD.b - zeroY} />
+                <rect x={PAD.l} y={Math.max(PAD.t, zeroY)} width={innerW} height={Math.max(0, CHART_H - PAD.b - Math.max(PAD.t, zeroY))} />
               </clipPath>
             </defs>
 

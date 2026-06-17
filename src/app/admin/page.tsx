@@ -499,10 +499,11 @@ function MLModelsTab({ token }: { token: string }) {
                     <td className="py-1.5 pr-3 font-mono text-gray-600">{a.metrics?.accuracy != null ? `${(a.metrics.accuracy * 100).toFixed(1)}%` : '-'}</td>
                     <td className="py-1.5 pr-3">{a.isChampion ? <StatusBadge ok={true} label="Champion" /> : <span className="text-gray-300">-</span>}</td>
                     <td className="py-1.5">
-                      <button onClick={() => runBacktest(a.name, a.version)} disabled={backtestLoading}
+                      <button onClick={() => runBacktest(a.name, a.version)}
+                        disabled={backtestLoading || !a.fileExists}
                         className="text-[10px] font-medium rounded px-2 py-0.5 transition-colors disabled:opacity-50"
-                        style={{ background: '#edf2fb', color: G.blue }}>
-                        {backtestLoading ? <Spinner /> : 'Backtest'}
+                        style={{ background: a.fileExists ? '#edf2fb' : '#f0f0f0', color: a.fileExists ? G.blue : '#bbb' }}>
+                        {backtestLoading ? <Spinner /> : (a.fileExists ? 'Backtest' : 'Dosya Yok')}
                       </button>
                     </td>
                   </tr>

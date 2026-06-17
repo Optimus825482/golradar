@@ -4,13 +4,14 @@
 // see "what's deployed" without crawling multiple endpoints.
 
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { ML_TRAINER_ENABLED, checkTrainerHealth } from '@/lib/ml/mlClient';
-import { getTrainingSchedulerStatus } from '@/lib/ml/trainingScheduler';
-import { listArtifacts, type ModelName } from '@/lib/ml/modelRouter';
-import { adminRoute } from '@/lib/adminRoute';
+import { existsSync } from "fs";
+import { db } from "@/lib/db";
+import { ML_TRAINER_ENABLED, checkTrainerHealth } from "@/lib/ml/mlClient";
+import { getTrainingSchedulerStatus } from "@/lib/ml/trainingScheduler";
+import { listArtifacts, type ModelName } from "@/lib/ml/modelRouter";
+import { adminRoute } from "@/lib/adminRoute";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export const GET = adminRoute(async () => {
   if (typeof window !== "undefined") {
@@ -38,6 +39,7 @@ export const GET = adminRoute(async () => {
     isChampion: a.isChampion,
     metrics: a.metrics,
     createdAt: a.createdAt,
+    fileExists: existsSync(a.artifactPath),
   }));
 
   // Latest TrainingDataset rows (last 5)

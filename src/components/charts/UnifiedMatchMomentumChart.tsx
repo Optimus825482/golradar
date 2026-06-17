@@ -5,6 +5,27 @@ import type { FotMobEvent, FotMobShot, FotMobMomentum } from '@/lib/fotmob'
 import type { MomentumBarDataPoint, xGFlowPoint, ThreatIndex } from '@/lib/advancedAnalytics'
 import { ensureVisible, differentiateColors, catmullRomPath } from '@/components/match/utils'
 
+function chartDataEqual(a: any[], b: any[]) {
+  if (a === b) return true
+  if (!a || !b || a.length !== b.length) return false
+  if (a.length === 0) return true
+  try { return JSON.stringify(a[a.length - 1]) === JSON.stringify(b[b.length - 1]) } catch { return false }
+}
+
+function propsEqual(a: UnifiedMatchMomentumChartProps, b: UnifiedMatchMomentumChartProps) {
+  if (a.homeTeam !== b.homeTeam || a.awayTeam !== b.awayTeam) return false
+  if (a.homeScore !== b.homeScore || a.awayScore !== b.awayScore) return false
+  if (a.homeColor !== b.homeColor || a.awayColor !== b.awayColor) return false
+  if (a.isFotmobLoading !== b.isFotmobLoading) return false
+  if (a.fotmobHomeTeamId !== b.fotmobHomeTeamId || a.fotmobAwayTeamId !== b.fotmobAwayTeamId) return false
+  if (!chartDataEqual(a.momentumBars, b.momentumBars)) return false
+  if (!chartDataEqual(a.xgFlowData, b.xgFlowData)) return false
+  if (a.fotmobShots?.length !== b.fotmobShots?.length) return false
+  if (a.goalEvents?.length !== b.goalEvents?.length) return false
+  if (a.threatIndex?.home !== b.threatIndex?.home || a.threatIndex?.away !== b.threatIndex?.away) return false
+  return a.fotmobMomentum?.main?.data?.length === b.fotmobMomentum?.main?.data?.length
+}
+
 interface UnifiedMatchMomentumChartProps {
   momentumBars: MomentumBarDataPoint[]
   xgFlowData: xGFlowPoint[]
@@ -299,7 +320,7 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
   if (barData.length < 2) {
     if (isFotmobLoading) {
       return (
-        <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm p-6">
+        <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm p-6" style={{ contain: 'paint layout style' }}>
           <div className="flex items-center justify-center gap-2 text-gray-400">
             <div className="w-4 h-4 border-2 border-gray-300 border-t-orange-500 rounded-full animate-spin" />
             <span className="text-sm">Veri yükleniyor...</span>
@@ -309,7 +330,7 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
     }
     if (momentumBars.length < 2 && !fotmobMomentum?.main?.data?.length) {
       return (
-        <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm p-6">
+        <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm p-6" style={{ contain: 'paint layout style' }}>
           <div className="flex items-center justify-center gap-2 text-gray-400">
             <span className="text-sm">Momentum verisi toplanıyor...</span>
           </div>
@@ -320,7 +341,7 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
   }
 
   return (
-    <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm">
+    <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm" style={{ contain: 'paint layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 420px' }}>
       {threatIndex && (() => {
         const gap = threatIndex.home - threatIndex.away
         if (Math.abs(gap) < 5) return null
@@ -618,4 +639,4 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
       })()}
     </div>
   )
-}
+}, propsEqual)

@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import type { GoalProbability } from '@/lib/nesine'
 import type { FotMobMatchDetails } from '@/lib/fotmob'
 import type { MomentumBarDataPoint, xGFlowPoint, ThreatIndex } from '@/lib/advancedAnalytics'
@@ -37,7 +38,7 @@ interface MatchDetailContentProps {
   setActiveChartTab: (tab: string) => void
 }
 
-export function MatchDetailContent({
+export const MatchDetailContent = memo(function MatchDetailContent({
   match,
   currentPressure,
   selectedGoalProb,

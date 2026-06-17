@@ -716,14 +716,21 @@ export default function OptimusGolRadariPage() {
   }, [selectedMatch, pressureSnapshots, goalooOddsMovement])
 
   // Detail content props shared between desktop and mobile
-  const detailProps = selectedMatch ? {
+  const detailProps = useMemo(() => selectedMatch ? {
     match: selectedMatch, currentPressure, selectedGoalProb,
     pressureChartData, statsChartData, momentumBars, xgFlowData, threatIndex,
     filteredStats, statsHalf, setStatsHalf, fotmobData, fotmobLoading,
     fotmobTab, setFotmobTab, scoremerStats, scoremerHtStats, scoremerLoading,
     goalooMatchId: goalooMatchIdMap[selectedMatch.code] || 0,
     activeChartTab, setActiveChartTab,
-  } : null
+  } : null, [
+    selectedMatch, currentPressure, selectedGoalProb,
+    pressureChartData, statsChartData, momentumBars, xgFlowData, threatIndex,
+    filteredStats, statsHalf, fotmobData, fotmobLoading,
+    fotmobTab, scoremerStats, scoremerHtStats, scoremerLoading,
+    goalooMatchIdMap, selectedMatch?.code ?? 0,
+    activeChartTab, setStatsHalf, setFotmobTab, setActiveChartTab,
+  ])
 
   // Render match list based on sort mode
   const renderMatchList = () => {

@@ -106,6 +106,19 @@ function updatePressureHistory(match: ParsedMatch) {
     homeGoals: match.homeGoals, awayGoals: match.awayGoals,
   });
 
+  // Persist to DB so chart shows full history when page is opened mid-match
+  void db.matchSnapshot.create({
+    data: {
+      matchCode: match.code,
+      minute: parseInt(match.minute.replace(/[^0-9]/g, ''), 10) || 0,
+      homePressure: pressure.home,
+      awayPressure: pressure.away,
+      homeGoals: match.homeGoals,
+      awayGoals: match.awayGoals,
+      statsJson: JSON.stringify(match.stats),
+    },
+  }).catch(() => {});
+
   if (history.snapshots.length > 540) {
     history.snapshots = history.snapshots.slice(-540);
   }

@@ -341,7 +341,7 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
   }
 
   return (
-    <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm" style={{ contain: 'paint layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 420px' }}>
+    <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm" style={{ contain: 'paint layout style', transform: 'translateZ(0)' }}>
       {threatIndex && (() => {
         const gap = threatIndex.home - threatIndex.away
         if (Math.abs(gap) < 5) return null

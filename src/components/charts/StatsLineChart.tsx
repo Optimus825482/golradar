@@ -102,7 +102,7 @@ export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, away
 
   return (
     <CleanChartCard title={title} homeTeam={homeTeam} awayTeam={awayTeam}>
-      <div ref={chartRef} className="h-70 w-full" style={{ contain: 'layout paint style', willChange: 'transform' }} />
+      <div ref={chartRef} className="h-70 w-full" style={{ contain: 'layout paint style', willChange: 'transform', transform: 'translateZ(0)' }} />
     </CleanChartCard>
   )
 })

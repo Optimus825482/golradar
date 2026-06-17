@@ -25,7 +25,11 @@ import {
   markArtifactReady,
   ML_TRAINER_ENABLED,
 } from "@/lib/ml/mlClient";
-import { registerArtifact } from "@/lib/ml/modelRouter";
+import {
+  registerArtifact,
+  defaultArtifactPath,
+  type ModelName,
+} from "@/lib/ml/modelRouter";
 import { triggerExportNow } from "@/lib/ml/trainingScheduler";
 import { adminRoute } from "@/lib/adminRoute";
 
@@ -197,13 +201,17 @@ export const POST = adminRoute(async (request: Request) => {
   }
 
   // Register the artifact (champion=false; admin promotes separately)
+  // Use defaultArtifactPath for DB — the trainer's internal path
+  // (/data/ml-models/...) doesn't match the app container mount
+  // (/app/web/data/ml-models/...). Same volume, different mount points.
   let registered = false;
+  const localArtifactPath = defaultArtifactPath(name as ModelName, version);
   if (completed.artifactPath) {
     try {
       await registerArtifact({
         name: name as "gbdt" | "xgb" | "inplay",
         version,
-        artifactPath: completed.artifactPath,
+        artifactPath: localArtifactPath,
         metrics: completed.metrics,
         sha256: String(completed.metrics.sha256 ?? ""),
         bytes: completed.metrics.artifactBytes ?? null,
@@ -229,7 +237,7 @@ export const POST = adminRoute(async (request: Request) => {
         ok: true,
         jobId: job.jobId,
         status: "success",
-        artifactPath: completed.artifactPath,
+        artifactPath: localArtifactPath,
         metrics: completed.metrics,
         registered: false,
         registrationError: err instanceof Error ? err.message : String(err),
@@ -241,7 +249,7 @@ export const POST = adminRoute(async (request: Request) => {
     ok: true,
     jobId: job.jobId,
     status: "success",
-    artifactPath: completed.artifactPath,
+    artifactPath: localArtifactPath,
     metrics: completed.metrics,
     registered,
   });

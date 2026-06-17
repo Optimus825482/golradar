@@ -506,6 +506,26 @@ function MLModelsTab({ token }: { token: string }) {
                         style={{ background: a.fileExists ? '#edf2fb' : '#f0f0f0', color: a.fileExists ? G.blue : '#bbb' }}>
                         {backtestLoading ? <Spinner /> : (a.fileExists ? 'Backtest' : 'Dosya Yok')}
                       </button>
+                      {!a.isChampion && a.fileExists && (
+                        <button onClick={async () => {
+                          if (!confirm(`${a.name}@${a.version} champion yapilsin mi?`)) return;
+                          setActionLoading(`promote-${a.name}-${a.version}`);
+                          try {
+                            const res = await authFetch('/api/admin/ml/promote', {
+                              method: 'POST',
+                              body: JSON.stringify({ name: a.name, version: a.version, confirm: true }),
+                            });
+                            const data = await res.json();
+                            setActionResult(`Promote: ${data.ok ? 'Basarili' : 'Hata'} — ${JSON.stringify(data).slice(0, 200)}`);
+                            if (data.ok) load();
+                          } catch (e: any) { setActionResult(`Promote: Hata — ${e.message}`); }
+                          setActionLoading('');
+                        }} disabled={!!actionLoading}
+                          className="text-[10px] font-medium rounded px-2 py-0.5 transition-colors"
+                          style={{ background: '#d1fae5', color: '#059669' }}>
+                          {actionLoading === `promote-${a.name}-${a.version}` ? <Spinner /> : 'Champion Yap'}
+                        </button>
+                      )}
                       {!a.isChampion && (
                         <button onClick={async () => {
                           if (!confirm(`${a.name}@${a.version} silinsin mi?`)) return;

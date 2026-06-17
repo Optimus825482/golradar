@@ -17,6 +17,7 @@ import { getCachedMatchDetails } from "@/lib/fotmob";
 import { autoFetchMissingRatings, getRating } from "@/lib/eloRating";
 import { db } from "@/lib/db";
 import { checkForGoals } from "@/lib/goalSignalTracker";
+import { extractFeatures, featuresToArray } from "@/lib/featureEngineering";
 
 export const dynamic = "force-dynamic";
 
@@ -265,27 +266,54 @@ export async function GET(request: Request) {
       if (goalRadar && parsed.isLive && goalRadar.score >= 40) {
         const homeElo = getRating(parsed.home)?.rating ?? null;
         const awayElo = getRating(parsed.away)?.rating ?? null;
-        void db.predictionLog
-          .create({
-            data: {
-              matchCode: parsed.code,
-              minute: parseInt(parsed.minute) || 0,
-              rawScore: goalRadar.score,
-              homeScore: goalRadar.homeScore,
-              awayScore: goalRadar.awayScore,
-              calibratedP: goalRadar.calibratedP,
-              side: goalRadar.side ?? "none",
-              level: goalRadar.level,
-              factorsJson: JSON.stringify(goalRadar.factors),
+        const matchMinute = parseInt(parsed.minute) || 0;
+        void (async () => {
+          let featuresJson: string | null = null;
+          try {
+            const features = await extractFeatures({
+              stats: parsed.stats,
+              minute: parsed.minute,
+              isLive: true,
+              homeGoals: parsed.homeGoals,
+              awayGoals: parsed.awayGoals,
               homeTeam: parsed.home,
               awayTeam: parsed.away,
-              league: parsed.league,
-              homeElo: homeElo ? Math.round(homeElo) : null,
-              awayElo: awayElo ? Math.round(awayElo) : null,
-              modelVariant: "champion",
-            },
-          })
-          .catch(() => {});
+              pressureHistory: hist?.snapshots?.map((s) => ({
+                homePressure: s.homePressure,
+                awayPressure: s.awayPressure,
+                stats: s.stats,
+                homeGoals: s.homeGoals,
+                awayGoals: s.awayGoals,
+              })),
+              skipXtGrid: true,
+            });
+            featuresJson = JSON.stringify(featuresToArray(features));
+          } catch {
+            // features not available — log without them
+          }
+          await db.predictionLog
+            .create({
+              data: {
+                matchCode: parsed.code,
+                minute: matchMinute,
+                rawScore: goalRadar.score,
+                homeScore: goalRadar.homeScore,
+                awayScore: goalRadar.awayScore,
+                calibratedP: goalRadar.calibratedP,
+                side: goalRadar.side ?? "none",
+                level: goalRadar.level,
+                factorsJson: JSON.stringify(goalRadar.factors),
+                featuresJson,
+                homeTeam: parsed.home,
+                awayTeam: parsed.away,
+                league: parsed.league,
+                homeElo: homeElo ? Math.round(homeElo) : null,
+                awayElo: awayElo ? Math.round(awayElo) : null,
+                modelVariant: "champion",
+              },
+            })
+            .catch(() => {});
+        })();
       }
     }
     matches.push({ ...parsed, goalRadar });

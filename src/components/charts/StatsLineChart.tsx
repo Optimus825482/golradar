@@ -17,7 +17,7 @@ export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, away
   title: string
 }) {
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstance = useRef<google.visualization.LineChart | null>(null)
+  const chartInstance = useRef<any>(null)
   const lastDataKey = useRef('')
   const { loaded } = useGoogleCharts(['corechart'])
 
@@ -55,7 +55,7 @@ export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, away
         baselineColor: '#e5e7eb',
       }
 
-    const options: google.visualization.LineChartOptions = {
+    const options: Record<string, unknown> = {
       title,
       titleTextStyle: { fontSize: 13, bold: true, color: '#1e293b', fontName: 'Inter' },
       legend: {

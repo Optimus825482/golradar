@@ -452,4 +452,4 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       />
     </>
   )
-}
+})

@@ -64,7 +64,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
   const POLL_INTERVAL = 15000
 
   return (
-    <>
+    <div style={{ contain: 'paint layout style' }}>
       {/* Match Header */}
       <div className="bg-gradient-to-r from-orange-50 via-white to-blue-50 p-4 sm:p-6 border-b border-gray-100">
         <div className="flex items-center justify-between mb-3">
@@ -289,7 +289,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       </div>
 
       {/* Charts Section */}
-      <div className="p-4 sm:p-5 border-b border-gray-100 space-y-4">
+      <div className="p-4 sm:p-5 border-b border-gray-100 space-y-4" style={{ contain: 'paint layout style' }}>
         {(pressureChartData.length > 2 || fotmobData?.momentum?.main?.data?.length || momentumBars.length >= 2 || xgFlowData.length >= 1 || match?.hasStats || fotmobLoading) ? (
           <>
             <UnifiedMatchMomentumChart
@@ -450,6 +450,6 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         homeTeam={match.home}
         awayTeam={match.away}
       />
-    </>
+    </div>
   )
 })

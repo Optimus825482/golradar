@@ -5,7 +5,7 @@ export function CleanChartCard({ title, homeTeam, awayTeam, children }: {
   children: React.ReactNode
 }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden" style={{ contain: 'paint layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 320px' }}>
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden" style={{ contain: 'paint layout style' }}>
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
         <h3 className="text-sm font-bold text-gray-800">{title}</h3>
         <div className="flex items-center gap-4">

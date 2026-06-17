@@ -313,4 +313,4 @@ export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayT
       </div>
     </CleanChartCard>
   )
-}
+})

@@ -66,7 +66,7 @@ export async function autoCalibrateFromDB(): Promise<{
 } | null> {
   // Load resolved predictions (goalScored not null) from last 90 days
   const logs = await db.predictionLog.findMany({
-    where: { goalScored: { not: null }, modelVariant: "goaloo-season" },
+    where: { goalScored: { not: null } },
     select: { rawScore: true, calibratedP: true, goalScored: true },
     orderBy: { createdAt: "desc" },
     take: 10000,

@@ -8,65 +8,106 @@ declare global {
   }
 }
 
-// Key: sorted package names joined -> Promise
-const loadCache = new Map<string, Promise<void>>();
+type LoadState = "idle" | "loading" | "loaded" | "error";
+const loadStates = new Map<string, LoadState>();
+const loadPromises = new Map<string, Promise<void>>();
+const loadCallbacks = new Map<string, Set<() => void>>();
+
+function waitForCharts(packages: string[]): Promise<void> {
+  const key = [...packages].sort().join(",");
+  const existing = loadPromises.get(key);
+  if (existing) return existing;
+
+  const promise = new Promise<void>((resolve, reject) => {
+    // If already fully loaded
+    if (window.google?.visualization) {
+      resolve();
+      return;
+    }
+
+    const cbSet = loadCallbacks.get(key) || new Set();
+    cbSet.add(() => resolve());
+    loadCallbacks.set(key, cbSet);
+
+    // Only start loading once
+    if (loadStates.get(key) === "loading" || loadStates.get(key) === "loaded")
+      return;
+    loadStates.set(key, "loading");
+
+    // Helper: retry until window.google?.charts is available
+    const safeLoad = (attempts = 0) => {
+      if (window.google?.charts?.load) {
+        try {
+          window.google.charts.load("current", { packages });
+          window.google.charts.setOnLoadCallback(() => {
+            loadStates.set(key, "loaded");
+            const cbs = loadCallbacks.get(key);
+            if (cbs) cbs.forEach((fn) => fn());
+            loadCallbacks.delete(key);
+          });
+        } catch (e) {
+          if (attempts < 20) {
+            setTimeout(() => safeLoad(attempts + 1), 200);
+          } else {
+            loadStates.set(key, "error");
+            reject(e);
+          }
+        }
+      } else if (attempts < 20) {
+        setTimeout(() => safeLoad(attempts + 1), 200);
+      } else {
+        loadStates.set(key, "error");
+        reject(new Error("Google Charts API not available"));
+      }
+    };
+
+    if (
+      !document.querySelector('script[src*="gstatic.com/charts/loader.js"]')
+    ) {
+      const script = document.createElement("script");
+      script.src = "https://www.gstatic.com/charts/loader.js";
+      script.async = true;
+      script.onload = () => safeLoad();
+      script.onerror = () => {
+        loadStates.set(key, "error");
+        reject(new Error("Failed to load Google Charts"));
+      };
+      document.head.appendChild(script);
+    } else {
+      safeLoad();
+    }
+  });
+
+  loadPromises.set(key, promise);
+  return promise;
+}
 
 export function useGoogleCharts(packages: string[] = ["corechart"]) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
-  const cacheKey = [...packages].sort().join(",");
+  const key = [...packages].sort().join(",");
 
   useEffect(() => {
     mountedRef.current = true;
-    if (typeof window === "undefined") return;
-
-    if (window.google?.visualization) {
+    if (typeof window === "undefined" || window.google?.visualization) {
       setLoaded(true);
       return;
     }
 
-    if (!loadCache.has(cacheKey)) {
-      const promise = new Promise<void>((resolve, reject) => {
-        // Lazy-load loader.js only once
-        if (!document.querySelector('script[src*="gstatic.com/charts/loader.js"]')) {
-          const script = document.createElement("script");
-          script.src = "https://www.gstatic.com/charts/loader.js";
-          script.async = true;
-          script.onload = () => {
-            window.google.charts.load("current", { packages });
-            window.google.charts.setOnLoadCallback(() => {
-              if (mountedRef.current) setLoaded(true);
-              resolve();
-            });
-          };
-          script.onerror = () => {
-            if (mountedRef.current) setError("Google Charts yüklenemedi");
-            reject(new Error("Failed to load Google Charts"));
-          };
-          document.head.appendChild(script);
-        } else {
-          // Loader already exists, just load new packages
-          window.google.charts.load("current", { packages });
-          window.google.charts.setOnLoadCallback(() => {
-            if (mountedRef.current) setLoaded(true);
-            resolve();
-          });
-        }
+    waitForCharts(packages)
+      .then(() => {
+        if (mountedRef.current) setLoaded(true);
+      })
+      .catch((e) => {
+        if (mountedRef.current)
+          setError(e?.message || "Google Charts yüklenemedi");
       });
-      loadCache.set(cacheKey, promise);
-    } else {
-      loadCache.get(cacheKey)!.then(() => {
-        if (mountedRef.current && window.google?.visualization) {
-          setLoaded(true);
-        }
-      });
-    }
 
     return () => {
       mountedRef.current = false;
     };
-  }, [cacheKey]);
+  }, [key]);
 
   return { loaded, error };
 }

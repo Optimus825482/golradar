@@ -24,18 +24,11 @@ export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, away
   useEffect(() => {
     if (!loaded || !chartRef.current || !data?.length) return
 
-    // Only redraw if data actually changed (deep compare last element)
     const currentKey = data.length > 0
       ? `${data.length}_${JSON.stringify(data[data.length - 1])}`
       : `${data.length}`
     if (currentKey === lastDataKey.current && chartInstance.current) return
     lastDataKey.current = currentKey
-
-    const container = chartRef.current
-    const dt = new window.google.visualization.DataTable()
-
-    useEffect(() => {
-      if (!loaded || !chartRef.current || !data?.length) return
 
     const container = chartRef.current
     const dt = new window.google.visualization.DataTable()
@@ -112,4 +105,4 @@ export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, away
       <div ref={chartRef} className="h-70 w-full" style={{ contain: 'layout paint style', willChange: 'transform' }} />
     </CleanChartCard>
   )
-}
+})

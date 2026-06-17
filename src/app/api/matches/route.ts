@@ -78,6 +78,34 @@ const emptyResponse = () => NextResponse.json({
   matches: [], byLeague: {}, version: 0, count: 0, pressureData: {}, goalRadarData: {},
 });
 
+// ── DB hydration: load past snapshots when server (re)starts mid-match ─
+const HYDRATED_MATCHES = new Set<number>();
+
+async function hydrateFromDB(matchCode: number, history: MatchPressureHistory) {
+  if (HYDRATED_MATCHES.has(matchCode)) return;
+  HYDRATED_MATCHES.add(matchCode);
+  try {
+    const rows = await db.matchSnapshot.findMany({
+      where: { matchCode },
+      orderBy: { minute: "asc" },
+      take: 540,
+    });
+    for (const row of rows) {
+      let stats: MatchStats;
+      try { stats = JSON.parse(row.statsJson as string) as MatchStats; } catch { continue; }
+      history.snapshots.push({
+        minute: `${row.minute}'`,
+        timestamp: new Date(row.createdAt).getTime(),
+        homePressure: row.homePressure,
+        awayPressure: row.awayPressure,
+        homeGoals: row.homeGoals,
+        awayGoals: row.awayGoals,
+        stats,
+      });
+    }
+  } catch { /* DB unavailable — fall back to current-session only */ }
+}
+
 function updatePressureHistory(match: ParsedMatch) {
   if (!match.hasStats) return;
   if (HALFTIME_STATUSES.has(match.status)) return;
@@ -91,6 +119,8 @@ function updatePressureHistory(match: ParsedMatch) {
       country: match.country,
       snapshots: [],
     };
+    // Hydrate from DB on first access — fills missing snapshots from before server start
+    hydrateFromDB(match.code, history);
     pressureHistory.set(match.code, history);
   }
 

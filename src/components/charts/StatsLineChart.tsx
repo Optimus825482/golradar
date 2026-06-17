@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, memo } from 'react'
 import { useGoogleCharts } from '@/lib/useGoogleCharts'
 import { CleanChartCard } from './CleanChartCard'
 
-export function StatsLineChart({ data, homeKey, awayKey, homeName, awayName, yDomain, yFormatter, homeTeam, awayTeam, title }: {
+export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, awayKey, homeName, awayName, yDomain, yFormatter, homeTeam, awayTeam, title }: {
   data: any[]
   homeKey: string
   awayKey: string
@@ -18,10 +18,24 @@ export function StatsLineChart({ data, homeKey, awayKey, homeName, awayName, yDo
 }) {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<any>(null)
+  const lastDataKey = useRef('')
   const { loaded } = useGoogleCharts(['corechart', 'gauge'])
 
   useEffect(() => {
     if (!loaded || !chartRef.current || !data?.length) return
+
+    // Only redraw if data actually changed (deep compare last element)
+    const currentKey = data.length > 0
+      ? `${data.length}_${JSON.stringify(data[data.length - 1])}`
+      : `${data.length}`
+    if (currentKey === lastDataKey.current && chartInstance.current) return
+    lastDataKey.current = currentKey
+
+    const container = chartRef.current
+    const dt = new window.google.visualization.DataTable()
+
+    useEffect(() => {
+      if (!loaded || !chartRef.current || !data?.length) return
 
     const container = chartRef.current
     const dt = new window.google.visualization.DataTable()
@@ -95,7 +109,7 @@ export function StatsLineChart({ data, homeKey, awayKey, homeName, awayName, yDo
 
   return (
     <CleanChartCard title={title} homeTeam={homeTeam} awayTeam={awayTeam}>
-      <div ref={chartRef} className="h-70 w-full" />
+      <div ref={chartRef} className="h-70 w-full" style={{ contain: 'layout paint style', willChange: 'transform' }} />
     </CleanChartCard>
   )
 }

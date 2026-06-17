@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useRef, useMemo } from 'react'
+import { useEffect, useRef, useMemo, memo } from 'react'
 import { useGoogleCharts } from '@/lib/useGoogleCharts'
 import { CleanChartCard } from './CleanChartCard'
 
-export function MomentumChart({ data, homeTeam, awayTeam }: {
+export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayTeam }: {
   data: { minute: string; homePressure: number; awayPressure: number }[]
   homeTeam: string
   awayTeam: string
@@ -17,6 +17,8 @@ export function MomentumChart({ data, homeTeam, awayTeam }: {
   const gaugeHomeInstance = useRef<any>(null)
   const gaugeAwayInstance = useRef<any>(null)
   const gaugesDrawn = useRef(false)
+  const lastGaugeKey = useRef('')
+  const lastAreaKey = useRef('')
   const { loaded } = useGoogleCharts(['corechart', 'gauge'])
 
   // Son veri noktasi - Gauge'lar icin
@@ -54,6 +56,10 @@ export function MomentumChart({ data, homeTeam, awayTeam }: {
   // ── Gauge cizimi ──
   useEffect(() => {
     if (!loaded) return
+
+    const gk = `${lastPoint.homePressure}-${lastPoint.awayPressure}`
+    if (gk === lastGaugeKey.current && gaugesDrawn.current) return
+    lastGaugeKey.current = gk
 
     // Ev gauge
     if (gaugeHomeRef.current) {
@@ -115,6 +121,12 @@ export function MomentumChart({ data, homeTeam, awayTeam }: {
   // ── Area Chart cizimi ──
   useEffect(() => {
     if (!loaded || !chartRef.current || !data?.length) return
+
+    // Skip if data content hasn't changed
+    const lastEl = data[data.length - 1]
+    const ak = `${data.length}_${lastEl.minute}_${lastEl.homePressure}_${lastEl.awayPressure}`
+    if (ak === lastAreaKey.current && chartInstance.current) return
+    lastAreaKey.current = ak
 
     const container = chartRef.current
     const dt = new window.google.visualization.DataTable()
@@ -236,7 +248,7 @@ export function MomentumChart({ data, homeTeam, awayTeam }: {
         <div className="flex items-center justify-center gap-4 mb-1">
           {/* Ev gauge */}
           <div className="flex flex-col items-center">
-            <div ref={gaugeHomeRef} className="w-37.5 h-27.5" />
+            <div ref={gaugeHomeRef} className="w-37.5 h-27.5" style={{ contain: 'layout paint style', willChange: 'transform' }} />
             <div className="flex items-center gap-1.5 -mt-1">
               <div className="w-2 h-2 rounded-full bg-orange-500" />
               <span className="text-[10px] font-semibold text-gray-700 truncate max-w-20">{homeTeam}</span>
@@ -262,7 +274,7 @@ export function MomentumChart({ data, homeTeam, awayTeam }: {
 
           {/* Away gauge */}
           <div className="flex flex-col items-center">
-            <div ref={gaugeAwayRef} className="w-37.5 h-27.5" />
+            <div ref={gaugeAwayRef} className="w-37.5 h-27.5" style={{ contain: 'layout paint style', willChange: 'transform' }} />
             <div className="flex items-center gap-1.5 -mt-1">
               <div className="w-2 h-2 rounded-full bg-blue-500" />
               <span className="text-[10px] font-semibold text-gray-700 truncate max-w-20">{awayTeam}</span>
@@ -296,8 +308,8 @@ export function MomentumChart({ data, homeTeam, awayTeam }: {
       </div>
 
       {/* ── Area Chart ── */}
-      <div ref={wrapperRef} className="relative h-80 w-full">
-        <div ref={chartRef} className="h-full w-full" />
+      <div ref={wrapperRef} className="relative h-80 w-full" style={{ contain: 'layout paint style' }}>
+        <div ref={chartRef} className="h-full w-full" style={{ willChange: 'transform' }} />
       </div>
     </CleanChartCard>
   )

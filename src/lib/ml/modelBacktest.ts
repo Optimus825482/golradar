@@ -152,6 +152,7 @@ export async function runModelBacktest(
   // For artifact/shadow cases we need the model to run predictions;
   // for champion we use the stored calibratedP directly.
   let xgbModel: XgbModel | null = null;
+  let modelLoadError: string | null = null;
   if (selector.kind === "artifact") {
     const meta = await db.modelArtifact.findUnique({
       where: {
@@ -161,7 +162,11 @@ export async function runModelBacktest(
     if (!meta) {
       return null;
     }
-    xgbModel = await getXgbModelCached(meta.artifactPath);
+    try {
+      xgbModel = await getXgbModelCached(meta.artifactPath);
+    } catch (e: unknown) {
+      modelLoadError = `Model yuklenemedi: ${(e as Error)?.message ?? e}`;
+    }
   } else if (selector.kind === "shadow") {
     const meta = await db.modelArtifact.findUnique({
       where: {
@@ -174,17 +179,47 @@ export async function runModelBacktest(
     if (!meta) {
       return null;
     }
-    xgbModel = await getXgbModelCached(meta.artifactPath);
+    try {
+      xgbModel = await getXgbModelCached(meta.artifactPath);
+    } catch (e: unknown) {
+      modelLoadError = `Model yuklenemedi: ${(e as Error)?.message ?? e}`;
+    }
+  }
+
+  // If model couldn't load, return an error-like result instead of crashing
+  if (modelLoadError) {
+    return {
+      selector: resolvedSelector,
+      selectorKind: kind,
+      totalPredictions: 0,
+      resolvedPredictions: 0,
+      brierScore: 0,
+      logLoss: 0,
+      accuracy: 0,
+      calibrationError: 0,
+      precision: 0,
+      recall: 0,
+      f1Score: 0,
+      falsePositiveRate: 0,
+      sideAccuracy: { home: 0, away: 0 },
+      levelDistribution: buildBucketMap(),
+      byDay: [],
+      computedAt: new Date().toISOString(),
+      notes: [modelLoadError],
+    };
   }
 
   // Query PredictionLog rows
   const whereFilter: Record<string, unknown> = {
     createdAt: { gte: cutoff },
+    goalScored: { not: null },
   };
-  // Champion tests against ALL available data (all modelVariant values)
-  // for a system-health view. Artifact/shadow modes test their own variant.
+  // Champion re-uses stored calibratedP (no re-score needed).
+  // Artifact/shadow re-score ALL available rows through the new model.
+  // All modes need goalScored != null for a label.
   if (kind !== "champion") {
-    whereFilter.modelVariant = variantFilter;
+    // Artifact/shadow re-scoring needs featuresJson
+    whereFilter.featuresJson = { not: null };
   }
   if (side && side !== "both") whereFilter.side = side;
   if (minuteMin != null) whereFilter.minute = { gte: minuteMin };
@@ -204,16 +239,12 @@ export async function runModelBacktest(
   if (logs.length < minSamples) return null;
 
   // Build features, labels, and probArray in a SINGLE pass
-  // to prevent index misalignment between logs and resolved.
   const resolved: ResolvedLog[] = [];
   const probArray: number[] = [];
 
   for (const log of logs) {
-    // Only test records with known outcomes
-    if (log.goalScored === null) continue;
-
-    // Champion mode uses stored calibratedP — features not required.
-    // Artifact/shadow modes need featuresJson for re-scoring.
+    // Champion mode uses stored calibratedP — features not needed.
+    // Artifact/shadow modes re-score through XGB — need featuresJson.
     let features: number[];
     if (kind === "champion") {
       features = [];

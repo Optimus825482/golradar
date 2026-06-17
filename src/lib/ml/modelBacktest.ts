@@ -165,18 +165,18 @@ export async function runModelBacktest(
 
   // Determine which modelVariant discriminator to pull
   let variantFilter: string | null = null;
-  let kind: 'champion' | 'artifact' | 'shadow' = 'champion';
-  let resolvedSelector = '';
-  if (selector.kind === 'champion') {
-    kind = 'champion';
-    variantFilter = 'champion';
-    resolvedSelector = 'champion';
-  } else if (selector.kind === 'artifact') {
-    kind = 'artifact';
+  let kind: "champion" | "artifact" | "shadow" = "champion";
+  let resolvedSelector = "";
+  if (selector.kind === "champion") {
+    kind = "champion";
+    variantFilter = "champion";
+    resolvedSelector = "champion";
+  } else if (selector.kind === "artifact") {
+    kind = "artifact";
     variantFilter = `artifact:${selector.name}@${selector.version}`;
     resolvedSelector = variantFilter;
   } else {
-    kind = 'shadow';
+    kind = "shadow";
     variantFilter = `shadow:${selector.shadowName}@${selector.shadowVersion}`;
     resolvedSelector = variantFilter;
   }
@@ -184,15 +184,17 @@ export async function runModelBacktest(
   // For artifact/shadow cases we need the model to run predictions;
   // for champion we use the stored calibratedP directly.
   let xgbModel: XgbModel | null = null;
-  if (selector.kind === 'artifact') {
+  if (selector.kind === "artifact") {
     const meta = await db.modelArtifact.findUnique({
-      where: { name_version: { name: selector.name, version: selector.version } },
+      where: {
+        name_version: { name: selector.name, version: selector.version },
+      },
     });
     if (!meta) {
       return null;
     }
     xgbModel = await getXgbModelCached(meta.artifactPath);
-  } else if (selector.kind === 'shadow') {
+  } else if (selector.kind === "shadow") {
     const meta = await db.modelArtifact.findUnique({
       where: {
         name_version: {
@@ -211,13 +213,13 @@ export async function runModelBacktest(
   const whereFilter: Record<string, unknown> = {
     createdAt: { gte: cutoff },
   };
-  if (kind === 'champion') {
+  if (kind === "champion") {
     // champion backtest: use ALL model variants (goaloo-season currently)
     // Don't filter by modelVariant — champion tests against all available data
   } else {
     whereFilter.modelVariant = variantFilter;
   }
-  if (side && side !== 'both') whereFilter.side = side;
+  if (side && side !== "both") whereFilter.side = side;
   if (minuteMin != null) whereFilter.minute = { gte: minuteMin };
   if (minuteMax != null) {
     whereFilter.minute = {
@@ -228,14 +230,13 @@ export async function runModelBacktest(
 
   const logs = await db.predictionLog.findMany({
     where: whereFilter,
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: "asc" },
     take: maxRows > 0 ? maxRows : 10_000,
   });
 
   if (logs.length < minSamples) return null;
 
-  // Build features + labels
-  const labelsByKey = await loadGoalLabelsForPredictions(logs);
+  // Build features + labels (use stored goalScored from PredictionLog)
   const resolved: ResolvedLog[] = [];
   for (const log of logs) {
     if (!log.featuresJson) continue;
@@ -246,23 +247,21 @@ export async function runModelBacktest(
     } catch {
       continue;
     }
-    // Re-score when an artifact is provided — that gives an apples-to-
-    // apples comparison. Otherwise we trust the stored calibratedP.
+    // Re-score when an artifact is provided
     let p: number;
     if (xgbModel) {
       p = clamp01(predictXgb(xgbModel, features));
     } else {
       p = clamp01(log.calibratedP);
     }
-    const label = labelsByKey.get(log.matchCode + log.createdAt.getTime()) ?? 0;
-    void p; // p currently unused — we reuse log.calibratedP for the
-              // historical champion. Artifact comparison would use
-              // the re-scored p. See BacktestModelResult.notes below.
+    // Use stored goalScored as label
+    const label = log.goalScored === true ? 1 : 0;
+    void p;
     resolved.push({
       features,
       label,
-      side: log.side as 'home' | 'away' | 'both',
-      level: log.level as 'low' | 'medium' | 'high' | 'critical',
+      side: log.side as "home" | "away" | "both",
+      level: log.level as "low" | "medium" | "high" | "critical",
       date: new Date(log.createdAt).toISOString().slice(0, 10),
       matchCode: log.matchCode,
       modelVariant: log.modelVariant,
@@ -271,7 +270,7 @@ export async function runModelBacktest(
 
   if (resolved.length < minSamples) return null;
 
-  const probs = resolved.map((r) => r.label === 1 ? 0.0 : 0.0); // placeholder — see notes
+  const probs = resolved.map((r) => (r.label === 1 ? 0.0 : 0.0)); // placeholder — see notes
   // Note: To get a true champion-vs-artifact Brier comparison we
   // need to re-score champion rows through the same code path as
   // the artifact. v1 keeps it simple: when comparing two artifacts
@@ -294,14 +293,17 @@ export async function runModelBacktest(
   void probs; // suppress unused warning; probs is a placeholder
 
   const labels = resolved.map((r) => r.label);
-  const brier = probArray.reduce((acc, p, i) => acc + (p - (labels[i] ?? 0)) ** 2, 0) / probArray.length;
-  const logLoss = -probArray.reduce(
-    (acc, p, i) =>
-      acc +
-      (labels[i] ?? 0) * Math.log(p) +
-      (1 - (labels[i] ?? 0)) * Math.log(1 - p),
-    0,
-  ) / probArray.length;
+  const brier =
+    probArray.reduce((acc, p, i) => acc + (p - (labels[i] ?? 0)) ** 2, 0) /
+    probArray.length;
+  const logLoss =
+    -probArray.reduce(
+      (acc, p, i) =>
+        acc +
+        (labels[i] ?? 0) * Math.log(p) +
+        (1 - (labels[i] ?? 0)) * Math.log(1 - p),
+      0,
+    ) / probArray.length;
   const predictedPositives = probArray.map((p) => (p > 0.5 ? 1 : 0));
   let correct = 0;
   for (let i = 0; i < predictedPositives.length; i++) {
@@ -309,23 +311,28 @@ export async function runModelBacktest(
   }
   const accuracy = correct / probArray.length;
   const truePos = labels.reduce<number>(
-    (acc, y, i) => (y === 1 && (predictedPositives[i] ?? 0) === 1 ? acc + 1 : acc),
+    (acc, y, i) =>
+      y === 1 && (predictedPositives[i] ?? 0) === 1 ? acc + 1 : acc,
     0,
   );
   const falsePos = labels.reduce<number>(
-    (acc, y, i) => (y === 0 && (predictedPositives[i] ?? 0) === 1 ? acc + 1 : acc),
+    (acc, y, i) =>
+      y === 0 && (predictedPositives[i] ?? 0) === 1 ? acc + 1 : acc,
     0,
   );
   const actualPos = labels.reduce((acc, y) => acc + (y === 1 ? 1 : 0), 0);
   const actualNeg = labels.length - actualPos;
   const precision = truePos + falsePos > 0 ? truePos / (truePos + falsePos) : 0;
   const recall = actualPos > 0 ? truePos / actualPos : 0;
-  const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+  const f1 =
+    precision + recall > 0
+      ? (2 * precision * recall) / (precision + recall)
+      : 0;
   const fpr = actualNeg > 0 ? falsePos / actualNeg : 0;
 
   // Per-side accuracy
-  const homeSignals = resolved.filter((r) => r.side === 'home');
-  const awaySignals = resolved.filter((r) => r.side === 'away');
+  const homeSignals = resolved.filter((r) => r.side === "home");
+  const awaySignals = resolved.filter((r) => r.side === "away");
   let homeCorrect = 0;
   for (const r of homeSignals) {
     const idx = resolved.indexOf(r);
@@ -336,8 +343,10 @@ export async function runModelBacktest(
     const idx = resolved.indexOf(r);
     if ((predictedPositives[idx] ?? 0) === r.label) awayCorrect++;
   }
-  const homeSideAccuracy = homeSignals.length > 0 ? homeCorrect / homeSignals.length : 0;
-  const awaySideAccuracy = awaySignals.length > 0 ? awayCorrect / awaySignals.length : 0;
+  const homeSideAccuracy =
+    homeSignals.length > 0 ? homeCorrect / homeSignals.length : 0;
+  const awaySideAccuracy =
+    awaySignals.length > 0 ? awayCorrect / awaySignals.length : 0;
 
   // Level distribution
   const levelDist = buildBucketMap();
@@ -351,7 +360,10 @@ export async function runModelBacktest(
   }
 
   // Per-day
-  const byDayMap = new Map<string, { total: number; goals: number; brierSum: number }>();
+  const byDayMap = new Map<
+    string,
+    { total: number; goals: number; brierSum: number }
+  >();
   for (let i = 0; i < resolved.length; i++) {
     const r = resolved[i]!;
     const day = byDayMap.get(r.date) ?? { total: 0, goals: 0, brierSum: 0 };
@@ -361,17 +373,24 @@ export async function runModelBacktest(
     byDayMap.set(r.date, day);
   }
   const byDay = Array.from(byDayMap.entries())
-    .map(([date, v]) => ({ date, total: v.total, goals: v.goals, brier: v.brierSum / v.total }))
+    .map(([date, v]) => ({
+      date,
+      total: v.total,
+      goals: v.goals,
+      brier: v.brierSum / v.total,
+    }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const notes: string[] = [];
-  if (kind === 'champion' && xgbModel) {
-    notes.push('Champion re-scored through modelRouter; matches stored calibratedP within 1e-3.');
-  }
-  if (kind === 'artifact' || kind === 'shadow') {
+  if (kind === "champion" && xgbModel) {
     notes.push(
-      'Candidate re-scored through XGBoost loader; champion uses stored log.calibratedP. ' +
-        'v2 will unify both via a single inference path.',
+      "Champion re-scored through modelRouter; matches stored calibratedP within 1e-3.",
+    );
+  }
+  if (kind === "artifact" || kind === "shadow") {
+    notes.push(
+      "Candidate re-scored through XGBoost loader; champion uses stored log.calibratedP. " +
+        "v2 will unify both via a single inference path.",
     );
   }
 

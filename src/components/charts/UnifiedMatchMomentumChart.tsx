@@ -105,9 +105,17 @@ const PAD = { l: 62, r: 30, t: 30, b: 40 }
 const IW = CHART_W - PAD.l - PAD.r
 const IH = CHART_H - PAD.t - PAD.b
 const YT = [-100, -50, 0, 50, 100]
-const XT = [0, 15, 30, 45, 60, 75, 90]
+const BASE_TICKS = [0, 15, 30, 45]
+const SECOND_HALF_TICKS = [60, 75, 90]
 const xS = (m: number, maxM: number) => PAD.l + (m / maxM) * IW
 const yS = (v: number) => PAD.t + (1 - (v + 100) / 200) * IH
+
+function computeXTicks(maxMinute: number): number[] {
+  if (maxMinute <= 45) return BASE_TICKS
+  const extra: number[] = []
+  for (let m = 105; m <= maxMinute + 10; m += 15) extra.push(m)
+  return [...BASE_TICKS, ...SECOND_HALF_TICKS, ...extra]
+}
 
 export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart({
   momentumBars, xgFlowData, homeTeam, awayTeam,
@@ -167,9 +175,9 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
     if (apRef.current) apRef.current.setAttribute('d', ap)
     if (anRef.current) anRef.current.setAttribute('d', ap)
 
-    // Goal markers
+    // Goal markers — atomic replace to avoid flicker
     if (ggRef.current) {
-      ggRef.current.innerHTML = ''
+      const newChildren: SVGElement[] = []
       for (const ev of goalEvents) {
         const cx = xS(ev.minuteNum, maxMinute), evM = (ev.homeBar ?? 0) + (ev.awayBar ?? 0), cy = yS(evM)
         const c = ev.isGoalHome ? vHome : vAway
@@ -178,19 +186,21 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
         const l = ns('line'); l.setAttribute('x1', cx.toFixed(2)); l.setAttribute('y1', cy.toFixed(2)); l.setAttribute('x2', cx.toFixed(2)); l.setAttribute('y2', zy.toFixed(2)); l.setAttribute('stroke', c); l.setAttribute('stroke-width', '1'); l.setAttribute('stroke-dasharray', '3 3'); l.setAttribute('opacity', '0.3')
         const ci = ns('circle'); ci.setAttribute('cx', cx.toFixed(2)); ci.setAttribute('cy', cy.toFixed(2)); ci.setAttribute('r', '6'); ci.setAttribute('fill', c); ci.setAttribute('stroke', '#fff'); ci.setAttribute('stroke-width', '2'); ci.setAttribute('opacity', '0.9')
         const t = ns('text'); t.setAttribute('x', cx.toFixed(2)); t.setAttribute('y', ly.toFixed(2)); t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-size', '9'); t.setAttribute('font-weight', '700'); t.setAttribute('fill', c); t.textContent = `${ev.minuteNum}'`
-        ggRef.current.appendChild(l); ggRef.current.appendChild(ci); ggRef.current.appendChild(t)
+        newChildren.push(l, ci, t)
       }
+      ggRef.current.replaceChildren(...newChildren)
     }
 
-    // Endpoints
+    // Endpoints — atomic replace to avoid flicker
     if (epRef.current && pts.length > 0) {
-      epRef.current.innerHTML = ''
+      const epChildren: SVGCircleElement[] = []
       for (const p of [pts[0], pts[pts.length - 1]]) {
         const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
         c.setAttribute('cx', p[0].toFixed(2)); c.setAttribute('cy', p[1].toFixed(2))
         c.setAttribute('r', '4'); c.setAttribute('fill', '#fff'); c.setAttribute('stroke', '#0f172a'); c.setAttribute('stroke-width', '2')
-        epRef.current.appendChild(c)
+        epChildren.push(c)
       }
+      epRef.current.replaceChildren(...epChildren)
     }
   }, [md, goalEvents, homeScore, awayScore, vHome, vAway, maxMinute])
 
@@ -253,7 +263,8 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
               <filter id={`gS_${uid}`} x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.5" result="blur" /><feOffset dx="0" dy="1" in="blur" result="offsetBlur" /><feComponentTransfer><feFuncA type="linear" slope="0.4" /></feComponentTransfer><feMerge><feMergeNode in="offsetBlur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
             </defs>
             {YT.map(v => { const y = yS(v); return <g key={v}><line x1={PAD.l} y1={y} x2={CHART_W - PAD.r} y2={y} stroke={v === 0 ? '#94a3b8' : '#f1f5f9'} strokeWidth={v === 0 ? 1.5 : 0.75} strokeDasharray={v === 0 ? '0' : '4 6'} /><text x={PAD.l - 8} y={y + 4} textAnchor="end" fill={v === 0 ? '#334155' : (v === 100 ? vHome : v === -100 ? vAway : '#94a3b8')} fontSize={10} fontWeight={v === 0 || Math.abs(v) === 100 ? 700 : 400}>{v === 100 ? homeTeam.substring(0, 8) : v === -100 ? awayTeam.substring(0, 8) : (v > 0 ? '+' : '') + v}</text></g> })}
-            {XT.map(m => { const x = xS(m, 90); return <g key={m}><line x1={x} y1={PAD.t} x2={x} y2={CHART_H - PAD.b} stroke={m === 45 ? '#16a34a' : '#e2e8f0'} strokeWidth={m === 45 ? 1 : 0.5} strokeDasharray={m === 45 ? '0' : '2 4'} opacity={m === 45 ? 0.6 : 0.7} /><text x={x} y={CHART_H - PAD.b + 18} textAnchor="middle" fill={m === 45 ? '#16a34a' : '#64748b'} fontSize={11} fontWeight={m === 45 ? 700 : 400}>{m}'{m === 45 ? '  Devre Arası' : ''}</text></g> })}
+            {XT.map(m => { const x = xS(m, maxMinute); return <g key={m}><line x1={x} y1={PAD.t} x2={x} y2={CHART_H - PAD.b} stroke={m === 45 ? '#16a34a' : '#e2e8f0'} strokeWidth={m === 45 ? 1 : 0.5} strokeDasharray={m === 45 ? '0' : '2 4'} opacity={m === 45 ? 0.6 : 0.7} /><text x={x} y={CHART_H - PAD.b + 18} textAnchor="middle" fill={m === 45 ? '#16a34a' : '#64748b'} fontSize={11} fontWeight={m === 45 ? 700 : 400}>{m}'{m === 45 ? '  Devre Arası' : ''}</text></g> })}
+            {computeXTicks(maxMinute).map(m => { const x = xS(m, maxMinute); return <g key={m}><line x1={x} y1={PAD.t} x2={x} y2={CHART_H - PAD.b} stroke={m === 45 ? '#16a34a' : '#e2e8f0'} strokeWidth={m === 45 ? 1 : 0.5} strokeDasharray={m === 45 ? '0' : '2 4'} opacity={m === 45 ? 0.6 : 0.7} /><text x={x} y={CHART_H - PAD.b + 18} textAnchor="middle" fill={m === 45 ? '#16a34a' : '#64748b'} fontSize={11} fontWeight={m === 45 ? 700 : 400}>{m}'{m === 45 ? '  Devre Arası' : ''}</text></g> })}
             <path ref={apRef} fill={`url(#gP_${uid})`} />
             <path ref={anRef} fill={`url(#gN_${uid})`} />
             <path ref={lpRef} fill="none" stroke={`url(#gL_${uid})`} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" filter={`url(#gS_${uid})`} />

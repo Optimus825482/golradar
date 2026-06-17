@@ -43,52 +43,61 @@ export const GET = adminRoute(async () => {
 });
 
 export const POST = adminRoute(async (request: Request) => {
-  let body: any;
   try {
-    body = await request.json();
-  } catch {
-    body = {};
-  }
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
 
-  const mode = body.mode || "champion";
-  const days = Math.min(90, Math.max(1, body.days || 14));
+    const mode = body.mode || "champion";
+    const days = Math.min(90, Math.max(1, body.days || 14));
 
-  let selector: ModelSelector;
+    let selector: ModelSelector;
 
-  if (mode === "champion") {
-    selector = { kind: "champion" };
-  } else if (mode === "artifact") {
-    const name = body.name;
-    const version = body.version;
-    if (!name || !VALID_NAMES.has(name)) {
+    if (mode === "champion") {
+      selector = { kind: "champion" };
+    } else if (mode === "artifact") {
+      const name = body.name;
+      const version = body.version;
+      if (!name || !VALID_NAMES.has(name)) {
+        return NextResponse.json(
+          { error: "valid model name required" },
+          { status: 400 },
+        );
+      }
+      if (!version) {
+        return NextResponse.json(
+          { error: "version required" },
+          { status: 400 },
+        );
+      }
+      selector = { kind: "artifact", name: name as ModelName, version };
+    } else {
       return NextResponse.json(
-        { error: "valid model name required" },
+        { error: "mode must be champion|artifact" },
         { status: 400 },
       );
     }
-    if (!version) {
-      return NextResponse.json({ error: "version required" }, { status: 400 });
+
+    const config: BacktestModelConfig = {
+      days,
+      minSamples: body.minSamples ?? 50,
+    };
+
+    const result = await runModelBacktest(selector, config);
+    if (!result) {
+      return NextResponse.json(
+        { error: "not enough data for backtest" },
+        { status: 404 },
+      );
     }
-    selector = { kind: "artifact", name: name as ModelName, version };
-  } else {
-    return NextResponse.json(
-      { error: "mode must be champion|artifact" },
-      { status: 400 },
-    );
+
+    return NextResponse.json({ ok: true, result });
+  } catch (e: unknown) {
+    const msg = (e as Error)?.message ?? String(e);
+    console.error("[model-backtest] Error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
-
-  const config: BacktestModelConfig = {
-    days,
-    minSamples: body.minSamples ?? 50,
-  };
-
-  const result = await runModelBacktest(selector, config);
-  if (!result) {
-    return NextResponse.json(
-      { error: "not enough data for backtest" },
-      { status: 404 },
-    );
-  }
-
-  return NextResponse.json({ ok: true, result });
 });

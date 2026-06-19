@@ -3,7 +3,7 @@
   "description": "Gerçek zamanlı futbol gol radarı — ML destekli tahminler, canlı maç takibi, gol sinyalleri",
   "type": "docker-compose",
   "version": "2.0.0",
-  "dockerComposeFile": "docker-compose.coolify.yml",
+  "dockerComposeFile": "docker-compose-coolify.yaml",
   "services": {
     "postgres": {
       "image": "postgres:16-alpine",

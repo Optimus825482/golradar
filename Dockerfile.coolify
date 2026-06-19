@@ -5,7 +5,8 @@ WORKDIR /app
 RUN apk add --no-cache openssl-dev
 
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+# --frozen-lockfile kaldırıldı çünkü lockfile repo'da güncel olmayabilir
+RUN bun install
 
 COPY prisma ./prisma
 RUN bunx prisma generate
@@ -13,7 +14,7 @@ RUN bunx prisma generate
 COPY . .
 
 ENV NODE_OPTIONS=--max-old-space-size=512
-RUN --mount=type=cache,target=/app/.next/cache bun run build
+RUN bun run build
 
 # ── Stage 2: Runtime ──
 FROM oven/bun:1-alpine
@@ -25,7 +26,7 @@ ENV HOSTNAME=0.0.0.0
 
 RUN apk add --no-cache openssl-dev ca-certificates wget curl
 
-# Next.js standalone output — içinde .next/static ve public zaten var
+# Next.js standalone output
 COPY --from=builder /app/.next/standalone /app
 COPY --from=builder /app/prisma /app/prisma
 COPY --from=builder /app/node_modules/.prisma /app/node_modules/.prisma

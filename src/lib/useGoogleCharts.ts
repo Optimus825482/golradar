@@ -86,7 +86,6 @@ export function useGoogleCharts(packages: string[] = ["corechart"]) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
-  const key = [...packages].sort().join(",");
 
   useEffect(() => {
     mountedRef.current = true;
@@ -107,7 +106,9 @@ export function useGoogleCharts(packages: string[] = ["corechart"]) {
     return () => {
       mountedRef.current = false;
     };
-  }, [key]);
+    // Only run once — the waitForCharts function handles dedup internally
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return { loaded, error };
 }

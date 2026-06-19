@@ -4,6 +4,8 @@ import { useEffect, useRef, useMemo, memo } from 'react'
 import { useGoogleCharts } from '@/lib/useGoogleCharts'
 import { CleanChartCard } from './CleanChartCard'
 
+const TEAM_COLORS = { home: '#f97316', away: '#3b82f6' } as const
+
 export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayTeam }: {
   data: { minute: string; homePressure: number; awayPressure: number }[]
   homeTeam: string
@@ -16,9 +18,12 @@ export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayT
   const lastHomeVal = useRef(-1)
   const lastAwayVal = useRef(-1)
   const gaugeReady = useRef(false)
+  const containerRef = useRef<HTMLDivElement>(null)
   const { loaded } = useGoogleCharts(['gauge'])
 
-  // Son veri noktasi
+  // Stable width tracking via ResizeObserver
+  const gaugeWidthRef = useRef(160)
+
   const lastPoint = useMemo(() => {
     if (!data?.length) return { homePressure: 50, awayPressure: 50, minute: "0'" }
     const last = data[data.length - 1]
@@ -29,142 +34,132 @@ export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayT
     }
   }, [data])
 
-  // Baski farki
   const dominantTeam = useMemo(() => {
     const diff = lastPoint.homePressure - lastPoint.awayPressure
     if (Math.abs(diff) < 5) return null
     return diff > 0 ? homeTeam : awayTeam
   }, [lastPoint, homeTeam, awayTeam])
 
-  // ── Tek seferlik Gauge kurulumu + deger guncelleme ──
+  const gaugeOpts = (teamColor: string) => ({
+    width: gaugeWidthRef.current,
+    height: 130,
+    min: 0, max: 100,
+    greenFrom: 55, greenTo: 100,
+    greenColor: teamColor,
+    yellowFrom: 30, yellowTo: 55,
+    yellowColor: '#fbbf24',
+    redFrom: 0, redTo: 30,
+    redColor: '#fca5a5',
+    minorTicks: 5,
+    majorTicks: ['0', '25', '50', '75', '100'],
+  })
+
+  function drawGauge(instance: any, ref: HTMLDivElement | null, value: number, label: string, opts: any) {
+    if (!ref || !instance) return
+    const dt = new window.google.visualization.DataTable()
+    dt.addColumn('number', label)
+    dt.addColumn({ type: 'string', role: 'annotation' })
+    dt.addRows([[value, `${Math.round(value)}%`]])
+    instance.draw(dt, opts)
+  }
+
+  // ResizeObserver for responsive gauge width
+  useEffect(() => {
+    if (!containerRef.current) return
+    const ro = new ResizeObserver(entries => {
+      for (const e of entries) {
+        const w = Math.max(120, Math.min(200, e.contentRect.width / 2 - 24))
+        gaugeWidthRef.current = w
+        // Redraw on resize if already initialized
+        if (gaugeReady.current) {
+          const homeOpts = gaugeOpts(TEAM_COLORS.home)
+          const awayOpts = gaugeOpts(TEAM_COLORS.away)
+          homeOpts.width = w
+          awayOpts.width = w
+          drawGauge(gaugeHomeInstance.current, gaugeHomeRef.current, lastPoint.homePressure, homeTeam, homeOpts)
+          drawGauge(gaugeAwayInstance.current, gaugeAwayRef.current, lastPoint.awayPressure, awayTeam, awayOpts)
+        }
+      }
+    })
+    ro.observe(containerRef.current)
+    return () => ro.disconnect()
+  }, [loaded, homeTeam, awayTeam, lastPoint])
+
+  // Initial draw + update
   useEffect(() => {
     if (!loaded) return
 
-    // Initial draw only once
-    if (!gaugeReady.current) {
-      if (gaugeHomeRef.current) {
-        const homeDt = new window.google.visualization.DataTable()
-        homeDt.addColumn('number', homeTeam)
-        homeDt.addColumn({ type: 'string', role: 'annotation' })
-        homeDt.addRows([[lastPoint.homePressure, `${Math.round(lastPoint.homePressure)}%`]])
-        gaugeHomeInstance.current = new window.google.visualization.Gauge(gaugeHomeRef.current)
-        gaugeHomeInstance.current.draw(homeDt, {
-          width: gaugeHomeRef.current.clientWidth || 160,
-          height: 130,
-          min: 0, max: 100,
-          greenFrom: 50, greenTo: 100,
-          yellowFrom: 25, yellowTo: 50,
-          redFrom: 0, redTo: 25,
-          minorTicks: 5,
-          majorTicks: ['0', '25', '50', '75', '100'],
-        })
-      }
+    const homeOpts = gaugeOpts(TEAM_COLORS.home)
+    const awayOpts = gaugeOpts(TEAM_COLORS.away)
 
-      if (gaugeAwayRef.current) {
-        const awayDt = new window.google.visualization.DataTable()
-        awayDt.addColumn('number', awayTeam)
-        awayDt.addColumn({ type: 'string', role: 'annotation' })
-        awayDt.addRows([[lastPoint.awayPressure, `${Math.round(lastPoint.awayPressure)}%`]])
-        gaugeAwayInstance.current = new window.google.visualization.Gauge(gaugeAwayRef.current)
-        gaugeAwayInstance.current.draw(awayDt, {
-          width: gaugeAwayRef.current.clientWidth || 160,
-          height: 130,
-          min: 0, max: 100,
-          greenFrom: 50, greenTo: 100,
-          yellowFrom: 25, yellowTo: 50,
-          redFrom: 0, redTo: 25,
-          minorTicks: 5,
-          majorTicks: ['0', '25', '50', '75', '100'],
-        })
-      }
-
+    if (!gaugeReady.current && gaugeHomeRef.current && gaugeAwayRef.current) {
+      gaugeHomeInstance.current = new window.google.visualization.Gauge(gaugeHomeRef.current)
+      gaugeAwayInstance.current = new window.google.visualization.Gauge(gaugeAwayRef.current)
+      drawGauge(gaugeHomeInstance.current, gaugeHomeRef.current, lastPoint.homePressure, homeTeam, homeOpts)
+      drawGauge(gaugeAwayInstance.current, gaugeAwayRef.current, lastPoint.awayPressure, awayTeam, awayOpts)
       gaugeReady.current = true
       lastHomeVal.current = lastPoint.homePressure
       lastAwayVal.current = lastPoint.awayPressure
       return
     }
 
-    // Subsequent updates: only redraw if value actually changed
-    const homeChanged = lastPoint.homePressure !== lastHomeVal.current
-    const awayChanged = lastPoint.awayPressure !== lastAwayVal.current
-
-    if (homeChanged && gaugeHomeInstance.current) {
-      const dt = new window.google.visualization.DataTable()
-      dt.addColumn('number', homeTeam)
-      dt.addColumn({ type: 'string', role: 'annotation' })
-      dt.addRows([[lastPoint.homePressure, `${Math.round(lastPoint.homePressure)}%`]])
-      gaugeHomeInstance.current.draw(dt, { width: gaugeHomeRef.current?.clientWidth || 160, height: 130 })
+    if (lastPoint.homePressure !== lastHomeVal.current && gaugeHomeInstance.current) {
+      drawGauge(gaugeHomeInstance.current, gaugeHomeRef.current, lastPoint.homePressure, homeTeam, homeOpts)
       lastHomeVal.current = lastPoint.homePressure
     }
-
-    if (awayChanged && gaugeAwayInstance.current) {
-      const dt = new window.google.visualization.DataTable()
-      dt.addColumn('number', awayTeam)
-      dt.addColumn({ type: 'string', role: 'annotation' })
-      dt.addRows([[lastPoint.awayPressure, `${Math.round(lastPoint.awayPressure)}%`]])
-      gaugeAwayInstance.current.draw(dt, { width: gaugeAwayRef.current?.clientWidth || 160, height: 130 })
+    if (lastPoint.awayPressure !== lastAwayVal.current && gaugeAwayInstance.current) {
+      drawGauge(gaugeAwayInstance.current, gaugeAwayRef.current, lastPoint.awayPressure, awayTeam, awayOpts)
       lastAwayVal.current = lastPoint.awayPressure
     }
   }, [loaded, lastPoint.homePressure, lastPoint.awayPressure, homeTeam, awayTeam])
 
   return (
-    <CleanChartCard title="Baski" homeTeam={homeTeam} awayTeam={awayTeam}>
-      <div className="px-2 pt-1 pb-2" style={{ transform: 'translateZ(0)' }}>
+    <CleanChartCard title="Basınç" homeTeam={homeTeam} awayTeam={awayTeam} homeColor={TEAM_COLORS.home} awayColor={TEAM_COLORS.away}>
+      <div ref={containerRef} className="px-2 pt-1 pb-2">
         <div className="flex items-center justify-center gap-4 mb-1">
-          {/* Ev gauge */}
-          <div className="flex flex-col items-center">
-            <div ref={gaugeHomeRef} className="w-[150px] h-[130px]" style={{ contain: 'layout paint style' }} />
+          <div className="flex flex-col items-center flex-1 min-w-0">
+            <div ref={gaugeHomeRef} style={{ width: gaugeWidthRef.current, height: 130 }} />
             <div className="flex items-center gap-1.5 -mt-1">
-              <div className="w-2 h-2 rounded-full bg-orange-500" />
-              <span className="text-[10px] font-semibold text-gray-700 truncate max-w-[80px]">{homeTeam}</span>
+              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: TEAM_COLORS.home }} />
+              <span className="text-[10px] font-semibold text-gray-700 truncate">{homeTeam}</span>
             </div>
           </div>
 
-          {/* Dominant gosterge */}
-          <div className="flex flex-col items-center justify-center px-2">
-            {dominantTeam ? (
-              <>
-                <div className={`text-[18px] font-black tracking-tight ${dominantTeam === homeTeam ? 'text-orange-500' : 'text-blue-500'}`}>
-                  {dominantTeam === homeTeam ? homeTeam.substring(0, 10) : awayTeam.substring(0, 10)}
-                </div>
-                <div className="text-[9px] text-gray-400 font-medium -mt-0.5">Baskin</div>
-              </>
-            ) : (
-              <>
-                <div className="text-[18px] font-black text-gray-400">=</div>
-                <div className="text-[9px] text-gray-400 font-medium -mt-0.5">Dengeli</div>
-              </>
-            )}
+          <div className="flex flex-col items-center justify-center px-1 shrink-0">
+            <div className="text-[18px] font-black tracking-tight" style={{
+              color: dominantTeam
+                ? (dominantTeam === homeTeam ? TEAM_COLORS.home : TEAM_COLORS.away)
+                : '#9ca3af'
+            }}>
+              {dominantTeam ? dominantTeam.substring(0, 12) : '='}
+            </div>
+            <div className="text-[9px] text-gray-400 font-medium -mt-0.5">
+              {dominantTeam ? 'Baskın' : 'Dengeli'}
+            </div>
           </div>
 
-          {/* Away gauge */}
-          <div className="flex flex-col items-center">
-            <div ref={gaugeAwayRef} className="w-[150px] h-[130px]" style={{ contain: 'layout paint style' }} />
+          <div className="flex flex-col items-center flex-1 min-w-0">
+            <div ref={gaugeAwayRef} style={{ width: gaugeWidthRef.current, height: 130 }} />
             <div className="flex items-center gap-1.5 -mt-1">
-              <div className="w-2 h-2 rounded-full bg-blue-500" />
-              <span className="text-[10px] font-semibold text-gray-700 truncate max-w-[80px]">{awayTeam}</span>
+              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: TEAM_COLORS.away }} />
+              <span className="text-[10px] font-semibold text-gray-700 truncate">{awayTeam}</span>
             </div>
           </div>
         </div>
 
-        {/* Baski seviyesi bar */}
-        <div className="relative h-6 mx-8 mb-1">
+        <div className="relative h-6 mx-4 mb-1">
           <div className="absolute inset-0 flex items-center">
             <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden flex">
-              <div
-                className="h-full rounded-l-full"
+              <div className="h-full rounded-l-full transition-all duration-500"
                 style={{
-                  width: `${lastPoint.homePressure / (lastPoint.homePressure + lastPoint.awayPressure || 1) * 100}%`,
-                  background: `linear-gradient(90deg, #f97316, #fb923c)`,
-                }}
-              />
-              <div
-                className="h-full rounded-r-full"
+                  width: `${lastPoint.homePressure / Math.max(1, lastPoint.homePressure + lastPoint.awayPressure) * 100}%`,
+                  background: `linear-gradient(90deg, ${TEAM_COLORS.home}, ${TEAM_COLORS.home}cc)`,
+                }} />
+              <div className="h-full rounded-r-full transition-all duration-500"
                 style={{
-                  width: `${lastPoint.awayPressure / (lastPoint.homePressure + lastPoint.awayPressure || 1) * 100}%`,
-                  background: `linear-gradient(270deg, #3b82f6, #60a5fa)`,
-                }}
-              />
+                  width: `${lastPoint.awayPressure / Math.max(1, lastPoint.homePressure + lastPoint.awayPressure) * 100}%`,
+                  background: `linear-gradient(270deg, ${TEAM_COLORS.away}, ${TEAM_COLORS.away}cc)`,
+                }} />
             </div>
           </div>
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-full bg-gray-300 rounded-full" />

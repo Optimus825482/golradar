@@ -4,7 +4,7 @@ import { useEffect, useRef, memo } from 'react'
 import { useGoogleCharts } from '@/lib/useGoogleCharts'
 import { CleanChartCard } from './CleanChartCard'
 
-export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, awayKey, homeName, awayName, yDomain, homeTeam, awayTeam, title }: {
+interface StatsLineChartProps {
   data: { minute: string | number; [key: string]: unknown }[]
   homeKey: string
   awayKey: string
@@ -14,11 +14,18 @@ export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, away
   homeTeam: string
   awayTeam: string
   title: string
-}) {
+}
+
+export const StatsLineChart = memo(function StatsLineChart({
+  data, homeKey, awayKey, homeName, awayName, yDomain, homeTeam, awayTeam, title
+}: StatsLineChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<any>(null)
+  const resizeHandlerRef = useRef<(() => void) | null>(null)
   const lastDataKey = useRef('')
   const { loaded } = useGoogleCharts(['corechart'])
+
+  const TEAM_COLORS = { home: '#f97316', away: '#3b82f6' }
 
   useEffect(() => {
     if (!loaded || !chartRef.current || !data?.length) return
@@ -35,24 +42,18 @@ export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, away
     dt.addColumn('number', homeName)
     dt.addColumn('number', awayName)
     dt.addRows(data.map(d => {
-      const min = typeof d.minute === 'number' ? d.minute : parseInt(String(d.minute ?? '').replace(/[^0-9]/g, ''), 10)
+      const raw = d.minute ?? ''
+      const min = typeof d.minute === 'number' ? d.minute : parseInt(String(raw).replace(/[^0-9]/g, ''), 10)
       return [isNaN(min) ? 0 : min, d[homeKey] ?? 0, d[awayKey] ?? 0]
     }))
 
-    const vAxisOpts: Record<string, unknown> = yDomain
-      ? {
-        textStyle: { fontSize: 10, color: '#94a3b8', fontName: 'Inter' },
-        gridlines: { color: '#f1f5f9', count: 5 },
-        minorGridlines: { count: 0 },
-        viewWindow: { min: yDomain[0], max: yDomain[1] },
-        baselineColor: '#e5e7eb',
-      }
-      : {
-        textStyle: { fontSize: 10, color: '#94a3b8', fontName: 'Inter' },
-        gridlines: { color: '#f1f5f9', count: 5 },
-        minorGridlines: { count: 0 },
-        baselineColor: '#e5e7eb',
-      }
+    const vAxisOpts: Record<string, unknown> = {
+      textStyle: { fontSize: 10, color: '#94a3b8', fontName: 'Inter' },
+      gridlines: { color: '#f1f5f9', count: 5 },
+      minorGridlines: { count: 0 },
+      baselineColor: '#e5e7eb',
+      ...(yDomain ? { viewWindow: { min: yDomain[0], max: yDomain[1] } } : {}),
+    }
 
     const options: Record<string, unknown> = {
       title,
@@ -62,7 +63,7 @@ export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, away
         textStyle: { fontSize: 11, color: '#64748b', fontName: 'Inter' },
         alignment: 'center',
       },
-      colors: ['#f97316', '#3b82f6'],
+      colors: [TEAM_COLORS.home, TEAM_COLORS.away],
       lineWidth: 3,
       pointSize: 3,
       pointShape: 'circle',
@@ -91,18 +92,29 @@ export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, away
     }
     chartInstance.current.draw(dt, options)
 
+    // Single stable resize handler (remove old one before adding new)
+    if (resizeHandlerRef.current) {
+      window.removeEventListener('resize', resizeHandlerRef.current)
+    }
     const handleResize = () => {
       if (!chartInstance.current || !chartRef.current) return
       options.width = chartRef.current.clientWidth
       chartInstance.current.draw(dt, options)
     }
+    resizeHandlerRef.current = handleResize
     window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [loaded, data, homeKey, awayKey, homeName, awayName, yDomain, title])
+
+    return () => {
+      if (resizeHandlerRef.current) {
+        window.removeEventListener('resize', resizeHandlerRef.current)
+        resizeHandlerRef.current = null
+      }
+    }
+  }, [loaded, data, homeKey, awayKey, homeName, awayName, yDomain, title, TEAM_COLORS.home, TEAM_COLORS.away])
 
   return (
-    <CleanChartCard title={title} homeTeam={homeTeam} awayTeam={awayTeam} homeColor="#f97316" awayColor="#3b82f6">
-      <div ref={chartRef} className="h-70 w-full" style={{ contain: 'layout paint style', willChange: 'transform', transform: 'translateZ(0)' }} />
+    <CleanChartCard title={title} homeTeam={homeTeam} awayTeam={awayTeam} homeColor={TEAM_COLORS.home} awayColor={TEAM_COLORS.away}>
+      <div ref={chartRef} className="h-70 w-full" style={{ willChange: 'transform', transform: 'translateZ(0)' }} />
     </CleanChartCard>
   )
 })

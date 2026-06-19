@@ -524,6 +524,33 @@ export async function calculateSignalStats(
     };
   }
 
+  // ── 🥇 PRIMARY: Goal success by time window ─────────────
+  // Ana başarı metriği: "Gol olacak" dedik, oldu mu?
+  // Excellent = 5dk içinde, Good = 10dk içinde, Late = 15dk içinde
+  const excellent = resolvedWithGoal.filter(s => (s.minutesAfterSignal ?? 999) <= 5).length;
+  const good = resolvedWithGoal.filter(s => {
+    const m = s.minutesAfterSignal ?? 999;
+    return m > 5 && m <= 10;
+  }).length;
+  const late = resolvedWithGoal.filter(s => {
+    const m = s.minutesAfterSignal ?? 999;
+    return m > 10 && m <= 15;
+  }).length;
+  const gFail = signalsWithoutGoal;
+  const gPending = signalsPending;
+  const gResolved = resolved.length;
+
+  const excellentRate = gResolved > 0 ? excellent / gResolved : 0;
+  const goodRate = gResolved > 0 ? good / gResolved : 0;
+  const lateRate = gResolved > 0 ? late / gResolved : 0;
+  const failRate = gResolved > 0 ? gFail / gResolved : 0;
+  const successRate = gResolved > 0 ? (excellent + good + late) / gResolved : 0;
+
+  // ── 🥈 SECONDARY: Side accuracy (sadece gol olanlarda) ──
+  const sideCorrect = resolvedWithGoal.filter(s => s.correctPrediction === true).length;
+  const sideIncorrect = resolvedWithGoal.filter(s => s.correctPrediction === false).length;
+  const sideTotal = sideCorrect + sideIncorrect;
+
   return {
     totalSignals,
     signalsWithGoal,
@@ -551,5 +578,20 @@ export async function calculateSignalStats(
     recentSignals,
     signalsByDay,
     signalsByMinuteRange,
+
+    // 🥇 PRIMARY — Goal success by time
+    goalPrimary: {
+      excellent, good, late,
+      fail: gFail,
+      pending: gPending,
+      excellentRate, goodRate, lateRate, failRate, successRate,
+    },
+
+    // 🥈 SECONDARY — Direction accuracy (only on signals with goals)
+    sideAccuracy: {
+      correct: sideCorrect,
+      incorrect: sideIncorrect,
+      rate: sideTotal > 0 ? sideCorrect / sideTotal : 0,
+    },
   };
 }

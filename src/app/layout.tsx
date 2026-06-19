@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+// Server-side init runs once on module load (seed admin, etc.)
+import "@/lib/init";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -68,7 +70,7 @@ export default function RootLayout({
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js').catch(() => {});
+                  navigator.serviceWorker.register('/sw.js').catch((e) => { console.error('[SW] Registration failed:', e); });
                 });
               }
             `,

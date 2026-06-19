@@ -1,3 +1,4 @@
+import { logError } from '@/lib/devLog';
 // ── Smart Calibration System ────────────────────────────────────────
 // League-aware, goal-timing adaptive calibration for the Goal Radar
 // 12-factor scoring model. Adjusts F8 (Match Minute Context) based on
@@ -170,7 +171,7 @@ function loadLeagueProfiles(): Map<number, LeagueGoalProfile> {
       const persisted: LeagueGoalProfile[] = JSON.parse(s2.fs.readFileSync(PROFILES_FILE, 'utf-8'));
       for (const p of persisted) map.set(p.leagueId, p);
     }
-  } catch { /* ignore */ }
+  } catch (e) { logError('smartCalibration', e); /* ignore */ }
   return map;
 }
 
@@ -193,7 +194,7 @@ export function loadCalibrationMode(): CalibrationMode {
     if (s2.fs.existsSync(MODE_FILE)) {
       return { ...DEFAULT_MODE, ...JSON.parse(s2.fs.readFileSync(MODE_FILE, 'utf-8')) };
     }
-  } catch { /* ignore */ }
+  } catch (e) { logError('smartCalibration', e); /* ignore */ }
   return { ...DEFAULT_MODE };
 }
 
@@ -359,12 +360,12 @@ export function calibrateF8(
     explanation = `${leagueLabel}: Ortalama gol ${profile.avgGoalMinute.toFixed(1)} dk (erken!) — ` +
       `dampener azaltıldı (${calibratedDampener.toFixed(2)}), ` +
       `tehlike bölgesi ${dangerZoneShift < 0 ? Math.abs(dangerZoneShift) + ' dk erken' : 'aynı'}, ` +
-      `devre arası yüksełmesi ${halftimeSurgeShift < 0 ? Math.abs(halftimeSurgeShift) + ' dk erken' : 'aynı'}`;
+      `devre arası yükselmesi ${halftimeSurgeShift < 0 ? Math.abs(halftimeSurgeShift) + ' dk erken' : 'aynı'}`;
   } else {
     explanation = `${leagueLabel}: Ortalama gol ${profile.avgGoalMinute.toFixed(1)} dk (geç) — ` +
       `dampener artırıldı (${calibratedDampener.toFixed(2)}), ` +
       `tehlike bölgesi ${dangerZoneShift > 0 ? dangerZoneShift + ' dk geç' : 'aynı'}, ` +
-      `geç yüksełme güçlendirildi (${calibratedDangerBoost.toFixed(2)})`;
+      `geç yükselme güçlendirildi (${calibratedDangerBoost.toFixed(2)})`;
   }
 
   return {
@@ -467,7 +468,7 @@ export function calculateOddsF8Compound(
 
   let explanation = '';
   if (homeCompoundPts > 0 || awayCompoundPts > 0) {
-    const zone = isDangerZone ? 'tehlike bölgesi' : isHalftimeSurge ? 'devre arası yüksełmesi' : '2. yarı artış';
+    const zone = isDangerZone ? 'tehlike bölgesi' : isHalftimeSurge ? 'devre arası yükselmesi' : '2. yarı artış';
     explanation = `Oran+F8 bileşik: ${oddsSignificance} oran hareketi × ${zone} = ` +
       `ev +${homeCompoundPts} / dep +${awayCompoundPts}`;
   } else {

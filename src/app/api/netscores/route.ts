@@ -58,8 +58,9 @@ export async function POST(request: Request) {
         })),
       });
     }
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'unknown error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
   return NextResponse.json({ error: "unknown action" }, { status: 400 });
 }
@@ -196,8 +197,9 @@ export async function GET(request: Request) {
       };
 
       return NextResponse.json({ netscoresUrl, details: fotmobCompatible });
-    } catch (error: any) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      return NextResponse.json({ error: message }, { status: 500 });
     }
   }
 
@@ -209,8 +211,9 @@ export async function GET(request: Request) {
       const ids = idsParam.split(",").map(Number).filter(n => !isNaN(n));
       const timers = await fetchGameTimers(ids);
       return NextResponse.json({ timers });
-    } catch (error: any) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      return NextResponse.json({ error: message }, { status: 500 });
     }
   }
 
@@ -228,8 +231,9 @@ export async function GET(request: Request) {
           minute: g.timer.current_minute, league: g.league.name, country: g.league.country?.code,
         })),
       });
-    } catch (error: any) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      return NextResponse.json({ error: message }, { status: 500 });
     }
   }
 

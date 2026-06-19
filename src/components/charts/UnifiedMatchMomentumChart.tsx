@@ -149,13 +149,6 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
   const mdRef = useRef(md)
   mdRef.current = md
 
-  // ResizeObserver for container width
-  useEffect(() => {
-    const el = svgRef.current; if (!el) return
-    const ro = new ResizeObserver(es => { for (const e of es) { /* just trigger stable layout */ } })
-    ro.observe(el); return () => ro.disconnect()
-  }, [])
-
   // Stable path updates via DOM refs
   useEffect(() => {
     if (md.length < 2) return

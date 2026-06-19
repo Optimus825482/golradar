@@ -5,13 +5,12 @@ import { useGoogleCharts } from '@/lib/useGoogleCharts'
 import { CleanChartCard } from './CleanChartCard'
 
 export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, awayKey, homeName, awayName, yDomain, homeTeam, awayTeam, title }: {
-  data: any[]
+  data: { minute: string | number; [key: string]: unknown }[]
   homeKey: string
   awayKey: string
   homeName: string
   awayName: string
   yDomain?: [number, number]
-  yFormatter?: (v: number) => string
   homeTeam: string
   awayTeam: string
   title: string
@@ -36,8 +35,8 @@ export const StatsLineChart = memo(function StatsLineChart({ data, homeKey, away
     dt.addColumn('number', homeName)
     dt.addColumn('number', awayName)
     dt.addRows(data.map(d => {
-      const min = typeof d.minute === 'number' ? d.minute : parseInt(String(d.minute).replace(/[^0-9]/g, ''), 10)
-      return [min, d[homeKey] ?? 0, d[awayKey] ?? 0]
+      const min = typeof d.minute === 'number' ? d.minute : parseInt(String(d.minute ?? '').replace(/[^0-9]/g, ''), 10)
+      return [isNaN(min) ? 0 : min, d[homeKey] ?? 0, d[awayKey] ?? 0]
     }))
 
     const vAxisOpts: Record<string, unknown> = yDomain

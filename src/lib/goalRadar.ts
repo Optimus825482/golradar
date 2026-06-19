@@ -14,6 +14,7 @@ import {
 import { getSmartF8Adjustment, calculateOddsF8Compound, calibrateF8, loadCalibrationMode } from './smartCalibration';
 import { inPlayGoalProbability, calculateExpectedGoals, calculateMatchProbabilities, getTimeBasedGoalMultiplier } from './dixonColes';
 import { calibrateScore } from './calibration';
+import { logError } from '@/lib/devLog';
 
 export interface PressureSnapshotLite {
   homePressure: number;
@@ -371,9 +372,7 @@ export function calculateGoalProbability(
       const f8Adj = getSmartF8Adjustment(minNum, leagueId ?? null);
       minuteMultiplier = f8Adj.minuteMultiplier;
       if (f8Adj.factorDescription) sharedFactors.push(f8Adj.factorDescription);
-    } catch {
-      /* fallback */
-    }
+    } catch (e) { logError('goalRadar', e); /* fallback */ }
     if (!useSmartCalibration) {
       if ((minNum >= 1 && minNum <= 5) || (minNum >= 46 && minNum <= 50))
         minuteMultiplier = 0.7;
@@ -837,9 +836,7 @@ export function calculateGoalProbability(
         if (compound.awayCompoundPts >= 2)
           awayFactors.push(`Oran+F8 bileşik +${compound.awayCompoundPts}`);
       }
-    } catch {
-      /* fallback */
-    }
+    } catch (e) { logError('goalRadar', e); /* fallback */ }
   }
 
   homeScore = Math.min(100, homeScore);
@@ -1103,9 +1100,7 @@ export function calculateGoalProbability(
     awayScore = Math.round(
       awayScore * 0.9 + poissonResult.awayGoalP * 100 * 0.1,
     );
-  } catch {
-    /* fallback */
-  }
+  } catch (e) { logError('goalRadar', e); /* fallback */ }
 
   // Probability calibration
   let calibratedP = 0;
@@ -1119,9 +1114,7 @@ export function calculateGoalProbability(
   let timeMultiplier = 1.0;
   try {
     timeMultiplier = getTimeBasedGoalMultiplier(minNum);
-  } catch {
-    /* fallback */
-  }
+  } catch (e) { logError('goalRadar', e); /* fallback */ }
 
   let finalHomeScore = Math.round(
     Math.max(0, Math.min(85, Math.round(homeScore * timeMultiplier))),
@@ -1148,9 +1141,7 @@ export function calculateGoalProbability(
       minNum <= 15 ? 0.7 : minNum <= 45 ? 1.0 : minNum <= 75 ? 1.15 : 1.35;
     goalProbability5min *= minuteScale;
     goalProbability5min = Math.min(0.95, goalProbability5min);
-  } catch {
-    /* fallback */
-  }
+  } catch (e) { logError('goalRadar', e); /* fallback */ }
 
   // ── FotMob Intelligence Integration ─────────────────────────────
   // Applies weather, squad, H2H, form, and formation adjustments

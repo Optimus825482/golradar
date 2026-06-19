@@ -43,12 +43,25 @@ import { CountryFlag, MatchStatusBadge, GoalRadarIcon, StatBar } from '@/compone
 import { MatchCard } from '@/components/match/MatchCard'
 import { FinishedMatchCard } from '@/components/match/FinishedMatchCard'
 import { MatchDetailContent } from '@/components/match/MatchDetailContent'
+import type { MatchDetailContentProps } from '@/components/match/MatchDetailContent'
 import { FinishedMatchesView } from '@/components/match/FinishedMatchesView'
 import { BottomNavBar } from '@/components/match/BottomNavBar'
 import { GoalRadarSection } from '@/components/match/GoalRadarSection'
+import { logError } from '@/lib/devLog';
 
 const POLL_INTERVAL = 15000
 const GOAL_FLASH_DURATION = 15000
+
+// Parse minute string handling stoppage time: "45+2" → 47, "90" → 90
+function parseGoalMinute(minute: string | number): number {
+  if (typeof minute === 'number') return Math.max(0, minute)
+  const plusMatch = minute.match(/^(\d+)\s*\+\s*(\d+)/)
+  if (plusMatch) {
+    return parseInt(plusMatch[1], 10) + parseInt(plusMatch[2], 10)
+  }
+  const num = parseInt(minute.replace(/[^0-9]/g, ''), 10)
+  return isNaN(num) ? 0 : num
+}
 
 export default function OptimusGolRadariPage() {
   const [matches, setMatches] = useState<Match[]>([])
@@ -135,21 +148,33 @@ export default function OptimusGolRadariPage() {
     })
   }, [])
 
-  // Fetch matches
+  // Refs to break stale closure cycles
+  const selectedMatchRef = useRef<Match | null>(null)
+  const matchesRef = useRef<Match[]>([])
+
+  // Keep refs in sync with state
+  useEffect(() => { selectedMatchRef.current = selectedMatch }, [selectedMatch])
+  useEffect(() => { matchesRef.current = matches }, [matches])
+
+  // Stable fetchMatches — no state deps to prevent interval reset loop
   const fetchMatches = useCallback(async () => {
     try {
       const resp = await fetch('/api/matches', { cache: 'no-store' })
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
-      setMatches(data.matches || [])
-      setAllPressureData(data.pressureData || {})
+      const newMatches: Match[] = data.matches || []
+      const newPressureData: Record<number, PressureSnapshot[]> = data.pressureData || {}
+
+      setMatches(newMatches)
+      setAllPressureData(newPressureData)
       setTeamLogos(data.teamLogos || {})
       setLastUpdate(new Date())
       setError(null)
       retryCountRef.current = 0
 
+      // Expire halftime signals (fire-and-forget)
       const halftimeCodes = new Set<number>()
-      for (const m of (data.matches || [])) {
+      for (const m of newMatches) {
         if (HALFTIME_STATUSES.has(m.status)) halftimeCodes.add(m.code)
       }
       if (halftimeCodes.size > 0) {
@@ -157,28 +182,31 @@ export default function OptimusGolRadariPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'expireHalftime', matchCodes: [...halftimeCodes] }),
-        }).catch(() => {})
+        }).catch((e) => { logError('page', e); })
       }
 
-      if (selectedMatch && data.pressureData && data.pressureData[selectedMatch.code]) {
-        const updatedMatch = (data.matches || []).find((m: Match) => m.code === selectedMatch.code)
+      // Update pressure snapshots for currently selected match (via ref, not state)
+      const currentSelected = selectedMatchRef.current
+      if (currentSelected && newPressureData[currentSelected.code]) {
+        const updatedMatch = newMatches.find((m: Match) => m.code === currentSelected.code)
         const isHalftime = updatedMatch ? HALFTIME_STATUSES.has(updatedMatch.status) : false
         if (!isHalftime) {
-          setPressureSnapshots(data.pressureData[selectedMatch.code])
+          setPressureSnapshots(newPressureData[currentSelected.code])
         }
       }
 
+      // Update selected match data if still selected
       setSelectedMatch(prev => {
         if (!prev) return prev
-        const updated = (data.matches || []).find((m: Match) => m.code === prev.code)
+        const updated = newMatches.find((m: Match) => m.code === prev.code)
         return updated || prev
       })
 
       setIsLoading(false)
     } catch (err) {
-      console.error('Fetch error:', err)
+      logError('page', 'Fetch error:', err)
       retryCountRef.current += 1
-      if (matches.length === 0) {
+      if (matchesRef.current.length === 0) {
         if (retryCountRef.current > MAX_RETRIES) {
           setError('Sunucuya bağlanılamadı. Lütfen daha sonra tekrar deneyin.')
         } else {
@@ -191,8 +219,9 @@ export default function OptimusGolRadariPage() {
         setTimeout(() => fetchMatches(), delay)
       }
     }
-  }, [selectedMatch, matches.length])
+  }, []) // Stable: no state deps, uses refs for latest values
 
+  // Stable polling — interval never resets due to fetchMatches reference stability
   useEffect(() => {
     fetchMatches()
     intervalRef.current = setInterval(fetchMatches, POLL_INTERVAL)
@@ -211,7 +240,7 @@ export default function OptimusGolRadariPage() {
     if (matches.length === 0) return
     buildNetscoresMapping(matches.map(m => ({ code: m.code, home: m.home, away: m.away, time: m.time })))
       .then(setNetscoresMapping)
-      .catch(() => {})
+      .catch((e) => { logError('page', e); })
   }, [matches])
 
   const fetchNetScoresDetails = useCallback(async (match: Match, mapping?: Record<number, string>) => {
@@ -241,7 +270,7 @@ export default function OptimusGolRadariPage() {
         }
       }
     } catch (err) {
-      console.error('NetScores fetch error:', err)
+      logError('page', 'NetScores fetch error:', err);
     }
     setFotmobLoading(false)
   }, [netscoresMapping])
@@ -257,7 +286,7 @@ export default function OptimusGolRadariPage() {
       const data = await resp.json()
       setFinishedMatches(data.matches || [])
     } catch (err) {
-      console.error('Finished matches fetch error:', err)
+      logError('page', 'Finished matches fetch error:', err);
       setFinishedError('Biten maçlar yüklenemedi')
     }
     setFinishedLoading(false)
@@ -268,7 +297,7 @@ export default function OptimusGolRadariPage() {
     if (finishedMatches.length === 0) return
     buildNetscoresMapping(finishedMatches.map(m => ({ code: m.code, home: m.home, away: m.away, time: m.time })))
       .then(setFinishedNetscoresMapping)
-      .catch(() => {})
+      .catch((e) => { logError('page', e); })
   }, [finishedMatches])
 
   // Build Scoremer mapping for finished matches
@@ -291,7 +320,7 @@ export default function OptimusGolRadariPage() {
           }
           setScoremerMapping(map)
         }
-      } catch {}
+      } catch (e) { logError('page', e); }
     }
     buildScoremerMappingFn()
   }, [finishedMatches])
@@ -325,7 +354,7 @@ export default function OptimusGolRadariPage() {
         }
       }
     } catch (err) {
-      console.error('Scoremer fetch error:', err)
+      logError('page', 'Scoremer fetch error:', err);
     }
     setScoremerLoading(false)
   }, [scoremerMapping])
@@ -352,7 +381,7 @@ export default function OptimusGolRadariPage() {
             setGoalooOddsMovement({ homeBoost: data.homeBoost || 0, awayBoost: data.awayBoost || 0, significance: data.significance })
           }
         })
-        .catch(() => {})
+        .catch((e) => { logError('page', e); })
     } else {
       const matchDate = match.isFinished
         ? (finishedDate || new Date().toISOString().slice(0, 10))
@@ -369,10 +398,10 @@ export default function OptimusGolRadariPage() {
                   setGoalooOddsMovement({ homeBoost: odata.homeBoost || 0, awayBoost: odata.awayBoost || 0, significance: odata.significance })
                 }
               })
-              .catch(() => {})
+              .catch((e) => { logError('page', e); })
           }
         })
-        .catch(() => {})
+        .catch((e) => { logError('page', e); })
     }
   }, [allPressureData, netscoresMapping, finishedNetscoresMapping, fetchScoremerDetails, goalooMatchIdMap, finishedDate])
 
@@ -403,15 +432,15 @@ export default function OptimusGolRadariPage() {
           fetch('/api/goal-signals', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'reportGoal', matchCode: m.code, goalSide: 'home', goalMinute: parseInt(m.minute) || 0 }),
-          }).catch(() => { })
+            body: JSON.stringify({ action: 'reportGoal', matchCode: m.code, goalSide: 'home', goalMinute: parseGoalMinute(m.minute) }),
+          }).catch((e) => { logError('page', e); })
         }
         if (awayScored) {
           fetch('/api/goal-signals', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'reportGoal', matchCode: m.code, goalSide: 'away', goalMinute: parseInt(m.minute) || 0 }),
-          }).catch(() => { })
+            body: JSON.stringify({ action: 'reportGoal', matchCode: m.code, goalSide: 'away', goalMinute: parseGoalMinute(m.minute) }),
+          }).catch((e) => { logError('page', e); })
         }
 
         if (typeof window !== 'undefined') {
@@ -439,7 +468,7 @@ export default function OptimusGolRadariPage() {
       const MATCH_ENDED = [3, 28, 30, 40, 50, 60, 70, 80, 90, 100]
       if (MATCH_ENDED.includes(m.status) && prev.status !== m.status) {
         fetch(`/api/goal-signals?action=finalize&matchCode=${m.code}&homeScore=${m.homeGoals}&awayScore=${m.awayGoals}`)
-          .catch(() => { })
+          .catch((e) => { logError('page', e); })
       }
     }
 
@@ -465,27 +494,13 @@ export default function OptimusGolRadariPage() {
     return () => clearInterval(interval)
   }, [])
 
-  // Goal probabilities + Signal tracking (via API for persistence)
+  // Goal probabilities — pure computation only, no side-effects
   const goalProbabilities = useMemo(() => {
     const map = new Map<number, GoalProbability>()
     for (const m of matches) {
       if (!m.isLive || !m.hasStats || (m.status === 3 || m.status === 28)) continue
       if (m.goalRadar && m.goalRadar.score >= 60 && m.goalRadar.goalProbability5min >= 0.25) {
         map.set(m.code, m.goalRadar)
-        if (m.goalRadar.score >= 60 && m.goalRadar.side) {
-          fetch('/api/goal-signals', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              matchCode: m.code, homeTeam: m.home, awayTeam: m.away, league: m.league,
-              matchTime: m.time, minute: m.minute, score: m.goalRadar.score,
-              side: m.goalRadar.side, homeGoals: m.homeGoals, awayGoals: m.awayGoals,
-              homeScore: m.goalRadar.homeScore, awayScore: m.goalRadar.awayScore,
-              level: m.goalRadar.level, factors: m.goalRadar.factors,
-              calibratedP: m.goalRadar.calibratedP, poissonP: m.goalRadar.poissonP,
-            }),
-          }).catch(() => {})
-        }
         continue
       }
       const history = allPressureData[m.code]
@@ -494,24 +509,44 @@ export default function OptimusGolRadariPage() {
       )
       if (prob.score >= 60 && prob.goalProbability5min >= 0.25) {
         map.set(m.code, prob)
-        if (prob.score >= 60 && prob.side) {
-          fetch('/api/goal-signals', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              matchCode: m.code, homeTeam: m.home, awayTeam: m.away, league: m.league,
-              matchTime: m.time, minute: m.minute, score: prob.score,
-              side: prob.side, homeGoals: m.homeGoals, awayGoals: m.awayGoals,
-              homeScore: prob.homeScore, awayScore: prob.awayScore,
-              level: prob.level, factors: prob.factors,
-              calibratedP: prob.calibratedP, poissonP: prob.poissonP,
-            }),
-          }).catch(() => {})
-        }
       }
     }
     return map
   }, [matches, allPressureData])
+
+  // Signal posting — isolated in its own effect so fetch calls don't
+  // fire inside a useMemo (React anti-pattern). A ref tracks which
+  // match+side+minute combos have already been posted to prevent
+  // duplicate signals on re-render.
+  const postedSignalsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const posted = postedSignalsRef.current
+    for (const [code, prob] of goalProbabilities) {
+      if (!prob || !prob.side) continue
+      const m = matches.find(x => x.code === code)
+      if (!m) continue
+      const signalKey = `${code}:${prob.side}:${m.minute}`
+      if (posted.has(signalKey)) continue
+      posted.add(signalKey)
+      fetch('/api/goal-signals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          matchCode: code, homeTeam: m.home, awayTeam: m.away, league: m.league,
+          matchTime: m.time, minute: m.minute, score: prob.score,
+          side: prob.side, homeGoals: m.homeGoals, awayGoals: m.awayGoals,
+          homeScore: prob.homeScore, awayScore: prob.awayScore,
+          level: prob.level, factors: prob.factors,
+          calibratedP: prob.calibratedP, poissonP: prob.poissonP,
+        }),
+      }).catch((e) => { logError('page', e); })
+    }
+    // Keep set from growing unbounded — cap at 500 entries
+    if (posted.size > 500) {
+      const arr = [...posted]
+      postedSignalsRef.current = new Set(arr.slice(arr.length - 300))
+    }
+  }, [goalProbabilities, matches])
 
   const radarCount = goalProbabilities.size
 
@@ -768,7 +803,7 @@ export default function OptimusGolRadariPage() {
           onToggleFavorite={toggleFavorite}
           onFetchFinished={fetchFinishedMatches}
           onSetDate={setFinishedDate}
-          onSetActiveTab={setActiveTab as any}
+          onSetActiveTab={(tab: string) => setActiveTab(tab as BottomTab)}
           setFinishedMatches={setFinishedMatches}
         />
       )
@@ -956,7 +991,7 @@ export default function OptimusGolRadariPage() {
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div><MatchDetailContent {...(detailProps as any)} /></div>
+            <div><MatchDetailContent {...detailProps as MatchDetailContentProps} /></div>
           </div>
         )}
       </div>
@@ -976,7 +1011,7 @@ export default function OptimusGolRadariPage() {
               </div>
             </DrawerHeader>
             <div className="overflow-y-auto" style={{ maxHeight: 'calc(92dvh - 80px)' }}>
-              {selectedMatch && detailProps && <MatchDetailContent {...(detailProps as any)} />}
+              {selectedMatch && detailProps && <MatchDetailContent {...detailProps as MatchDetailContentProps} />}
             </div>
           </DrawerContent>
         </Drawer>

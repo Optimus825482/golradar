@@ -223,7 +223,7 @@ export const POST = adminRoute(async (request: Request) => {
       if (dataset_id) {
         await db.trainingDataset
           .update({ where: { id: dataset_id }, data: { status: "consumed" } })
-          .catch(() => {});
+          .catch((e) => { console.error('[train] trainingDataset update error:', e); });
       }
 
       // Tell the trainer sidecar the file is ready (writes .ready marker)

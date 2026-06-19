@@ -12,6 +12,7 @@ import type { MatchStats } from './nesineTypes';
 import { estimateXgFromShots as estimateXgShared } from './estimateXg';
 import { predictFromElo, getFormIndex, getRating } from './eloRating';
 import { getTimeBasedGoalMultiplier } from './dixonColes';
+import { logError } from '@/lib/devLog';
 
 // ── Feature Vector Definition ──────────────────────────────────────
 
@@ -140,8 +141,15 @@ function normRate(per15min: number, maxExpected: number = 10): number {
 export async function extractFeatures(input: FeatureExtractionInput): Promise<MatchFeatures> {
   const { stats, minute, homeGoals, awayGoals, pressureHistory, weather, homeTeam, awayTeam } = input;
 
-  // Parse minute
-  let minNum = parseInt(minute.replace(/[^0-9]/g, ''), 10);
+  // Parse minute (handle stoppage time correctly: "45+2'" -> 47)
+  let minNum = (() => {
+    const plusMatch = minute.match(/^(\d+)\s*\+\s*(\d+)/);
+    if (plusMatch) {
+      return parseInt(plusMatch[1], 10) + parseInt(plusMatch[2], 10);
+    }
+    const num = parseInt(minute.replace(/[^0-9]/g, ''), 10);
+    return isNaN(num) ? 45 : num;
+  })();
   if (!minNum || minNum === 0) minNum = 45;
   minNum = Math.max(1, Math.min(120, minNum));
 
@@ -198,18 +206,9 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
   const sotRatioH = totalShotsH > 0 ? sotH / totalShotsH : 0;
   const sotRatioA = totalShotsA > 0 ? sotA / totalShotsA : 0;
 
-  // xG estimation (Faz 1 improved formula)
-  const blockedH = getStat('shots_blocked', 'home');
-  const blockedA = getStat('shots_blocked', 'away');
-  const offTargetH = Math.max(0, totalShotsH - sotH - blockedH);
-  const offTargetA = Math.max(0, totalShotsA - sotA - blockedA);
-
-  const xgHome = stats.xg?.home != null && stats.xg.home > 0
-    ? stats.xg.home
-    : sotH * 0.38 + offTargetH * 0.05 + blockedH * 0.03 + cornersH * 0.04 + daH * 0.01;
-  const xgAway = stats.xg?.away != null && stats.xg.away > 0
-    ? stats.xg.away
-    : sotA * 0.38 + offTargetA * 0.05 + blockedA * 0.03 + cornersA * 0.04 + daA * 0.01;
+  // xG estimation (shared formula from estimateXg.ts)
+  const xgHome = estimateXgShared(stats, 'home', minNum);
+  const xgAway = estimateXgShared(stats, 'away', minNum);
 
   // ── Set piece features ──
   const fkH = getStat('free_kicks', 'home');
@@ -253,7 +252,7 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
       awayFormIdx = getFormIndex(awayTeam);
       homeEloMatches = (getRating(homeTeam)?.matchesPlayed ?? 0) / 50;
       awayEloMatches = (getRating(awayTeam)?.matchesPlayed ?? 0) / 50;
-    } catch {}
+    } catch (e) { logError('featureEngineering', e); }
   }
 
   // ── xG advanced features ──

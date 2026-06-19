@@ -16,10 +16,10 @@ import {
 import { getCachedMatchDetails } from "@/lib/fotmob";
 import { autoFetchMissingRatings, getRating } from "@/lib/eloRating";
 import { db } from "@/lib/db";
-import { checkForGoals } from "@/lib/goalSignalTracker";
 import { extractFeatures, featuresToArray } from "@/lib/featureEngineering";
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
+import { logError } from '@/lib/devLog';
 
 export const dynamic = "force-dynamic";
 
@@ -106,7 +106,7 @@ async function hydrateFromDB(matchCode: number, history: MatchPressureHistory) {
         stats,
       });
     }
-  } catch { /* DB unavailable — fall back to current-session only */ }
+  } catch (e) { logError('route', e); /* DB unavailable — fall back to current-session only */ }
 }
 
 function updatePressureHistory(match: ParsedMatch) {
@@ -150,7 +150,7 @@ function updatePressureHistory(match: ParsedMatch) {
       awayGoals: match.awayGoals,
       statsJson: JSON.stringify(match.stats),
     },
-  }).catch(() => {});
+  }).catch((e) => { logError('route', e); });
 
   if (history.snapshots.length > 540) {
     history.snapshots = history.snapshots.slice(-540);
@@ -163,7 +163,7 @@ export async function GET(request: Request) {
 
   // Best-effort async hydration of the in-memory FotMob ID cache.
   // Failure is silent — route continues with non-enriched goalRadar.
-  void hydrateFotMobIdCache().catch(() => {});
+  void hydrateFotMobIdCache().catch((e) => { logError('route', e); });
 
   let resp;
   try {
@@ -213,21 +213,6 @@ export async function GET(request: Request) {
 
     const parsed = parseMatch(m);
     updatePressureHistory(parsed);
-
-    // Fire-and-forget goal verification for live matches
-    if (parsed.isLive && parsed.hasStats) {
-      const currentMinute =
-        parseInt(parsed.minute.replace(/[^0-9]/g, ""), 10) || 0;
-      const today = new Date();
-      const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-      void checkForGoals(
-        parsed.code,
-        parsed.homeGoals,
-        parsed.awayGoals,
-        currentMinute,
-        localDate,
-      ).catch(() => {});
-    }
 
     const hist = pressureHistory.get(parsed.code);
     let goalRadar: GoalProbability | undefined;
@@ -301,9 +286,7 @@ export async function GET(request: Request) {
                   championP = predictXgb(champ.model, fa);
                   break;
                 }
-              } catch {
-                /* try next */
-              }
+              } catch (e) { logError('route', e); /* try next */ }
             }
           } catch {
             // features not available — log without them
@@ -334,7 +317,7 @@ export async function GET(request: Request) {
                 modelVariant: "champion",
               },
             })
-            .catch(() => {});
+            .catch((e) => { logError('route', e); });
         })();
       }
     }
@@ -361,7 +344,7 @@ export async function GET(request: Request) {
   // Auto-fetch missing Elo ratings in background (fire-and-forget)
   if (matches.length > 0) {
     const teamNames = matches.flatMap((m) => [m.home, m.away]).filter(Boolean);
-    void autoFetchMissingRatings(teamNames).catch(() => {});
+    void autoFetchMissingRatings(teamNames).catch((e) => { logError('route', e); });
   }
 
   // Resolve FotMob logo URLs from TeamMapping for each team

@@ -18,6 +18,7 @@ import {
 } from "./xgbLoader";
 import { loadTeamStrength, type TeamStrengthModel } from './teamStrengthKalman';
 import { loadXtGrid, type XtGrid } from './xtGrid';
+import { logError } from '@/lib/devLog';
 
 export type ModelName = 'gbdt' | 'xgb' | 'inplay' | 'team-strength' | 'xt-grid';
 
@@ -296,7 +297,7 @@ export async function deleteArtifact(
   if (deleteFile) {
     try {
       const { unlink } = await import('fs/promises');
-      await unlink(artifact.artifactPath).catch(() => {});
+      await unlink(artifact.artifactPath).catch((e) => { logError('modelRouter', e); });
     } catch {
       // ignore if file doesn't exist
     }

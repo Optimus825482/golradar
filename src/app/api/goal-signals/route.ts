@@ -5,7 +5,6 @@ import {
   getSignalForMatch,
   getAvailableDates,
   checkAndRecordSignal,
-  checkForGoals,
   finalizeMatchSignals,
   reportGoal,
   cleanupStaleSignals,
@@ -14,6 +13,8 @@ import {
   startExpiryChecker,
 } from "@/lib/goalSignalTracker";
 import { rateLimit, RATE_LIMIT_DEFAULTS } from "@/lib/rateLimit";
+import { validateSession } from "@/lib/auth";
+import { logError } from '@/lib/devLog';
 
 // Start background expiry checker for pending signals
 startExpiryChecker();
@@ -187,12 +188,57 @@ function validateReportGoal(body: unknown): Validation<{
 }
 
 // ── Auth gate ──────────────────────────────────────────────────
-// Removed: API is open by design (internal/local service, runs behind
-// reverse proxy / Caddy in this stack). Rate limit + input validation
-// provide the practical protection layer.
+// Destructive admin-only actions (cleanup) require a valid admin
+// session token. reportGoal / expireHalftime / finalize are called
+// from the client-side poller as part of real-time goal detection;
+// they require origin validation to prevent external abuse.
+async function requireAdmin(request: Request): Promise<{ ok: boolean; reason?: string }> {
+  const auth = request.headers.get("authorization");
+  if (!auth) return { ok: false, reason: "no auth header" };
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (!m) return { ok: false, reason: "malformed auth header" };
+  const result = await validateSession(m[1].trim());
+  return result;
+}
+
+// Validates that the request originates from the same application
+// (same-origin check). Provides basic CSRF / external abuse protection
+// for endpoints that must be callable from client-side code.
+function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  const referer = request.headers.get("referer");
+  if (!origin && !referer) return false; // No origin info = likely external
+  try {
+    const allowedHosts = [
+      "localhost:3000",
+      "localhost:3001",
+      "golradari.com",
+      "www.golradari.com",
+      ...(process.env.ALLOWED_ORIGINS?.split(",").map(s => s.trim()) || []),
+    ];
+    const checkUrl = (url: string) => {
+      try {
+        const u = new URL(url);
+        return allowedHosts.some(h => u.host === h || u.host.endsWith("." + h));
+      } catch { return false; }
+    };
+    if (origin && checkUrl(origin)) return true;
+    if (referer && checkUrl(referer)) return true;
+  } catch { /* fall through */ }
+  return false;
+}
+
+// Stricter rate limiter for unauthenticated write endpoints
+function requireClientRateLimit(request: Request): { allowed: boolean; reason?: string } {
+  const ip = getClientIp(request);
+  // Stricter limit: 30 writes per minute (not per IP — per endpoint+IP)
+  const rl = rateLimit(`goal-signals-write:${ip}`, { windowMs: 60000, maxRequests: 30 });
+  if (!rl.allowed) return { allowed: false, reason: "rate_limited" };
+  return { allowed: true };
+}
 
 
-// GET /api/goal-signals?action=stats|records|match|dates&date=...&matchCode=...&days=...
+// GET /api/goal-signals?action=stats|records|match|dates|finalize&date=...&matchCode=...&days=...
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action") || "stats";
@@ -251,7 +297,7 @@ export async function GET(request: Request) {
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "internal_error";
-    console.error("[GoalSignals API] Error:", error);
+    logError('GoalSignals API', 'GET Error:', error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -276,6 +322,10 @@ export async function POST(request: Request) {
       const action = (body as Record<string, unknown>).action;
 
       if (action === "expireHalftime") {
+        // Client-triggered action: require same-origin validation
+        if (!isSameOrigin(request)) {
+          return NextResponse.json({ error: "forbidden" }, { status: 403 });
+        }
         const v = validateExpireHalftime(body);
         if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
         const expired = await expireSignalsForHalftime(new Set(v.value));
@@ -283,6 +333,8 @@ export async function POST(request: Request) {
       }
 
       if (action === "cleanup") {
+        const auth = await requireAdmin(request);
+        if (!auth.ok) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
         const v = validateCleanup(body);
         if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
         await cleanupStaleSignals(v.value);
@@ -290,11 +342,22 @@ export async function POST(request: Request) {
       }
 
       if (action === "checkPending") {
+        // Admin-only action
+        const auth = await requireAdmin(request);
+        if (!auth.ok) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
         const result = await checkPendingSignals();
         return NextResponse.json({ ok: true, ...result });
       }
 
       if (action === "reportGoal") {
+        // Client-triggered from goal detection: require same-origin + stricter rate limit
+        if (!isSameOrigin(request)) {
+          return NextResponse.json({ error: "forbidden" }, { status: 403 });
+        }
+        const clRl = requireClientRateLimit(request);
+        if (!clRl.allowed) {
+          return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+        }
         const v = validateReportGoal(body);
         if (!v.ok)
           return NextResponse.json({ error: v.error }, { status: 400 });
@@ -305,6 +368,11 @@ export async function POST(request: Request) {
         );
         return NextResponse.json({ ok: true });
       }
+    }
+
+    // Signal recording from client-side poller: require same-origin
+    if (!isSameOrigin(request)) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
     const v = validateRecordBody(body);
@@ -344,7 +412,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: "Signal below threshold or cooldown" });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "internal_error";
-    console.error("[GoalSignals API] POST Error:", error);
+    logError('GoalSignals API', 'POST Error:', error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

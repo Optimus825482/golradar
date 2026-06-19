@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { logError } from '@/lib/devLog';
 
 interface GoalSignalRecord {
   matchCode: number;
@@ -40,6 +41,7 @@ type PeriodType = "1" | "7" | "30" | "all";
 export default function SignalHistoryPanel() {
   const [signals, setSignals] = useState<GoalSignalRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterType>("all");
   const [period, setPeriod] = useState<PeriodType>("7");
   const [searchTeam, setSearchTeam] = useState("");
@@ -54,8 +56,14 @@ export default function SignalHistoryPanel() {
       if (resp.ok) {
         const data = await resp.json();
         setSignals(data.recentSignals || []);
+        setFetchError(null);
+      } else {
+        setFetchError(`API hatası: ${resp.status}`);
       }
-    } catch {} finally {
+    } catch (e) {
+      logError('SignalHistoryPanel', e);
+      setFetchError('Veri alınamadı. Bağlantıyı kontrol edin.');
+    } finally {
       setLoading(false);
     }
   }, [period]);
@@ -67,7 +75,7 @@ export default function SignalHistoryPanel() {
         const data = await resp.json();
         setBacktestRuns(data.runs || []);
       }
-    } catch {}
+    } catch (e) { logError('SignalHistoryPanel', e); }
   }, []);
 
   useEffect(() => { fetchSignals(); }, [fetchSignals]);
@@ -103,9 +111,11 @@ export default function SignalHistoryPanel() {
   const success = signals.filter(s => s.goalHappened === true).length;
   const failed = signals.filter(s => s.goalHappened === false).length;
   const pending = signals.filter(s => s.goalHappened === null).length;
+  // Accuracy: only count signals where a side prediction was actually made
+  const withPrediction = signals.filter(s => s.correctPrediction !== null).length;
   const correct = signals.filter(s => s.correctPrediction === true).length;
   const resolved = success + failed;
-  const accuracyRate = resolved > 0 ? correct / resolved : 0;
+  const accuracyRate = withPrediction > 0 ? correct / withPrediction : 0;
   const goalRate = resolved > 0 ? success / resolved : 0;
 
   const statusBadge = (s: GoalSignalRecord) => {
@@ -206,7 +216,7 @@ export default function SignalHistoryPanel() {
                       setCheckResult(`${data.expired} sinyal güncellendi, ${data.stillPending} bekliyor`);
                       fetchSignals();
                     }
-                  } catch {} finally {
+                  } catch (e) { logError('SignalHistoryPanel', e); } finally {
                     setChecking(false);
                   }
                 }}
@@ -233,6 +243,17 @@ export default function SignalHistoryPanel() {
             <div className="text-center py-8">
               <div className="animate-spin w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full mx-auto mb-2" />
               <p className="text-xs text-gray-400">Sinyaller yükleniyor...</p>
+            </div>
+          ) : fetchError ? (
+            <div className="text-center py-8 bg-red-50 rounded-lg border border-red-100">
+              <p className="text-xs text-red-500 font-medium mb-1">Yükleme hatası</p>
+              <p className="text-[10px] text-red-400">{fetchError}</p>
+              <button
+                onClick={fetchSignals}
+                className="mt-2 text-[11px] px-3 py-1 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors"
+              >
+                Tekrar Dene
+              </button>
             </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-8">

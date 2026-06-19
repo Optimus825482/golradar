@@ -7,6 +7,7 @@ import {
 } from "@/lib/backtestEngine";
 import { rateLimit, RATE_LIMIT_DEFAULTS } from "@/lib/rateLimit";
 import { db as prisma } from "@/lib/db";
+import { logError } from '@/lib/devLog';
 
 export const dynamic = "force-dynamic";
 
@@ -66,9 +67,10 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({ error: "Unknown action. Use: run, summary, list" }, { status: 400 });
-  } catch (error: any) {
-    console.error("[Backtest API] Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'unknown error';
+    console.error("[Backtest API] Error:", message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -125,7 +127,7 @@ export async function POST(request: Request) {
                   allParsed.push(parseMatch(m));
                 }
               }
-            } catch { /* skip bad json */ }
+            } catch (e) { logError('route', e); /* skip bad json */ }
           }
         } catch (err) {
           console.error(`[Backtest API] Nesine fetch failed for ${date}:`, err);

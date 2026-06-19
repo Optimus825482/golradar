@@ -2,6 +2,7 @@
 import type { MatchStats as _MatchStats } from './nesineTypes';
 import { calculatePressure as _calculatePressure } from './nesineTypes';
 import { ET_MAP } from '../../mini-services/shared/nesineLiveTypes';
+import { logError, logInfo } from '@/lib/devLog';
 
 export type { MatchStats } from './nesineTypes';
 export { calculatePressure } from './nesineTypes';
@@ -291,7 +292,7 @@ export function parseMatch(m: any): ParsedMatch {
     try {
       const md = new Date(matchDate);
       matchTime = md.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" });
-    } catch {}
+    } catch (e) { logError('nesine', e); }
   }
 
   const firstHalfScore =
@@ -312,7 +313,7 @@ export function parseMatch(m: any): ParsedMatch {
       if (!isNaN(md.getTime())) {
         normalizedDate = md.toISOString().slice(0, 10);
       }
-    } catch {}
+    } catch (e) { logError('nesine', e); }
   }
 
   return {
@@ -352,16 +353,39 @@ export function parseMatch(m: any): ParsedMatch {
 
 let fotMobIdCache: Map<number, number | null> | null = null;
 let fotMobIdCacheTimestamp = 0;
+let fotMobIdCacheHydrating = false;
+let fotMobIdCacheHydratePromise: Promise<void> | null = null;
 const FOTMOB_ID_CACHE_TTL = 60 * 1000;
+
+async function ensureCacheHydrated(): Promise<void> {
+  // Already populated and fresh
+  if (fotMobIdCache && Date.now() - fotMobIdCacheTimestamp < FOTMOB_ID_CACHE_TTL) return;
+  // Already hydrating — wait for existing promise
+  if (fotMobIdCacheHydrating && fotMobIdCacheHydratePromise) {
+    await fotMobIdCacheHydratePromise;
+    return;
+  }
+  // Start hydration
+  fotMobIdCacheHydrating = true;
+  fotMobIdCacheHydratePromise = hydrateFotMobIdCache();
+  await fotMobIdCacheHydratePromise;
+}
 
 function lookupFotMobIdForNesineCode(nesineCode: number): number | null {
   // Lazy cache hydration — first call hits DB, subsequent calls read memory.
   if (!fotMobIdCache || Date.now() - fotMobIdCacheTimestamp > FOTMOB_ID_CACHE_TTL) {
     // Synchronous load is not possible with Prisma's async API; return
     // null on cache miss. The route layer can hydrate this cache.
+    // Trigger async hydration for next lookup.
+    ensureCacheHydrated().catch(() => {}); // fire-and-forget for next call
     return null;
   }
   return fotMobIdCache.get(nesineCode) ?? null;
+}
+
+export async function lookupFotMobIdForNesineCodeAsync(nesineCode: number): Promise<number | null> {
+  await ensureCacheHydrated();
+  return fotMobIdCache?.get(nesineCode) ?? null;
 }
 
 export async function hydrateFotMobIdCache(): Promise<void> {
@@ -380,8 +404,12 @@ export async function hydrateFotMobIdCache(): Promise<void> {
     }
     fotMobIdCache = map;
     fotMobIdCacheTimestamp = Date.now();
-  } catch {
-    // Best-effort — caller falls back to non-enriched goalRadar
+    fotMobIdCacheHydrating = false;
+    logInfo('nesine', `FotMob ID cache hydrated: ${map.size} mappings`);
+  } catch (err) {
+    fotMobIdCacheHydrating = false;
+    logError('nesine', 'Failed to hydrate FotMob ID cache:', err);
+    // Callers fall back to non-enriched goalRadar
   }
 }
 

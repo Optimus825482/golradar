@@ -1,5 +1,6 @@
 // ── Backtest Engine ────────────────────────────────────────────────
 
+import { logError } from '@/lib/devLog';
 import type {
   SignalRecord, QuickBacktestSummary,
   BacktestConfig, BacktestResult,
@@ -61,9 +62,9 @@ function loadSignalsForRange(startDate?: string, endDate?: string): SignalRecord
         const data = fs.readFileSync(path.join(DATA_DIR, file), 'utf-8');
         const signals = JSON.parse(data);
         allSignals.push(...signals);
-      } catch {}
+      } catch (e) { logError('backtestEngine', e); }
     }
-  } catch {}
+  } catch (e) { logError('backtestEngine', e); }
 
   return allSignals;
 }

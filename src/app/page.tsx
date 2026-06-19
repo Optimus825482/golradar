@@ -977,21 +977,31 @@ export default function OptimusGolRadariPage() {
 
       {/* ── Main Content Area ──────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden" style={{ height: 'calc(100dvh - 56px - 60px - env(safe-area-inset-top) - env(safe-area-inset-bottom))' }}>
-        <div className={`transition-all duration-300 ease-in-out overflow-y-auto -webkit-overflow-scrolling-touch ${selectedMatch ? 'md:w-[40%] w-full' : 'w-full'}`}>
-          <div className={`${selectedMatch ? 'max-w-full' : 'max-w-350'} mx-auto p-3 pb-20`}>
+        {/* Desktop: match list hidden when a match is selected */}
+        <div className={`overflow-y-auto -webkit-overflow-scrolling-touch ${selectedMatch ? 'hidden md:hidden' : 'w-full'}`}>
+          <div className="max-w-350 mx-auto p-3 pb-20">
             {renderMatchList()}
           </div>
         </div>
 
+        {/* Desktop: full-page match detail when selected */}
         {selectedMatch && detailProps && (
-          <div className="hidden md:flex w-[60%] border-l border-gray-200 overflow-y-auto bg-white flex-col">
-            <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-2 flex items-center justify-between">
-              <span className="text-sm font-semibold text-gray-600">Maç Detayı</span>
-              <button onClick={handleCloseMatch} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600" aria-label="Kapat">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          <div className="hidden md:flex w-full overflow-y-auto bg-white flex-col">
+            {/* Sticky header with back button */}
+            <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-2 flex items-center justify-between shadow-sm">
+              <button onClick={handleCloseMatch} className="flex items-center gap-1.5 text-gray-600 hover:text-gray-900 transition-colors group">
+                <svg className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                <span className="text-sm font-medium">Geri</span>
               </button>
+              <span className="text-sm font-semibold text-gray-600">
+                {selectedMatch.home} vs {selectedMatch.away}
+              </span>
+              {/* Spacer for flex alignment */}
+              <div className="w-16" />
             </div>
-            <div><MatchDetailContent {...detailProps as MatchDetailContentProps} /></div>
+            <div className="flex-1 overflow-y-auto">
+              <MatchDetailContent {...detailProps as MatchDetailContentProps} />
+            </div>
           </div>
         )}
       </div>

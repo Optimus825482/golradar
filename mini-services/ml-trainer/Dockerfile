@@ -1,9 +1,14 @@
-FROM python:3.12-alpine
+FROM python:3.12-slim
 
 WORKDIR /trainer
 
-# Alpine'de build tools + runtime libs
-RUN apk add --no-cache gcc g++ libgomp musl-dev linux-headers
+# xgboost kaynaktan derlenirken cmake gerekiyor (prebuilt wheel yoksa)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libgomp1 \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt

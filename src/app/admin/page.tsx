@@ -980,8 +980,163 @@ function BackfillTab({ token }: { token: string }) {
   );
 }
 
+// ── DatabaseTab: Signal temizleme + DB istatistikleri ────────────
+function DatabaseTab({ token }: { token: string }) {
+  const [dbStats, setDbStats] = useState<{
+    total: number; pending: number; resolved: number;
+    withGoal: number; oldest: string | null; newest: string | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [confirmPhase, setConfirmPhase] = useState<'idle' | 'confirm' | 'executing' | 'done' | 'error'>('idle');
+  const [confirmInput, setConfirmInput] = useState('');
+  const [resultMsg, setResultMsg] = useState('');
+  const [clearMode, setClearMode] = useState<'all' | 'before-date'>('all');
+  const [targetDate, setTargetDate] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const resp = await authFetch('/api/admin/clear-signals');
+      if (resp.ok) { const d = await resp.json(); setDbStats(d); }
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleClear = async () => {
+    setConfirmPhase('executing');
+    setResultMsg('');
+    try {
+      const body: Record<string, unknown> = { confirmCode: 'SIGNAL-CLEAR' };
+      if (clearMode === 'before-date' && targetDate) body.targetDate = targetDate;
+      const resp = await authFetch('/api/admin/clear-signals', {
+        method: 'POST', body: JSON.stringify(body),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setResultMsg('✅ ' + data.message);
+        setConfirmPhase('done');
+        load(); // refresh stats
+      } else {
+        const data = await resp.json();
+        setResultMsg('❌ Hata: ' + (data.error || 'bilinmeyen'));
+        setConfirmPhase('error');
+      }
+    } catch {
+      setResultMsg('❌ Baglanti hatasi');
+      setConfirmPhase('error');
+    }
+  };
+
+  const handleReset = () => {
+    setConfirmPhase('idle'); setConfirmInput(''); setResultMsg('');
+  };
+
+  if (loading) return (
+    <Panel title="Veritabani">
+      <div className="text-center py-8 text-xs text-gray-400">Yükleniyor...</div>
+    </Panel>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* ── DB Stats ── */}
+      <Panel title="Sinyal Veritabani">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+          <StatPanel label="Toplam Sinyal" value={dbStats?.total ?? 0} color={G.blue} />
+          <StatPanel label="Bekleyen" value={dbStats?.pending ?? 0} color={G.orange} />
+          <StatPanel label="Cozulmus" value={dbStats?.resolved ?? 0} color={G.green} />
+          <StatPanel label="Gol Olmus" value={dbStats?.withGoal ?? 0} color={G.purple} />
+          <StatPanel label="Basarili %" value={dbStats?.resolved && dbStats.resolved > 0
+            ? ((dbStats.withGoal / dbStats.resolved) * 100).toFixed(1) + '%'
+            : '-'} color={G.cyan} />
+        </div>
+        <div className="text-[11px] text-gray-500 space-y-1">
+          {dbStats?.oldest && <div>En eski kayit: {new Date(dbStats.oldest).toLocaleString('tr-TR')}</div>}
+          {dbStats?.newest && <div>En yeni kayit: {new Date(dbStats.newest).toLocaleString('tr-TR')}</div>}
+        </div>
+      </Panel>
+
+      {/* ── Clear Signals ── */}
+      <Panel title="Sinyal Sifirlama">
+        <div className="text-xs text-gray-500 mb-2 bg-orange-50 border border-orange-200 rounded p-2.5">
+          <strong>⚠️ Uyari:</strong> Bu islem geri alinamaz. Eski algoritmayla kaydedilmis sinyallerin
+          correctPrediction degeri her zaman true oldugu icin istatistikler yanlis.
+          Temizledikten sonra yeni algoritma ile dogru kayitlar baslar.
+        </div>
+
+        {confirmPhase === 'idle' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-1.5 text-xs">
+                <input type="radio" checked={clearMode === 'all'} onChange={() => setClearMode('all')} />
+                Tum sinyalleri sil
+              </label>
+              <label className="flex items-center gap-1.5 text-xs">
+                <input type="radio" checked={clearMode === 'before-date'} onChange={() => setClearMode('before-date')} />
+                Belirli tarihten oncekileri sil
+              </label>
+            </div>
+            {clearMode === 'before-date' && (
+              <input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)}
+                className="w-48 text-xs px-3 py-1.5 rounded border border-gray-300 bg-white" />
+            )}
+            <button onClick={() => setConfirmPhase('confirm')}
+              className="px-4 py-2 text-xs font-bold rounded text-white"
+              style={{ background: G.red }}>
+              {clearMode === 'all' ? 'Tum Sinyalleri Temizle' : 'Sinyalleri Temizle'}
+            </button>
+          </div>
+        )}
+
+        {confirmPhase === 'confirm' && (
+          <div className="space-y-3">
+            <div className="text-xs text-red-600 font-semibold">
+              Onay icin asagidaki kodu yazin: <span className="font-mono bg-red-50 px-2 py-0.5 rounded border border-red-200">SIGNAL-CLEAR</span>
+            </div>
+            <input type="text" value={confirmInput} onChange={e => setConfirmInput(e.target.value)}
+              placeholder="SIGNAL-CLEAR"
+              className="w-64 text-xs px-3 py-1.5 rounded border border-gray-300 bg-white font-mono" />
+            <div className="flex gap-2">
+              <button onClick={handleClear} disabled={confirmInput !== 'SIGNAL-CLEAR'}
+                className="px-4 py-2 text-xs font-bold rounded text-white disabled:opacity-40"
+                style={{ background: G.red }}>
+                {clearMode === 'all' ? 'Evet, Tumunu Sil' : 'Evet, Sil'}
+              </button>
+              <button onClick={handleReset}
+                className="px-4 py-2 text-xs font-bold rounded text-gray-600 bg-gray-100 hover:bg-gray-200">
+                Iptal
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(confirmPhase === 'executing') && (
+          <div className="text-center py-4">
+            <div className="animate-spin w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full mx-auto mb-2" />
+            <p className="text-xs text-gray-500">Sinyaller siliniyor...</p>
+          </div>
+        )}
+
+        {(confirmPhase === 'done' || confirmPhase === 'error') && (
+          <div className="space-y-2">
+            <div className={`p-3 rounded text-xs ${confirmPhase === 'done' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+              {resultMsg}
+            </div>
+            <button onClick={handleReset}
+              className="px-4 py-2 text-xs font-bold rounded text-gray-600 bg-gray-100 hover:bg-gray-200">
+              Geri
+            </button>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────
-type Tab = 'overview' | 'ml' | 'calibration' | 'signals' | 'elo' | 'elo-import' | 'backfill';
+type Tab = 'overview' | 'ml' | 'calibration' | 'signals' | 'elo' | 'elo-import' | 'backfill' | 'database';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'overview', label: 'Genel Bakis' },
@@ -991,6 +1146,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'elo', label: 'Elo' },
   { key: 'elo-import', label: 'Elo Ice Aktar' },
   { key: 'backfill', label: 'Veri Ice Aktar' },
+  { key: 'database', label: 'Veritabani' },
 ];
 
 export default function AdminPage() {
@@ -1059,6 +1215,7 @@ export default function AdminPage() {
         {tab === 'elo' && <EloTab />}
         {tab === 'elo-import' && <EloImportTab token={token} />}
         {tab === 'backfill' && <BackfillTab token={token} />}
+        {tab === 'database' && <DatabaseTab token={token} />}
       </div>
     </div>
   );

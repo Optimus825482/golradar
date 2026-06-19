@@ -139,18 +139,27 @@ function updatePressureHistory(match: ParsedMatch) {
     homeGoals: match.homeGoals, awayGoals: match.awayGoals,
   });
 
-  // Persist to DB so chart shows full history when page is opened mid-match
-  void db.matchSnapshot.create({
-    data: {
+  // Persist to DB using upsert — same (matchCode, minute) can be polled multiple times
+  const minuteNum = parseInt(match.minute.replace(/[^0-9]/g, ''), 10) || 0;
+  void db.matchSnapshot.upsert({
+    where: { matchCode_minute: { matchCode: match.code, minute: minuteNum } },
+    create: {
       matchCode: match.code,
-      minute: parseInt(match.minute.replace(/[^0-9]/g, ''), 10) || 0,
+      minute: minuteNum,
       homePressure: pressure.home,
       awayPressure: pressure.away,
       homeGoals: match.homeGoals,
       awayGoals: match.awayGoals,
       statsJson: JSON.stringify(match.stats),
     },
-  }).catch((e) => { logError('route', e); });
+    update: {
+      homePressure: pressure.home,
+      awayPressure: pressure.away,
+      homeGoals: match.homeGoals,
+      awayGoals: match.awayGoals,
+      statsJson: JSON.stringify(match.stats),
+    },
+  }).catch((e) => { logError('route', 'matchSnapshot upsert error:', e); });
 
   if (history.snapshots.length > 540) {
     history.snapshots = history.snapshots.slice(-540);

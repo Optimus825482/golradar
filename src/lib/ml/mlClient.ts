@@ -78,18 +78,25 @@ export async function checkTrainerHealth(): Promise<{
 }
 
 /** Kick off a training job. Returns the job handle immediately.
- *  Translates TS-side paths (`/app/web/data/...`) to trainer-side
+ *  Translates TS-side paths (`/app/data/...`) to trainer-side
  *  paths (`/data/...`) since both containers share `golradar_ml_data`. */
 export async function startTraining(
   req: TrainRequest,
 ): Promise<JobHandle | null> {
   if (!TRAINER_URL) return null;
-  // Translate dataset path for the trainer container's mount point
-  const trainerPath = req.dataset_path.replace(/^\/app\/web\/data\//, "/data/");
-  return trainerFetch<JobHandle>("/train", {
+  // Translate dataset path for the trainer container's mount point.
+  // Web container exports to /app/data/ml-training/... but the trainer
+  // mounts the same volume at /data/ml-training/... .
+  const trainerPath = req.dataset_path.replace(/^\/app\/data\//, "/data/");
+  const result = await trainerFetch<JobHandle>("/train", {
     method: "POST",
     body: JSON.stringify({ ...req, dataset_path: trainerPath }),
   });
+  // Translate artifactPath back: trainer returns /data/... but web expects /app/data/...
+  if (result?.artifactPath) {
+    result.artifactPath = result.artifactPath.replace(/^\/data\//, "/app/data/");
+  }
+  return result;
 }
 
 /** Poll a job until it terminates or the deadline elapses. */
@@ -102,7 +109,13 @@ export async function pollJob(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const job = await trainerFetch<JobHandle>(`/jobs/${jobId}`);
-    if (job.status === 'success' || job.status === 'failed') return job;
+    if (job) {
+      // Translate artifactPath back: trainer returns /data/... but web expects /app/data/...
+      if (job.artifactPath) {
+        job.artifactPath = job.artifactPath.replace(/^\/data\//, "/app/data/");
+      }
+    }
+    if (job?.status === 'success' || job?.status === 'failed') return job;
     await new Promise((r) => setTimeout(r, pollMs));
   }
   return null;

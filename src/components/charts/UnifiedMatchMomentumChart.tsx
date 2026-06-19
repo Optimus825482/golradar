@@ -258,7 +258,7 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
       </div>
 
       <div className="px-2">
-        <div ref={svgRef} style={{ position: 'relative', width: '100%', aspectRatio: '16 / 7', cursor: 'crosshair', contain: 'strict' }} onMouseMove={onMove} onMouseLeave={onLeave}>
+        <div ref={svgRef} style={{ position: 'relative', width: '100%', aspectRatio: '16 / 7', cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={onLeave}>
           <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="xMidYMid meet" style={{ width: '100%', height: '100%', display: 'block' }}>
             <defs>
               <linearGradient id={`gP_${uid}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={vHome} stopOpacity={0.55} /><stop offset="100%" stopColor={vHome} stopOpacity={0.03} /></linearGradient>

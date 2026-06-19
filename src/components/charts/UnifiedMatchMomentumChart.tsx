@@ -112,8 +112,10 @@ const yS = (v: number) => PAD.t + (1 - (v + 100) / 200) * IH
 
 function computeXTicks(maxMinute: number): number[] {
   if (maxMinute <= 45) return BASE_TICKS
+  if (maxMinute <= 90) return [...BASE_TICKS, ...SECOND_HALF_TICKS]
+  // Extra time: add 105, 120
   const extra: number[] = []
-  for (let m = 105; m <= maxMinute + 10; m += 15) extra.push(m)
+  for (let m = 105; m <= maxMinute; m += 15) extra.push(m)
   return [...BASE_TICKS, ...SECOND_HALF_TICKS, ...extra]
 }
 
@@ -131,7 +133,12 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
     [momentumBars, xgFlowData, threatIndex, fotmobMomentum, fotmobShots, fotmobHomeTeamId, fotmobAwayTeamId, matchGoalEvents])
 
   const goalEvents = useMemo(() => barData.filter(d => d.isGoalHome || d.isGoalAway), [barData])
-  const maxMinute = useMemo(() => Math.max(...barData.map(d => d.minuteNum), 90), [barData])
+  const maxMinute = useMemo(() => {
+    const dataMax = Math.max(...barData.map(d => d.minuteNum), 0)
+    // FotMob momentum verisi 0-450+ dakika döndürebilir.
+    // Maç 90dk, uzatmalar 120dk. 120+ değerleri veri hatasıdır.
+    return Math.min(dataMax, 120)
+  }, [barData])
   const md = useMemo(() => barData.map(d => ({ ...d, m: (d.homeBar ?? 0) + (d.awayBar ?? 0) })), [barData])
 
   // Refs for DOM manipulation

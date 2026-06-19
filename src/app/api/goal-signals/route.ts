@@ -16,8 +16,10 @@ import { rateLimit, RATE_LIMIT_DEFAULTS } from "@/lib/rateLimit";
 import { validateSession } from "@/lib/auth";
 import { logError } from '@/lib/devLog';
 
-// Start background expiry checker for pending signals
-startExpiryChecker();
+// Defer background expiry checker to avoid blocking first request
+if (typeof window === 'undefined') {
+  setImmediate(() => { startExpiryChecker(); });
+}
 
 export const dynamic = "force-dynamic";
 

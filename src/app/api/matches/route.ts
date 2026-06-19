@@ -179,7 +179,7 @@ export async function GET(request: Request) {
     resp = await fetch(`${LIVESCORE_API}?sportType=1&v=${version}`, {
       headers: HEADERS,
       cache: "no-store",
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(5000),
     });
   } catch {
     return emptyResponse();

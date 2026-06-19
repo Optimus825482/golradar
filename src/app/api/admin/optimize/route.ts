@@ -10,6 +10,7 @@ import {
   optimizeEnsembleWeights,
 } from "@/lib/modelOptimizer";
 import { autoCalibrateFromDB } from "@/lib/calibration";
+import { logError } from '@/lib/devLog';
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export const POST = adminRoute(async (request: Request) => {
   let body: any = {};
   try {
     body = await request.json();
-  } catch {}
+  } catch (e) { logError('route', e); }
 
   const league = parseInt(body.league) || 34;
   const season = body.season || "2025-2026";

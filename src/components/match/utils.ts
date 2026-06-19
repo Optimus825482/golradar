@@ -1,4 +1,5 @@
 import type { MatchStats } from './types'
+import { logError } from '@/lib/devLog';
 
 export function calculatePressure(stats: MatchStats): { home: number; away: number } {
   let homePressure = 0
@@ -116,12 +117,12 @@ export function loadFavorites(): Set<number> {
   try {
     const raw = localStorage.getItem('optimus_favorites')
     if (raw) return new Set(JSON.parse(raw))
-  } catch {}
+  } catch (e) { logError('utils', e); }
   return new Set()
 }
 
 export function saveFavorites(favs: Set<number>) {
   try {
     localStorage.setItem('optimus_favorites', JSON.stringify([...favs]))
-  } catch {}
+  } catch (e) { logError('utils', e); }
 }

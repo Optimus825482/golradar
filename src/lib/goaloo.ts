@@ -13,6 +13,7 @@
 import { execFile } from 'child_process';
 import { devLog, devWarn, devError } from './devLog';
 import { scrapeUrl } from './scraper';
+import { logError } from '@/lib/devLog';
 
 const GOALOO_BASE = 'https://www.goaloo.com';
 const GOALOO_AJAX = `${GOALOO_BASE}/ajax`;
@@ -135,7 +136,7 @@ async function goalooFetch(url: string): Promise<string | null> {
       });
     });
     if (result) return result;
-  } catch { /* both failed */ }
+  } catch (e) { logError('goaloo', e); /* both failed */ }
 
   devError(`[Goaloo] All fetch methods failed for ${url}`);
   return null;

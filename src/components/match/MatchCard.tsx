@@ -117,7 +117,7 @@ export function MatchCard({ match, onClick, showLeague, goalProb, isSelected, is
         </div>
 
         <button
-          onClick={onToggleFavorite}
+          onClick={(e) => { e.stopPropagation(); onToggleFavorite?.(e); }}
           className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all ${
             isFavorite
               ? 'text-amber-500 hover:text-amber-400'

@@ -12,6 +12,7 @@
 
 import { purgeExpiredFotMobCache, getFotMobCacheStats } from './fotmobCache';
 import { hydrateFotMobIdCache } from './nesine';
+import { logError } from '@/lib/devLog';
 
 const PURGE_INTERVAL_MS = 60 * 60 * 1000;        // 1h — purges expired rows
 const STATS_LOG_INTERVAL_MS = 10 * 60 * 1000;   // 10m — dev log of cache health
@@ -61,9 +62,7 @@ async function runStatsLog(): Promise<void> {
       `[FotMobCache] total=${stats.total} expired=${stats.expired} ` +
         `failed24h=${stats.failedLast24h} hits=${stats.totalHits}`,
     );
-  } catch {
-    /* swallow — stats logging is best-effort */
-  }
+  } catch (e) { logError('fotmobCacheMaintenance', e); /* swallow — stats logging is best-effort */ }
 }
 
 /**
@@ -92,7 +91,7 @@ export function startFotMobCacheMaintenance(): MaintenanceState {
   state.statsTimer = setUnref(setInterval(runStatsLog, STATS_LOG_INTERVAL_MS));
   state.hydrateTimer = setUnref(
     setInterval(() => {
-      void hydrateFotMobIdCache().catch(() => {});
+      void hydrateFotMobIdCache().catch((e) => { logError('fotmobCacheMaintenance', e); });
     }, ID_REHYDRATE_INTERVAL_MS),
   );
 

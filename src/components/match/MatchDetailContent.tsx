@@ -13,13 +13,14 @@ import { StatsLineChart } from '@/components/charts/StatsLineChart'
 import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomentumChart'
 import { FotMobSection } from '@/components/fotmob/FotMobSection'
 import { estimateXgFromShots } from '@/lib/advancedAnalytics'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
-interface MatchDetailContentProps {
+export interface MatchDetailContentProps {
   match: Match
   currentPressure: { home: number; away: number }
   selectedGoalProb: GoalProbability | null
   pressureChartData: { index: number; minute: string; homePressure: number; awayPressure: number }[]
-  statsChartData: any[]
+  statsChartData: { index: number; minute: string; homeDangerousAttacks: number; awayDangerousAttacks: number; homeShotsTotal: number; awayShotsTotal: number; homeCorners: number; awayCorners: number; homePossession: number; awayPossession: number }[]
   momentumBars: MomentumBarDataPoint[]
   xgFlowData: xGFlowPoint[]
   threatIndex: ThreatIndex | null
@@ -292,6 +293,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       <div className="p-4 sm:p-5 border-b border-gray-100 space-y-4" style={{ contain: 'paint layout style' }}>
         {(pressureChartData.length > 2 || fotmobData?.momentum?.main?.data?.length || momentumBars.length >= 2 || xgFlowData.length >= 1 || match?.hasStats || fotmobLoading) ? (
           <>
+            <ErrorBoundary context="UnifiedMatchMomentumChart">
             <UnifiedMatchMomentumChart
               momentumBars={momentumBars}
               xgFlowData={xgFlowData}
@@ -309,8 +311,13 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               goalEvents={fotmobData?.events?.filter(e => e.type === 'Goal')}
               isFotmobLoading={fotmobLoading}
             />
+            </ErrorBoundary>
+            <ErrorBoundary context="MomentumChart">
             <MomentumChart data={pressureChartData} homeTeam={match.home} awayTeam={match.away} />
+            </ErrorBoundary>
+            <ErrorBoundary context="StatsLineChart">
             <StatsLineChart data={statsChartData} homeKey="homeDangerousAttacks" awayKey="awayDangerousAttacks" homeName={`${match.home} Tehl. Hücum`} awayName={`${match.away} Tehl. Hücum`} homeTeam={match.home} awayTeam={match.away} title="Tehlikeli Hücum" />
+            </ErrorBoundary>
           </>
         ) : (
           <div className="h-[200px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
@@ -442,6 +449,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         </div>
       )}
 
+      <ErrorBoundary context="FotMobSection">
       <FotMobSection
         fotmobData={fotmobData}
         fotmobLoading={fotmobLoading}
@@ -450,6 +458,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         homeTeam={match.home}
         awayTeam={match.away}
       />
+      </ErrorBoundary>
     </div>
   )
 })

@@ -204,6 +204,7 @@ function Spinner() {
 
 // ── Overview Tab ──────────────────────────────────────────────────
 import SignalStatsPanel from '@/components/SignalStatsPanel';
+import { logError } from '@/lib/devLog';
 
 function OverviewTab({ token }: { token: string }) {
   const [data, setData] = useState<any>(null);
@@ -215,8 +216,8 @@ function OverviewTab({ token }: { token: string }) {
       const [mlRes, cacheRes, calRes, signalRes] = await Promise.all([
         authFetch('/api/admin/ml/status'),
         authFetch('/api/admin/fotmob-cache-stats'),
-        fetch('/api/calibration?action=stats'),
-        fetch('/api/goal-signals?action=stats&days=30'),
+        authFetch('/api/calibration?action=stats'),
+        authFetch('/api/goal-signals?action=stats&days=30'),
       ]);
       const ml = mlRes.ok ? await mlRes.json() : null;
       const cache = cacheRes.ok ? await cacheRes.json() : null;
@@ -411,7 +412,7 @@ function MLModelsTab({ token }: { token: string }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { const res = await authFetch('/api/admin/ml/status'); if (res.ok) setStatus(await res.json()); } catch { }
+    try { const res = await authFetch('/api/admin/ml/status'); if (res.ok) setStatus(await res.json()); } catch (e) { logError('page', e); }
     setLoading(false);
   }, [token]);
 
@@ -650,7 +651,7 @@ function CalibrationTab({ token }: { token: string }) {
       const [calRes, smartRes] = await Promise.all([fetch('/api/calibration?action=stats'), fetch('/api/smart-calibration?action=status')]);
       if (calRes.ok) setCalData(await calRes.json());
       if (smartRes.ok) setSmartData(await smartRes.json());
-    } catch {}
+    } catch (e) { logError('page', e); }
     setLoading(false);
   }, []);
 
@@ -738,7 +739,7 @@ function EloTab() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { const res = await fetch('/api/elo?action=all'); if (res.ok) setData(await res.json()); } catch { }
+    try { const res = await fetch('/api/elo?action=all'); if (res.ok) setData(await res.json()); } catch (e) { logError('page', e); }
     setLoading(false);
   }, []);
 
@@ -809,7 +810,7 @@ function EloImportTab({ token }: { token: string }) {
         const res = await authFetch('/api/admin/elo-import', { method: 'POST', body: JSON.stringify({ action: 'job-progress', jobId }) });
         const data = await res.json(); setProgress(data);
         if (data.status === 'done' || data.status === 'failed') { clearInterval(poll); setJobId(null); setResult(data); }
-      } catch { }
+      } catch (e) { logError('page', e); }
     }, 1500);
     return () => clearInterval(poll);
   }, [jobId]);
@@ -912,7 +913,7 @@ function BackfillTab({ token }: { token: string }) {
         const res = await authFetch(`/api/admin/backfill-predictions?jobId=${jobId}`);
         const data = await res.json(); setProgress(data);
         if (data.status === 'done' || data.status === 'failed') { clearInterval(poll); setJobId(null); setResult(data); }
-      } catch { }
+      } catch (e) { logError('page', e); }
     }, 1500);
     return () => clearInterval(poll);
   }, [jobId]);
@@ -1005,7 +1006,7 @@ export default function AdminPage() {
           const data = await r.json();
           if (data.ok) { setToken(saved); setMustChange(data.mustChange ?? false); }
           else { sessionStorage.removeItem('admin_token'); }
-        }).catch(() => { sessionStorage.removeItem('admin_token'); });
+        }).catch(() => { /* Network error — don't delete token, retry on next render cycle */ });
     }
   }, []);
 
@@ -1014,7 +1015,7 @@ export default function AdminPage() {
 
   const handleLogout = () => {
     if (token) {
-      fetch('/api/admin/auth', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: 'logout' }) }).catch(() => { });
+      fetch('/api/admin/auth', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: 'logout' }) }).catch((e) => { logError('page', e); });
     }
     sessionStorage.removeItem('admin_token'); setToken(null); setMustChange(false);
   };

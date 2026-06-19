@@ -73,7 +73,7 @@ async function main() {
         where: { canonicalName: r.team },
         data: { eloRating: r.rating, eloSource: r.source },
       })
-      .catch(() => {});
+      .catch((e) => { console.error('[elo-import-all] updateTeamMapping error:', e); });
   }
 
   console.log(`[EloImport] Done!`);

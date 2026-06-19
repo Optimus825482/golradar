@@ -7,6 +7,7 @@
 
 import type { Signal } from '@prisma/client';
 import { db } from './db';
+import { logError } from './devLog';
 import type {
   GoalSignalRecord,
   SignalAccuracyStats,
@@ -44,11 +45,11 @@ export function toGoalSignalRecord(row: Signal): GoalSignalRecord {
       ? (row.activeFactors as string[])
       : [],
 
-    lastScore: (row as any).lastScore ?? row.signalScore,
-    lastCalibratedP: (row as any).lastCalibratedP ?? row.calibratedP,
-    lastPoissonP: (row as any).lastPoissonP ?? row.poissonP,
-    lastFactors: Array.isArray((row as any).lastFactors)
-      ? ((row as any).lastFactors as string[])
+    lastScore: row.lastScore ?? row.signalScore,
+    lastCalibratedP: row.lastCalibratedP ?? row.calibratedP,
+    lastPoissonP: row.lastPoissonP ?? row.poissonP,
+    lastFactors: Array.isArray(row.lastFactors)
+      ? (row.lastFactors as string[])
       : [],
 
     homeScore: row.homeScore,
@@ -57,8 +58,8 @@ export function toGoalSignalRecord(row: Signal): GoalSignalRecord {
     currentAwayGoals: row.currentAwayGoals,
 
     signalTimestamp: row.signalTimestamp.getTime(),
-    lastSignalTimestamp: (row as any).lastSignalTimestamp
-      ? (row as any).lastSignalTimestamp.getTime()
+    lastSignalTimestamp: row.lastSignalTimestamp
+      ? row.lastSignalTimestamp.getTime()
       : null,
 
     goalHappened: row.goalHappened,
@@ -290,7 +291,8 @@ export async function updateLastValues(
       },
     });
     return toGoalSignalRecord(row);
-  } catch {
+  } catch (err) {
+    logError('signalRepository', 'updateLastValues failed:', err);
     return null;
   }
 }

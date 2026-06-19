@@ -228,6 +228,7 @@ const MAPPING_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // ── Name normalization for matching (delegated to shared module) ──
 
 import { normalizeTeamName, translateTeamName, nameSimilarity } from './teamNameNormalizer';
+import { logError } from '@/lib/devLog';
 
 // ── Fetch FotMob matches for today ──
 
@@ -278,12 +279,12 @@ export async function buildMatchMappings(
       try {
         // Parse Nesine time (HH:MM format, Istanbul timezone)
         const nesineMinutes = parseInt(nm.time.split(":")[0]) * 60 + parseInt(nm.time.split(":")[1]);
-        // Parse FotMob time from UTC timestamp
+        // Parse FotMob time from UTC timestamp — apply UTC+3 offset directly
         const fmDate = new Date(fm.status.utcTime);
-        const fmIstanbul = new Date(fmDate.toLocaleString("en-US", { timeZone: "Europe/Istanbul" }));
-        const fmMinutes = fmIstanbul.getHours() * 60 + fmIstanbul.getMinutes();
+        const fmIstanbul = new Date(fmDate.getTime() + 3 * 60 * 60 * 1000);
+        const fmMinutes = fmIstanbul.getUTCHours() * 60 + fmIstanbul.getUTCMinutes();
         timeMatch = Math.abs(nesineMinutes - fmMinutes) <= 5;
-      } catch {}
+      } catch (e) { logError('fotmob', e); }
       
       // Combined confidence: name similarity + time match
       const nameConf = (homeSim + awaySim) / 2;
@@ -427,7 +428,7 @@ export async function fetchMatchDetails(fotmobId: number): Promise<FotMobMatchDe
       infoBox: parsedInfoBox,
     };
   } catch (error) {
-    console.error("FotMob fetch error:", error);
+    logError('fotmob', 'Fetch error:', error);
     return null;
   }
 }

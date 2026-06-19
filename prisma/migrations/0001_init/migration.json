@@ -1,0 +1,9 @@
+{
+  "version": "5.2.0",
+  "steps": [
+    {
+      "tag": "CreateMigration",
+      "migration_name": "0001_init"
+    }
+  ]
+}

@@ -11,6 +11,7 @@
 
 import type { FotMobMatchDetails } from './fotmob';
 import { db } from './db';
+import { logError } from './devLog';
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -45,8 +46,9 @@ export async function getCachedFotMobDetails(
         where: { id: row.id },
         data: { hitCount: { increment: 1 }, lastHitAt: new Date() },
       })
-      .catch(() => {
+      .catch((e) => {
         /* swallow — analytics write must not poison the read */
+        logError('fotmobCache', 'hitCount increment error:', e);
       });
 
     return row.payload as unknown as FotMobMatchDetails;

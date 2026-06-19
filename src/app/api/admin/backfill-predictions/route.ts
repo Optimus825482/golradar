@@ -145,7 +145,7 @@ async function processMatch(m: GoalooSeasonMatch, leagueName: string): Promise<n
         matchCode, minute: ge.minute, eventType: "goal",
         side: ge.isHome ? "home" : "away", player: ge.player || null,
       },
-    }).catch(() => {});
+    }).catch((e) => { console.error('[backfill-predictions] matchEvent create error:', e); });
   }
 
   // Generate predictions at intervals

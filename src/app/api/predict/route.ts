@@ -6,6 +6,7 @@ import { extractMatchIntelligence } from '@/lib/fotmobIntelligence';
 import { fetchMatchDetails } from '@/lib/fotmob';
 import { rateLimit, RATE_LIMIT_DEFAULTS } from '@/lib/rateLimit';
 import type { MatchStats } from '@/lib/nesineTypes';
+import { logError } from '@/lib/devLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,8 @@ export async function GET(request: Request) {
       case 'predict': {
         const homeTeam = searchParams.get('home') || '';
         const awayTeam = searchParams.get('away') || '';
-        const ruleScore = parseInt(searchParams.get('score') || '0');
+        const ruleScoreRaw = parseInt(searchParams.get('score') || '0');
+        const ruleScore = isNaN(ruleScoreRaw) ? 0 : ruleScoreRaw;
         const minute = searchParams.get('minute') || '45';
 
         if (!homeTeam || !awayTeam) {
@@ -33,7 +35,7 @@ export async function GET(request: Request) {
             for (const [key, val] of Object.entries(parsed)) {
               stats[key] = val as { home: number; away: number };
             }
-          } catch {}
+          } catch (e) { logError('route', e); }
         }
 
         const homeGoals = parseInt(searchParams.get('hg') || '0');
@@ -47,9 +49,9 @@ export async function GET(request: Request) {
             if (fotmobData) {
               intelligence = extractMatchIntelligence(fotmobData);
             }
-          } catch (e: any) {
-            console.warn('[Predict] FotMob intelligence failed:', e?.message || e);
-          }
+	    } catch (e: unknown) {
+	      console.warn('[Predict] FotMob intelligence failed:', e instanceof Error ? e.message : e);
+	        }
         }
 
         let result;
@@ -66,16 +68,17 @@ export async function GET(request: Request) {
             weather: intelligence?.weather ?? undefined,
           };
           result = await predictEnsemble(input);
-        } catch (e: any) {
-          console.error('[Predict] Ensemble failed:', e?.message || e);
+        } catch (e: unknown) {
+          const eMsg = e instanceof Error ? e.message : 'unknown';
+          console.error('[Predict] Ensemble failed:', eMsg);
           // Fallback to simple calibrated score
           const simpleP = ruleScore > 0 ? ruleScore / 100 * 0.3 : 0.15;
           result = {
             probability: simpleP,
             score: ruleScore || 15,
             level: ruleScore >= 50 ? 'high' : ruleScore >= 30 ? 'medium' : 'low' as const,
-            side: null as any,
-            models: [{ name: 'Fallback', probability: simpleP, confidence: 0.3, weight: 1.0, details: 'Ensemble failed: ' + (e?.message || 'unknown') }],
+            side: null as string | null,
+            models: [{ name: 'Fallback', probability: simpleP, confidence: 0.3, weight: 1.0, details: 'Ensemble failed: ' + eMsg }],
             weights: { ruleBased: 1, poisson: 0, elo: 0, ml: 0 },
             dominantModel: 'Fallback',
             agreement: 0,
@@ -157,7 +160,7 @@ export async function GET(request: Request) {
             for (const [key, val] of Object.entries(parsed)) {
               stats[key] = val as { home: number; away: number };
             }
-          } catch {}
+          } catch (e) { logError('route', e); }
         }
 
         const features = await extractFeatures({
@@ -181,10 +184,11 @@ export async function GET(request: Request) {
       default:
         return NextResponse.json({ error: 'Unknown action. Use: predict, model, train, features' }, { status: 400 });
     }
-  } catch (error: any) {
-    console.error('[Predict API] Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+	  } catch (error: unknown) {
+	    const message = error instanceof Error ? error.message : 'unknown error';
+	    console.error('[Predict API] Error:', message);
+	    return NextResponse.json({ error: message }, { status: 500 });
+	  }
 }
 
 export async function POST(request: Request) {
@@ -258,8 +262,9 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ error: 'Invalid action. Use: record, predict-full' }, { status: 400 });
-  } catch (error: any) {
-    console.error('[Predict API POST] Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+	  } catch (error: unknown) {
+	    const message = error instanceof Error ? error.message : 'unknown error';
+	    console.error('[Predict API POST] Error:', message);
+	    return NextResponse.json({ error: message }, { status: 500 });
+	  }
 }

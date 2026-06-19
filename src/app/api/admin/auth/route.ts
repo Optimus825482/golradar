@@ -38,12 +38,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, mustChange: result.mustChange });
   }
 
-  // seed — one-time initialization, called by entrypoint only
-  if (action === "seed") {
-    await seedDefaultAdmin();
-    return NextResponse.json({ ok: true, seeded: true });
-  }
-
   return NextResponse.json(
     { ok: false, reason: "unknown action" },
     { status: 400 },

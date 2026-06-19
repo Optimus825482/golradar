@@ -74,10 +74,11 @@ export async function GET(request: Request) {
         );
       }
 
-      let nesineMatches: any[];
+      let nesineMatches: { code: number; home: string; away: string; time: string }[];
       try {
-        nesineMatches = JSON.parse(matchesJson);
-        if (!Array.isArray(nesineMatches)) throw new Error('expected array');
+        const parsed = JSON.parse(matchesJson);
+        if (!Array.isArray(parsed)) throw new Error('expected array');
+        nesineMatches = parsed as { code: number; home: string; away: string; time: string }[];
       } catch {
         return NextResponse.json(
           { error: "Invalid matches JSON — expected a JSON array" },
@@ -107,8 +108,9 @@ export async function GET(request: Request) {
           confidence: m.confidence,
         })),
       });
-    } catch (error: any) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      return NextResponse.json({ error: message }, { status: 500 });
     }
   }
 
@@ -240,8 +242,9 @@ export async function GET(request: Request) {
         rawStats: stats,
         htScore,
       });
-    } catch (error: any) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      return NextResponse.json({ error: message }, { status: 500 });
     }
   }
 
@@ -263,8 +266,9 @@ export async function GET(request: Request) {
           url: m.url,
         })),
       });
-    } catch (error: any) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      return NextResponse.json({ error: message }, { status: 500 });
     }
   }
 

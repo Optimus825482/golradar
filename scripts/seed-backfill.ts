@@ -301,7 +301,7 @@ async function main() {
                 player: ge.player_name || null,
               },
             })
-            .catch(() => {});
+            .catch((e) => { console.error('[seed-backfill] error:', e); });
         }
 
         // Generate PredictionLog entries

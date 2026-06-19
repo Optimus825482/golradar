@@ -1,0 +1,62 @@
+{
+  "name": "Optimus Gol Radari",
+  "description": "Gerçek zamanlı futbol gol radarı — ML destekli tahminler, canlı maç takibi, gol sinyalleri",
+  "type": "docker-compose",
+  "version": "2.0.0",
+  "dockerComposeFile": "docker-compose.coolify.yml",
+  "services": {
+    "postgres": {
+      "image": "postgres:16-alpine",
+      "port": 5432,
+      "volumes": [
+        {
+          "path": "/var/lib/postgresql/data",
+          "description": "PostgreSQL veritabanı dosyaları"
+        }
+      ]
+    },
+    "golradar": {
+      "port": 3012,
+      "healthCheck": {
+        "path": "/api",
+        "interval": 30,
+        "timeout": 10,
+        "retries": 5,
+        "startPeriod": 120
+      },
+      "environment": {
+        "NODE_ENV": "production",
+        "PORT": "3012",
+        "HOSTNAME": "0.0.0.0"
+      },
+      "volumes": [
+        {
+          "path": "/app/data",
+          "description": "ML model artifact'leri ve training data"
+        }
+      ]
+    },
+    "ml-trainer": {
+      "port": 9100,
+      "healthCheck": {
+        "path": "/healthz",
+        "interval": 30,
+        "timeout": 5,
+        "retries": 5,
+        "startPeriod": 60
+      }
+    }
+  },
+  "postInstallCommands": [
+    "İlk deploy'dan sonra admin panele girin: https://radar.erkanerdem.online/admin",
+    "Default login: admin / admin123 (hemen değiştirin)",
+    "",
+    "İsteğe bağlı: FotMob takım verilerini içe aktarmak için:",
+    "  1. Coolify env variables'a IMPORT_FOTMOB_TEAMS=1 ekleyin",
+    "  2. Container'ı restart edin",
+    "  3. Sonra IMPORT_FOTMOB_TEAMS=0 yapın (tek seferlik)",
+    "",
+    "ML Trainer otomatik başlar. Web UI'dan /admin → ML tab'ından kontrol edin."
+  ],
+  "notes": "Tüm servisler aynı Docker network'ünde (golradar-net). PostgreSQL container hostname'i 'postgres'."
+}

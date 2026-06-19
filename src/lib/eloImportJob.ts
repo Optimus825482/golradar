@@ -6,6 +6,7 @@
 import { db } from "./db";
 import { fetchTeamRating } from "./eloFetcher";
 import { bulkSetRatings } from "./eloRating";
+import { logError } from '@/lib/devLog';
 
 export async function startEloImport(
   teams: string[],
@@ -49,7 +50,7 @@ export async function startEloImport(
           progressPct,
         },
       })
-      .catch(() => {}); // Don't fail if DB is slow
+      .catch((e) => { logError('eloImportJob', e); }); // Don't fail if DB is slow
 
     if (i + 5 < teams.length) {
       await new Promise((r) => setTimeout(r, 500));
@@ -68,7 +69,7 @@ export async function startEloImport(
         where: { canonicalName: r.team },
         data: { eloRating: r.rating, eloSource: r.source },
       })
-      .catch(() => {});
+      .catch((e) => { logError('eloImportJob', e); });
   }
 
   // Mark job done
@@ -91,7 +92,7 @@ export async function startEloImport(
         finishedAt: new Date(),
       },
     })
-    .catch(() => {});
+    .catch((e) => { logError('eloImportJob', e); });
 }
 
 export async function getJobProgress(jobId: string) {

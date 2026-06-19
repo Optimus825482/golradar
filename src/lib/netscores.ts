@@ -172,7 +172,7 @@ async function fetchDirect(url: string): Promise<any> {
         if (text.length < 200000) {
           try {
             return JSON.parse(text);
-          } catch {}
+          } catch (e) { logError('netscores', e); }
         }
       }
     }
@@ -366,6 +366,7 @@ const MAPPING_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // Name normalization for matching (delegated to shared module)
 
 import { normalizeTeamName, translateTeamName, nameSimilarity } from './teamNameNormalizer';
+import { logError } from '@/lib/devLog';
 
 // Extract slug ID from URL like "/football/xxx-live-127912"
 function extractSlugId(url: string): number {
@@ -453,7 +454,7 @@ export async function buildNetScoresMappings(
         const gIstanbul = new Date(gDate.getTime() + 3 * 60 * 60 * 1000);
         const gMinutes = gIstanbul.getUTCHours() * 60 + gIstanbul.getUTCMinutes();
         timeMatch = Math.abs(nesineMinutes - gMinutes) <= 15;
-      } catch {}
+      } catch (e) { logError('netscores', e); }
 
       const conf = nameConf * (timeMatch ? 1.0 : 0.5);
 
@@ -532,12 +533,20 @@ function extractGameDataFromPayload(payload: any[]): NetScoresGameDetail | null 
       lookup.set(i, payload[i]);
     }
 
-    // Resolve Nuxt's reference-based payload into concrete values
+    // Resolve Nuxt's reference-based payload into concrete values.
+    // Numbers in [0, payload.length) could be either references to
+    // other payload entries OR legitimate primitive values (e.g.
+    // status=0). To disambiguate: only resolve when the indexed
+    // value exists AND is an object/array (references are always
+    // objects in Nuxt's serialization). Primitives pass through.
     const resolve = (val: any, depth = 0): any => {
       if (depth > 15) return val;
       if (typeof val === "number" && val >= 0 && val < payload.length) {
         const resolved = lookup.get(val);
-        if (resolved !== undefined) return resolve(resolved, depth + 1);
+        // Only follow reference if target is an object/array (not a primitive)
+        if (resolved !== undefined && (typeof resolved === "object" || Array.isArray(resolved))) {
+          return resolve(resolved, depth + 1);
+        }
       }
       if (Array.isArray(val)) return val.map(v => resolve(v, depth + 1));
       if (val && typeof val === "object") {

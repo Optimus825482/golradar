@@ -56,6 +56,7 @@ export const CALIBRATION_PARAMS = {
 };
 
 import { db } from "./db";
+import { logError } from '@/lib/devLog';
 
 /** Optimize sigmoid params from PredictionLog table, persist to DB. */
 export async function autoCalibrateFromDB(): Promise<{
@@ -171,9 +172,10 @@ function saveCalibrationRecord(record: CalibrationRecord): void {
     }
     records.push(record);
     if (records.length > 10000) records = records.slice(-10000);
-    s2.fs.writeFileSync(RECORDS_FILE, JSON.stringify(records, null, 2));
+    // Use compact JSON (no pretty-print) to reduce file size and I/O
+    s2.fs.writeFileSync(RECORDS_FILE, JSON.stringify(records));
   } catch (e) {
-    console.error('[Calibration] Failed to save record:', e);
+    logError('calibration', 'Failed to save record:', e);
   }
 }
 
@@ -185,7 +187,7 @@ function loadCalibrationRecords(): CalibrationRecord[] {
     if (s2.fs.existsSync(RECORDS_FILE)) {
       return JSON.parse(s2.fs.readFileSync(RECORDS_FILE, 'utf-8'));
     }
-  } catch {}
+  } catch (e) { logError('calibration', e); }
   return [];
 }
 

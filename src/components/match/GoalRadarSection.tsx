@@ -2,10 +2,11 @@
 
 import { MatchCard } from './MatchCard'
 import type { Match } from './types'
+import type { GoalProbability } from '@/lib/nesine'
 
 interface GoalRadarSectionProps {
   matches: Match[]
-  goalProbabilities: Map<number, any>
+  goalProbabilities: Map<number, GoalProbability>
   selectedMatch: Match | null
   favorites: Set<number>
   goalFlashMap: Record<number, number>

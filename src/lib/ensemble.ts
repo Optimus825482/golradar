@@ -23,9 +23,11 @@ import {
 } from './dixonColes';
 import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
 import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
+import { estimateXgFromShots } from './estimateXg';
 import { loadLatestTeamStrength } from './ml/teamHistoryBackfill';
 import { loadXgbChampion } from "./ml/modelRouter";
 import { predictXgb, type XgbModel } from "./ml/xgbLoader";
+import { logError } from '@/lib/devLog';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -206,34 +208,9 @@ export async function predictEnsemble(
   let poissonAwayWin = 0;
 
   try {
-    // Estimate xG for Poisson input
-    const getStat = (key: string, side: "home" | "away"): number => {
-      const s = stats[key];
-      if (!s) return 0;
-      return (side === "home" ? s.home : s.away) ?? 0;
-    };
-
-    const sotH = getStat("shots_on_target", "home");
-    const sotA = getStat("shots_on_target", "away");
-    const totalH = getStat("shots_total", "home");
-    const totalA = getStat("shots_total", "away");
-    const blkH = getStat("shots_blocked", "home");
-    const blkA = getStat("shots_blocked", "away");
-    const offH = Math.max(0, totalH - sotH - blkH);
-    const offA = Math.max(0, totalA - sotA - blkA);
-    const crnH = getStat("corners", "home");
-    const crnA = getStat("corners", "away");
-    const daH = getStat("dangerous_attacks", "home");
-    const daA = getStat("dangerous_attacks", "away");
-
-    const xgHome =
-      stats.xg?.home != null && stats.xg.home > 0
-        ? stats.xg.home
-        : sotH * 0.38 + offH * 0.05 + blkH * 0.03 + crnH * 0.04 + daH * 0.01;
-    const xgAway =
-      stats.xg?.away != null && stats.xg.away > 0
-        ? stats.xg.away
-        : sotA * 0.38 + offA * 0.05 + blkA * 0.03 + crnA * 0.04 + daA * 0.01;
+    // Estimate xG for Poisson input using shared formula (avoids formula duplication)
+    const xgHome = estimateXgFromShots(stats, 'home', minNum);
+    const xgAway = estimateXgFromShots(stats, 'away', minNum);
 
     if (homeAttackStrength && awayDefenseStrength) {
       const params = calculateExpectedGoals(
@@ -303,6 +280,16 @@ export async function predictEnsemble(
   }> = [];
   let mlModelName = "GBDT (built-in)";
 
+  // Extract features lazily, caching the result for multiple ML model calls
+  let mlFeaturesCache: { features: MatchFeatures; featureArray: number[] } | null = null;
+  async function getMlFeaturesCached(): Promise<{ features: MatchFeatures; featureArray: number[] }> {
+    if (mlFeaturesCache) return mlFeaturesCache;
+    const features = await extractFeatures(input);
+    const featureArray = featuresToArray(features);
+    mlFeaturesCache = { features, featureArray };
+    return mlFeaturesCache;
+  }
+
   try {
     let mlModel: XgbModel | null = null;
 
@@ -316,15 +303,12 @@ export async function predictEnsemble(
           mlModelName = `${championName} v${champ.version}`;
           break;
         }
-      } catch {
-        /* continue to next */
-      }
+      } catch (e) { logError('ensemble', e); /* continue to next */ }
     }
 
     if (mlModel) {
-      // Champion XGB model — use xgbLoader inference
-      const features = await extractFeatures(input);
-      const featureArray = featuresToArray(features);
+      // Champion XGB model — extract features once
+      const { featureArray } = await getMlFeaturesCached();
       mlP = Math.max(0, Math.min(1, predictXgb(mlModel, featureArray)));
       mlConfidence = 0.7; // calibrated via backtest Brier
 
@@ -342,8 +326,7 @@ export async function predictEnsemble(
       // Fall back to built-in GBDT
       const builtin = loadModel();
       if (builtin) {
-        const features = await extractFeatures(input);
-        const featureArray = featuresToArray(features);
+        const { featureArray } = await getMlFeaturesCached();
         const mlResult = predictGBDT(builtin, featureArray);
         mlP = mlResult.probability;
         mlConfidence = mlResult.confidence;
@@ -371,8 +354,8 @@ export async function predictEnsemble(
     try {
       const ipChampion = await loadXgbChampion("inplay");
       if (ipChampion) {
-        const features = await extractFeatures(input);
-        const featureArray = featuresToArray(features);
+        // Use cached features from previous extraction
+        const { featureArray } = await getMlFeaturesCached();
         inPlayP = Math.max(
           0,
           Math.min(1, predictXgb(ipChampion.model, featureArray)),
@@ -437,23 +420,38 @@ export async function predictEnsemble(
   }
 
   // ── Weighted ensemble blend ──
+  // Normalize ALL weights (including inplay and teamStrength) to sum to 1.0
+  const allWeights = [
+    weights.ruleBased,
+    weights.poisson,
+    weights.elo,
+    weights.ml,
+    weights.teamStrength,
+    weights.inplay,
+  ];
+  const totalWeight = allWeights.reduce((a, b) => a + b, 0);
+  const norm = (w: number) => totalWeight > 0 ? w / totalWeight : 0;
   const ensembleP =
-    ruleBasedP * weights.ruleBased +
-    poissonP * weights.poisson +
-    eloP * weights.elo +
-    mlP * weights.ml +
-    teamStrengthP * weights.teamStrength +
-    inPlayP * weights.inplay;
+    ruleBasedP * norm(weights.ruleBased) +
+    poissonP * norm(weights.poisson) +
+    eloP * norm(weights.elo) +
+    mlP * norm(weights.ml) +
+    teamStrengthP * norm(weights.teamStrength) +
+    inPlayP * norm(weights.inplay);
 
-  // ── Model agreement ──
-  const allPredictions = [ruleBasedP, poissonP, eloP, mlP].filter((p) => p > 0);
-  const avgP =
-    allPredictions.reduce((a, b) => a + b, 0) /
-    Math.max(1, allPredictions.length);
-  const variance =
-    allPredictions.reduce((s, p) => s + (p - avgP) ** 2, 0) /
-    Math.max(1, allPredictions.length);
-  const agreement = Math.max(0, 1 - Math.sqrt(variance) * 5); // Lower variance = higher agreement
+  // ── Model agreement (excluding zero predictions) ──
+  const allPredictions = [ruleBasedP, poissonP, eloP, mlP].filter((p) => p > 0.01);
+  const hasPredictions = allPredictions.length > 0;
+  const avgP = hasPredictions
+    ? allPredictions.reduce((a, b) => a + b, 0) / allPredictions.length
+    : 0;
+  const variance = hasPredictions
+    ? allPredictions.reduce((s, p) => s + (p - avgP) ** 2, 0) / allPredictions.length
+    : 0;
+  // Agreement only meaningful when we have positive predictions
+  const agreement = hasPredictions
+    ? Math.max(0, 1 - Math.sqrt(variance) * 5)
+    : 0; // Low variance = high agreement
 
   // ── Ensemble derived predictions ──
   const ensembleOverUnder =

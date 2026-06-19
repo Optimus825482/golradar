@@ -54,6 +54,7 @@ export interface ScoremerMapping {
 // ── Fetch page via Node.js fetch (cross-platform) ──────────────
 
 import { scrapeUrl } from './scraper';
+import { logError } from '@/lib/devLog';
 
 const SCOREMER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -70,7 +71,7 @@ async function fetchDirectHttp(url: string): Promise<string | null> {
       const text = await resp.text();
       if (text.length > 1000) return text;
     }
-  } catch { /* fall through to bridge */ }
+  } catch (e) { logError('scoremer', e); /* fall through to bridge */ }
 
   // Step 2: Try Python bridge (bypasses Cloudflare via curl_cffi)
   const result = await scrapeUrl(url, { type: 'html', referer: 'https://www.scoremer.com/', timeout: 25000 });
@@ -645,16 +646,11 @@ async function buildScoremerMappings(
         (homeSimSwap + awaySimSwap) / 2
       );
 
-      // Score match bonus
-      let scoreBonus = 0;
-      const nmHome = parseInt(String(nm.home)) || 0;
-      const nmAway = parseInt(String(nm.away)) || 0;
-      if (sm.homeScore === nmHome || sm.awayScore === nmAway) {
-        scoreBonus = 0.05;
-      }
-      if (sm.homeScore === nmHome && sm.awayScore === nmAway) {
-        scoreBonus = 0.1;
-      }
+      // Score match bonus — disabled because nm only carries team names,
+      // not scores. The parseInt(teamName) approach always gives NaN → 0,
+      // which incorrectly triggered only for 0-0 scoremer matches.
+      // TODO: Add score info to nesineMatches input to enable this.
+      const scoreBonus = 0;
 
       const conf = nameConf + scoreBonus;
 

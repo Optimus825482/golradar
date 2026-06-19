@@ -215,7 +215,7 @@ export const POST = adminRoute(async (request: Request) => {
           },
           update: { eloRating: r.rating, eloSource: r.source },
         })
-        .catch(() => {}); // ignore if team not in mapping
+        .catch((e) => { console.error('[elo-import] teamMapping update error:', e); }); // ignore if team not in mapping
     }
 
     return NextResponse.json({ ok: true, imported, failed, results });
@@ -277,7 +277,7 @@ export const POST = adminRoute(async (request: Request) => {
           },
           update: { eloRating: r.rating, eloSource: r.source },
         })
-        .catch(() => {});
+        .catch((e) => { console.error('[elo-import] teamMapping upsert error:', e); });
     }
     return NextResponse.json({ ok: true, country, imported, failed, results });
   }

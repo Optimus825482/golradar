@@ -10,6 +10,7 @@
 import { db } from "./db";
 import { calibrateScore } from "./calibration";
 import { CALIBRATION_PARAMS } from "./calibration";
+import { logError } from '@/lib/devLog';
 
 // ════════════════════════════════════════════════════════════════
 // 1. BACKTEST FROM DB
@@ -249,7 +250,7 @@ export async function fitPoissonTeamStrengths(
     console.log(
       `[PoissonFit] Saved ${strengths.size} team strengths for league ${leagueId} season ${season}`,
     );
-  } catch {}
+  } catch (e) { logError('modelOptimizer', e); }
 
   return strengths;
 }
@@ -304,16 +305,32 @@ export async function optimizeEnsembleWeights(
         const wm = 1 - wr - wp - we;
         if (wm < 0) continue;
 
-        // For each log, compute ensemble probability = weighted average
-        let brierSum = 0;
-        for (const log of logs) {
-          // Simple estimate: use calibratedP for rule, Elo-based for others
-          const ruleP = log.calibratedP;
-          // Poisson & ML not available in log, use calibratedP weighted
-          // This is a simplification — full optimization needs per-model scores
-          const ensembleP = ruleP;
-          brierSum += (ensembleP - (log.goalScored ? 1 : 0)) ** 2;
-        }
+          // For each log, compute ensemble probability = weighted average
+          let brierSum = 0;
+          for (const log of logs) {
+            // Estimate per-model probabilities from available signals:
+            // - ruleP: rawScore mapped to 0-1 via sigmoid
+            // - poissonP: estimate from Elo difference
+            // - eloP: estimate from Elo difference (higher weight)
+            // - mlP: calibratedP as ML-informed baseline
+            const ruleP = Math.max(0.01, Math.min(0.99, log.rawScore / 100));
+            
+            // Poisson estimate from Elo difference (if available)
+            const eloDiff = (log.homeElo ?? 1500) - (log.awayElo ?? 1500);
+            const poissonP = Math.max(0.01, Math.min(0.99, 
+              0.15 + (eloDiff / 400) * 0.1));
+            
+            // Elo-based estimate 
+            const eloP = Math.max(0.01, Math.min(0.99, 
+              0.12 + (eloDiff / 400) * 0.15));
+            
+            // ML estimate: calibratedP is the best single estimate
+            const mlP = Math.max(0.01, Math.min(0.99, log.calibratedP));
+
+            // Weighted ensemble
+            const ensembleP = wr * ruleP + wp * poissonP + we * eloP + wm * mlP;
+            brierSum += (ensembleP - (log.goalScored ? 1 : 0)) ** 2;
+          }
 
         const brier = brierSum / logs.length;
         if (brier < bestBrier) {
@@ -386,7 +403,7 @@ export async function runFullOptimization(
     );
     fs.writeFileSync(file, JSON.stringify(report, null, 2));
     console.log("[Optimizer] Report saved to", file);
-  } catch {}
+  } catch (e) { logError('modelOptimizer', e); }
 
   console.log("[Optimizer] Done:", {
     predictions: backtest?.totalPredictions,

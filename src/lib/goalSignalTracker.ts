@@ -151,6 +151,39 @@ export interface SignalAccuracyStats {
   recentSignals: GoalSignalRecord[];
   signalsByDay: Record<string, { total: number; goals: number; correct: number }>;
   signalsByMinuteRange: Record<string, { total: number; goals: number }>;
+
+  // ═══════════════════════════════════════════════════════════════
+  // 🥇 PRIMARY METRIC: Goal Success by Time Window
+  // Sistemin ana amacı: "Gol olacak" dediği zaman gol olması.
+  // Yön (home/away) İKİNCİL bir metriktir.
+  //
+  //   Excellent (5dk):  Sinyalden sonraki 5 dk içinde gol → MÜKEMMEL
+  //   Good (10dk):      5-10 dk arasında gol → İYİ
+  //   Late (15dk):      10-15 dk arasında gol → GEÇ AMA BAŞARILI
+  //   Fail:             15 dk içinde gol OLMADI → BAŞARISIZ
+  // ═══════════════════════════════════════════════════════════════
+  goalPrimary: {
+    excellent: number;  // gol ≤ 5dk
+    good: number;       // 5dk < gol ≤ 10dk
+    late: number;       // 10dk < gol ≤ 15dk
+    fail: number;       // gol olmadı
+    pending: number;    // henüz belli değil
+
+    // Yüzdesel oranlar
+    excellentRate: number;  // excellent / resolved
+    goodRate: number;       // good / resolved
+    lateRate: number;       // late / resolved
+    failRate: number;       // fail / resolved
+    successRate: number;    // (excellent + good + late) / resolved = toplam başarı
+  };
+
+  // 🥈 SECONDARY METRIC: Side (Direction) Accuracy
+  // Sadece gol olan sinyallerde yön doğruluğu
+  sideAccuracy: {
+    correct: number;    // Doğru yön tahmini
+    incorrect: number;  // Yanlış yön tahmini
+    rate: number;       // correct / (correct + incorrect)
+  };
 }
 
 // ── Internal state (session-local only) ────────────────────────

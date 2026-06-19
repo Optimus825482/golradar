@@ -113,10 +113,10 @@ export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayT
         <div className="flex items-center justify-center gap-4 mb-1">
           {/* Ev gauge */}
           <div className="flex flex-col items-center">
-            <div ref={gaugeHomeRef} className="w-37.5 h-27.5" style={{ contain: 'strict', willChange: 'transform' }} />
+            <div ref={gaugeHomeRef} className="w-[150px] h-[130px]" style={{ contain: 'layout paint style' }} />
             <div className="flex items-center gap-1.5 -mt-1">
               <div className="w-2 h-2 rounded-full bg-orange-500" />
-              <span className="text-[10px] font-semibold text-gray-700 truncate max-w-20">{homeTeam}</span>
+              <span className="text-[10px] font-semibold text-gray-700 truncate max-w-[80px]">{homeTeam}</span>
             </div>
           </div>
 
@@ -139,10 +139,10 @@ export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayT
 
           {/* Away gauge */}
           <div className="flex flex-col items-center">
-            <div ref={gaugeAwayRef} className="w-37.5 h-27.5" style={{ contain: 'strict', willChange: 'transform' }} />
+            <div ref={gaugeAwayRef} className="w-[150px] h-[130px]" style={{ contain: 'layout paint style' }} />
             <div className="flex items-center gap-1.5 -mt-1">
               <div className="w-2 h-2 rounded-full bg-blue-500" />
-              <span className="text-[10px] font-semibold text-gray-700 truncate max-w-20">{awayTeam}</span>
+              <span className="text-[10px] font-semibold text-gray-700 truncate max-w-[80px]">{awayTeam}</span>
             </div>
           </div>
         </div>

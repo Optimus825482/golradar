@@ -228,7 +228,7 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
   const onLeave = useCallback(() => { if (hlRef.current) hlRef.current.style.opacity = '0'; if (hdRef.current) hdRef.current.style.opacity = '0'; if (ttRef.current) ttRef.current.style.display = 'none' }, [])
 
   if (barData.length < 2) return (
-    <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm p-6" style={{ contain: 'strict' }}>
+    <div className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm p-6">
       <div className="flex items-center justify-center gap-2 text-gray-400">
         {isFotmobLoading ? <><div className="w-4 h-4 border-2 border-gray-300 border-t-orange-500 rounded-full animate-spin" /><span className="text-sm">Veri yükleniyor...</span></> : <span className="text-sm">Momentum verisi toplanıyor...</span>}
       </div>
@@ -236,7 +236,7 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
   )
 
   return (
-    <div ref={rootRef} className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm" style={{ contain: 'paint layout style', transform: 'translateZ(0)' }}>
+    <div ref={rootRef} className="rounded-xl overflow-hidden bg-white border border-gray-200 shadow-sm">
       {threatIndex && Math.abs(threatIndex.home - threatIndex.away) >= 5 && (() => {
         const bc = threatIndex.home > threatIndex.away ? vHome : vAway
         return <div className="mx-3 mt-2 px-3 py-1 rounded-lg text-center" style={{ background: `linear-gradient(135deg, ${bc}12 0%, ${bc}06 100%)`, border: `1px solid ${bc}25` }}><span className="text-[11px] font-bold" style={{ color: bc }}>{threatIndex.interpretation}</span></div>
@@ -245,14 +245,14 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
       <div className="flex items-center justify-between px-4 pt-3 pb-2">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: vHome }} />
-          <span className="text-gray-900 text-xs font-bold truncate max-w-22.5">{homeTeam}</span>
+          <span className="text-gray-900 text-xs font-bold truncate max-w-[90px]">{homeTeam}</span>
           <span className="text-gray-900 text-lg font-black mx-0.5">{homeScore}</span>
           {barData.length > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: `${vHome}12`, color: vHome }}>{barData[barData.length - 1].homeXg.toFixed(2)} xG</span>}
         </div>
         <div className="flex items-center gap-1.5">
           {barData.length > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: `${vAway}12`, color: vAway }}>{barData[barData.length - 1].awayXg.toFixed(2)} xG</span>}
           <span className="text-gray-900 text-lg font-black mx-0.5">{awayScore}</span>
-          <span className="text-gray-900 text-xs font-bold truncate max-w-22.5">{awayTeam}</span>
+          <span className="text-gray-900 text-xs font-bold truncate max-w-[90px]">{awayTeam}</span>
           <div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: vAway }} />
         </div>
       </div>

@@ -54,10 +54,10 @@ export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayT
     majorTicks: ['0', '25', '50', '75', '100'],
   })
 
-  function drawGauge(instance: any, ref: HTMLDivElement | null, value: number, label: string, opts: any) {
+  function drawGauge(instance: any, ref: HTMLDivElement | null, value: number, opts: any) {
     if (!ref || !instance) return
     const dt = new window.google.visualization.DataTable()
-    dt.addColumn('number', label)
+    dt.addColumn('number', '')
     dt.addColumn({ type: 'string', role: 'annotation' })
     dt.addRows([[value, `${Math.round(value)}%`]])
     instance.draw(dt, opts)
@@ -76,8 +76,8 @@ export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayT
           const awayOpts = gaugeOpts(TEAM_COLORS.away)
           homeOpts.width = w
           awayOpts.width = w
-          drawGauge(gaugeHomeInstance.current, gaugeHomeRef.current, lastPoint.homePressure, homeTeam, homeOpts)
-          drawGauge(gaugeAwayInstance.current, gaugeAwayRef.current, lastPoint.awayPressure, awayTeam, awayOpts)
+          drawGauge(gaugeHomeInstance.current, gaugeHomeRef.current, lastPoint.homePressure, homeOpts)
+          drawGauge(gaugeAwayInstance.current, gaugeAwayRef.current, lastPoint.awayPressure, awayOpts)
         }
       }
     })
@@ -95,8 +95,8 @@ export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayT
     if (!gaugeReady.current && gaugeHomeRef.current && gaugeAwayRef.current) {
       gaugeHomeInstance.current = new window.google.visualization.Gauge(gaugeHomeRef.current)
       gaugeAwayInstance.current = new window.google.visualization.Gauge(gaugeAwayRef.current)
-      drawGauge(gaugeHomeInstance.current, gaugeHomeRef.current, lastPoint.homePressure, homeTeam, homeOpts)
-      drawGauge(gaugeAwayInstance.current, gaugeAwayRef.current, lastPoint.awayPressure, awayTeam, awayOpts)
+      drawGauge(gaugeHomeInstance.current, gaugeHomeRef.current, lastPoint.homePressure, homeOpts)
+      drawGauge(gaugeAwayInstance.current, gaugeAwayRef.current, lastPoint.awayPressure, awayOpts)
       gaugeReady.current = true
       lastHomeVal.current = lastPoint.homePressure
       lastAwayVal.current = lastPoint.awayPressure
@@ -104,17 +104,17 @@ export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayT
     }
 
     if (lastPoint.homePressure !== lastHomeVal.current && gaugeHomeInstance.current) {
-      drawGauge(gaugeHomeInstance.current, gaugeHomeRef.current, lastPoint.homePressure, homeTeam, homeOpts)
+      drawGauge(gaugeHomeInstance.current, gaugeHomeRef.current, lastPoint.homePressure, homeOpts)
       lastHomeVal.current = lastPoint.homePressure
     }
     if (lastPoint.awayPressure !== lastAwayVal.current && gaugeAwayInstance.current) {
-      drawGauge(gaugeAwayInstance.current, gaugeAwayRef.current, lastPoint.awayPressure, awayTeam, awayOpts)
+      drawGauge(gaugeAwayInstance.current, gaugeAwayRef.current, lastPoint.awayPressure, awayOpts)
       lastAwayVal.current = lastPoint.awayPressure
     }
   }, [loaded, lastPoint.homePressure, lastPoint.awayPressure, homeTeam, awayTeam])
 
   return (
-    <CleanChartCard title="Basınç" homeTeam={homeTeam} awayTeam={awayTeam} homeColor={TEAM_COLORS.home} awayColor={TEAM_COLORS.away}>
+    <CleanChartCard title="Baskı" homeTeam={homeTeam} awayTeam={awayTeam} homeColor={TEAM_COLORS.home} awayColor={TEAM_COLORS.away}>
       <div ref={containerRef} className="px-2 pt-1 pb-2">
         <div className="flex items-center justify-center gap-4 mb-1">
           <div className="flex flex-col items-center flex-1 min-w-0">

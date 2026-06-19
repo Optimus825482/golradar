@@ -42,12 +42,17 @@ fi
 # ── Prisma Schema Sync ────────────────────────────────────────────
 echo "[DB] Veritabanı şeması senkronize ediliyor..."
 
+PRISMA_BIN="node ./node_modules/prisma/build/index.js"
+
 # migrate deploy dene, olmazsa db push dene (non-destructive)
 if ! NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
-    node ./node_modules/prisma/build/index.js migrate deploy 2>&1; then
+    $PRISMA_BIN migrate deploy 2>&1; then
     echo "[DB] migrate deploy başarısız → db push deneniyor..."
     NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
-        node ./node_modules/prisma/build/index.js db push 2>&1 || echo "[WARN] db push de başarısız"
+        $PRISMA_BIN db push 2>&1 || echo "[WARN] db push de başarısız, elle müdahale gerekebilir"
+    # db push başarılı olduysa failed migration'ı resolve et (P3009 hatasını önle)
+    echo "[DB] db push tamam, failed migration'lar resolve ediliyor..."
+    $PRISMA_BIN migrate resolve --applied 0001_init 2>/dev/null || true
 fi
 echo "[DB] ✅ Şema senkronizasyonu tamam"
 

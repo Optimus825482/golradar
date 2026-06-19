@@ -1034,7 +1034,11 @@ export default function OptimusGolRadariPage() {
         radarCount={radarCount}
         favCount={favCount}
         finishedCount={finishedMatches.length || undefined}
-        onTabChange={setActiveTab}
+        onTabChange={(tab) => {
+          setActiveTab(tab);
+          setSelectedMatch(null);
+          setDrawerOpen(false);
+        }}
       />
 
       {/* Goal Notifications Portal */}

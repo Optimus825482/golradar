@@ -297,9 +297,9 @@ export async function deleteArtifact(
   if (deleteFile) {
     try {
       const { unlink } = await import('fs/promises');
-      await unlink(artifact.artifactPath).catch((e) => { logError('modelRouter', e); });
+      await unlink(artifact.artifactPath);
     } catch {
-      // ignore if file doesn't exist
+      // ignore — file may not exist (e.g. after volume path changes)
     }
   }
 

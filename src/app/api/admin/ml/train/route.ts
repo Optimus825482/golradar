@@ -17,7 +17,8 @@
 //   { ok: true, jobId, status, artifactPath, metrics, registered: bool }
 
 import { NextResponse } from 'next/server';
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
+import { join } from 'path';
 import { db } from "@/lib/db";
 import {
   startTraining,
@@ -96,7 +97,6 @@ export const POST = adminRoute(async (request: Request) => {
   let dataset_id = body.dataset_id ?? null;
 
   // Always force a fresh export before training
-  // This ensures the JSONL file has the latest data with proper goalScored labels
   try {
     const exportResult = await triggerExportNow(horizon_min as 5 | 10 | 15);
     if (exportResult) {
@@ -127,35 +127,18 @@ export const POST = adminRoute(async (request: Request) => {
     }
   }
 
-  if (!resolvedPath) {
+  // Verify the file actually exists on disk
+  if (!resolvedPath || !existsSync(resolvedPath)) {
+    // File not found — try to list available files for debugging
+    const dir = join(process.cwd(), 'data', 'ml-training');
+    let availableFiles: string[] = [];
+    try { availableFiles = readdirSync(dir).filter(f => f.endsWith('.jsonl')); } catch {}
     return NextResponse.json(
       {
-        error:
-          "no training dataset available — export data first or provide dataset_id/dataset_path",
-      },
-      { status: 400 },
-    );
-  }
-
-  // Verify the file actually exists on disk (survives container rebuilds)
-  if (!existsSync(resolvedPath)) {
-    // File lost (container rebuild). Re-export.
-    try {
-      const exportResult = await triggerExportNow(horizon_min as 5 | 10 | 15);
-      if (exportResult) {
-        dataset_id = exportResult.datasetId;
-        resolvedPath = exportResult.path;
-      }
-    } catch {
-      /* fall through to error */
-    }
-  }
-
-  if (!existsSync(resolvedPath)) {
-    return NextResponse.json(
-      {
-        error:
-          "dataset file not found on disk — container may have been rebuilt, try exporting data first",
+        error: `dataset file not found on disk. Available files: ${availableFiles.join(', ') || 'none'}`,
+        path: resolvedPath,
+        dir,
+        available: availableFiles,
       },
       { status: 400 },
     );

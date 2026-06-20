@@ -8,7 +8,6 @@ import type { Match, MatchStats } from './types'
 import { statKeys } from './types'
 import { calculatePressure } from './utils'
 import { CountryFlag, MatchStatusBadge, StatBar, RedCardIndicator } from './shared-components'
-import { MomentumChart } from '@/components/charts/MomentumChart'
 import { StatsLineChart } from '@/components/charts/StatsLineChart'
 import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomentumChart'
 import { FotMobSection } from '@/components/fotmob/FotMobSection'
@@ -287,42 +286,63 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         )}
       </div>
 
-      {/* Charts Section */}
-      <div className="p-4 sm:p-5 border-b border-gray-100 space-y-4" style={{ contain: 'paint layout style' }}>
+      {/* Charts Section — Compact, professional */}
+      <div className="p-3 sm:p-4 border-b border-gray-100 space-y-3" style={{ contain: 'paint layout style' }}>
         {(pressureChartData.length > 2 || fotmobData?.momentum?.main?.data?.length || momentumBars.length >= 2 || xgFlowData.length >= 1 || match?.hasStats || fotmobLoading) ? (
           <>
-            <ErrorBoundary context="UnifiedMatchMomentumChart">
-            <UnifiedMatchMomentumChart
-              momentumBars={momentumBars}
-              xgFlowData={xgFlowData}
-              homeTeam={match.home}
-              awayTeam={match.away}
-              homeScore={match.homeGoals}
-              awayScore={match.awayGoals}
-              homeColor={match.homeColor || '#f97316'}
-              awayColor={match.awayColor || '#3b82f6'}
-              threatIndex={threatIndex}
-              fotmobMomentum={fotmobData?.momentum ?? null}
-              fotmobShots={fotmobData?.shotmap ?? null}
-              fotmobHomeTeamId={fotmobData?.homeTeam?.id}
-              fotmobAwayTeamId={fotmobData?.awayTeam?.id}
-              goalEvents={fotmobData?.events?.filter(e => e.type === 'Goal')}
-              isFotmobLoading={fotmobLoading}
-            />
-            </ErrorBoundary>
-            <ErrorBoundary context="MomentumChart">
-            <MomentumChart data={pressureChartData} homeTeam={match.home} awayTeam={match.away} />
-            </ErrorBoundary>
-            <ErrorBoundary context="StatsLineChart">
-            <StatsLineChart data={statsChartData} homeKey="homeDangerousAttacks" awayKey="awayDangerousAttacks" homeName={`${match.home} Tehl. Hücum`} awayName={`${match.away} Tehl. Hücum`} homeTeam={match.home} awayTeam={match.away} title="Tehlikeli Hücum" />
-            </ErrorBoundary>
+            {/* Ana Momentum Grafiği — compact */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-3 pt-3 pb-1">
+                <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Momentum & xG Akışı</h3>
+                <div className="flex items-center gap-3 text-[10px]">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500" />{match.home}</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />{match.away}</span>
+                </div>
+              </div>
+              <div className="px-1 pb-2">
+                <ErrorBoundary context="UnifiedMatchMomentumChart">
+                <UnifiedMatchMomentumChart
+                  momentumBars={momentumBars}
+                  xgFlowData={xgFlowData}
+                  homeTeam={match.home}
+                  awayTeam={match.away}
+                  homeScore={match.homeGoals}
+                  awayScore={match.awayGoals}
+                  homeColor={match.homeColor || '#f97316'}
+                  awayColor={match.awayColor || '#3b82f6'}
+                  threatIndex={threatIndex}
+                  fotmobMomentum={fotmobData?.momentum ?? null}
+                  fotmobShots={fotmobData?.shotmap ?? null}
+                  fotmobHomeTeamId={fotmobData?.homeTeam?.id}
+                  fotmobAwayTeamId={fotmobData?.awayTeam?.id}
+                  goalEvents={fotmobData?.events?.filter(e => e.type === 'Goal')}
+                  isFotmobLoading={fotmobLoading}
+                />
+                </ErrorBoundary>
+              </div>
+            </div>
+
+            {/* Tehlikeli Hücum — Profesyonel Görünüm */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-3 pt-3 pb-1">
+                <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Tehlikeli Hücum</h3>
+                <div className="flex items-center gap-3 text-[10px]">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500" />{match.home}</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />{match.away}</span>
+                </div>
+              </div>
+              <div className="px-1 pb-2">
+                <ErrorBoundary context="StatsLineChart">
+                <StatsLineChart data={statsChartData} homeKey="homeDangerousAttacks" awayKey="awayDangerousAttacks" homeName={`${match.home}`} awayName={`${match.away}`} homeTeam={match.home} awayTeam={match.away} title="" />
+                </ErrorBoundary>
+              </div>
+            </div>
           </>
         ) : (
-          <div className="h-[200px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
+          <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
             <div className="text-center">
-              <div className="animate-spin w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full mx-auto mb-3" />
-              <p className="text-sm text-gray-400">Grafik için veri toplanıyor...</p>
-              <p className="text-[11px] text-gray-500 mt-1">Her {POLL_INTERVAL / 1000} saniyede bir veri noktası eklenir</p>
+              <div className="animate-spin w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full mx-auto mb-2" />
+              <p className="text-xs text-gray-400">Grafik için veri toplanıyor...</p>
             </div>
           </div>
         )}

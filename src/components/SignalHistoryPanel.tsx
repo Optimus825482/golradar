@@ -1,8 +1,27 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { logError } from '@/lib/devLog';
+// Backward-compat re-export. The actual Signals Center UI lives in
+// `./SignalsCenter` and receives the matches list + onSelectMatch callback
+// directly from the page. This thin wrapper exists so any legacy import
+// paths still resolve.
+
+import SignalsCenter from "./SignalsCenter";
+import type { Match } from "@/components/match/types";
+
+interface LegacyPanelProps {
+  matches?: Match[];
+  onSelectMatch?: (match: Match) => void;
+}
+
+export default function SignalHistoryPanel({
+  matches = [],
+  onSelectMatch,
+}: LegacyPanelProps) {
+  const fallback = (m: Match) => {
+    if (onSelectMatch) onSelectMatch(m);
+  };
+  return <SignalsCenter matches={matches} onSelectMatch={onSelectMatch ?? fallback} />;
+}
 
 interface GoalSignalRecord {
   matchCode: number;

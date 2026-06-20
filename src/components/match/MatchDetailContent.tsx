@@ -303,19 +303,23 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       </div>
 
       {/* Charts Section — Desktop: side-by-side, Mobile: stacked */}
-      <div className="p-3 sm:p-4 border-b border-gray-100" style={{ contain: 'paint layout style' }}>
+      <div className="px-3 sm:px-4 pb-3 border-b border-gray-100" style={{ contain: 'paint layout style' }}>
         {(pressureChartData.length > 2 || fotmobData?.momentum?.main?.data?.length || momentumBars.length >= 2 || xgFlowData.length >= 1 || match?.hasStats || fotmobLoading) ? (
-          <div className="md:grid md:grid-cols-2 md:gap-3 space-y-3 md:space-y-0">
-            {/* Ana Momentum Grafiği */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-4 pt-4 pb-2">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Momentum & xG Akışı</h3>
-                <div className="flex items-center gap-3 text-[11px]">
-                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />{match.home}</span>
-                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" />{match.away}</span>
-                </div>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            {/* Shared header — replaces individual chart headers */}
+            <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-gray-100">
+              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Momentum & Tehlikeli Hücum</h3>
+              <div className="flex items-center gap-3 text-[11px]">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: match.homeColor || '#f97316' }} /><span className="text-gray-700 font-medium">{match.home}</span></span>
+                <span className="w-px h-3 bg-gray-200" />
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: match.awayColor || '#3b82f6' }} /><span className="text-gray-700 font-medium">{match.away}</span></span>
               </div>
-              <div className="px-2 pb-3">
+            </div>
+
+            {/* Desktop grid: side-by-side, mobile: stacked */}
+            <div className="md:grid md:grid-cols-2 md:divide-x md:divide-gray-100">
+              {/* Momentum Chart */}
+              <div className="px-2 sm:px-3 pt-2 pb-2">
                 <ErrorBoundary context="UnifiedMatchMomentumChart">
                 <UnifiedMatchMomentumChart
                   momentumBars={momentumBars}
@@ -326,7 +330,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                   awayScore={match.awayGoals}
                   homeColor={match.homeColor || '#f97316'}
                   awayColor={match.awayColor || '#3b82f6'}
-                  threatIndex={threatIndex}
+                  threatIndex={null}
                   fotmobMomentum={fotmobData?.momentum ?? null}
                   fotmobShots={fotmobData?.shotmap ?? null}
                   fotmobHomeTeamId={fotmobData?.homeTeam?.id}
@@ -336,27 +340,54 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                 />
                 </ErrorBoundary>
               </div>
+
+              {/* Dangerous Attacks Chart */}
+              <div className="px-2 sm:px-3 pt-2 pb-2">
+                <ErrorBoundary context="DangerousAttacksChart">
+                  <DangerousAttacksChart
+                    data={daData}
+                    homeTeam={match.home}
+                    awayTeam={match.away}
+                    homeColor={match.homeColor || '#f97316'}
+                    awayColor={match.awayColor || '#3b82f6'}
+                    title=""
+                    hideHeader={true}
+                    goalEvents={fotmobData?.events
+                      ?.filter(e => e.type === 'Goal')
+                      .map(e => ({
+                        isHome: e.isHome,
+                        minute: typeof e.time === 'number'
+                          ? e.time
+                          : parseInt(String(e.time || '0').replace(/[^0-9]/g, ''), 10) || 0,
+                      })) ?? null}
+                  />
+                </ErrorBoundary>
+              </div>
             </div>
 
-            {/* Tehlikeli Hücum — Stacked Area */}
-            <ErrorBoundary context="DangerousAttacksChart">
-              <DangerousAttacksChart
-                data={daData}
-                homeTeam={match.home}
-                awayTeam={match.away}
-                homeColor={match.homeColor || '#f97316'}
-                awayColor={match.awayColor || '#3b82f6'}
-                title="Tehlikeli Hücum"
-                goalEvents={fotmobData?.events
-                  ?.filter(e => e.type === 'Goal')
-                  .map(e => ({
-                    isHome: e.isHome,
-                    minute: typeof e.time === 'number'
-                      ? e.time
-                      : parseInt(String(e.time || '0').replace(/[^0-9]/g, ''), 10) || 0,
-                  })) ?? null}
-              />
-            </ErrorBoundary>
+            {/* Shared threat ribbon — replaces the individual threatIndex footer blocks */}
+            {threatIndex && Math.abs(threatIndex.home - threatIndex.away) >= 5 && (() => {
+              const ht = threatIndex.home, at = threatIndex.away, total = ht + at || 1, hp = Math.round((ht / total) * 100);
+              const bc = threatIndex.home > threatIndex.away ? (match.homeColor || '#f97316') : (match.awayColor || '#3b82f6');
+              return (
+                <div className="mx-3 mb-3 mt-1 px-4 py-2.5 rounded-xl text-center" style={{ background: `linear-gradient(135deg, ${bc}10 0%, ${bc}05 100%)`, border: `1px solid ${bc}20` }}>
+                  <div className="flex items-center justify-center gap-3 mb-2">
+                    <span className="text-[11px] font-black" style={{ color: bc }}>{threatIndex.interpretation}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-[11px] font-bold" style={{ color: match.homeColor || '#f97316' }}>{match.home} {Math.round(ht)}</span>
+                    <div className="flex-1 h-2.5 rounded-full overflow-hidden bg-gray-100">
+                      <div className="h-full rounded-l-full" style={{ width: `${hp}%`, background: `linear-gradient(90deg, ${match.homeColor || '#f97316'}80, ${match.homeColor || '#f97316'})` }} />
+                    </div>
+                    <span className="w-px h-4 bg-gray-200" />
+                    <div className="flex-1 h-2.5 rounded-full overflow-hidden bg-gray-100" style={{ direction: 'rtl' }}>
+                      <div className="h-full rounded-l-full" style={{ width: `${100 - hp}%`, background: `linear-gradient(270deg, ${match.awayColor || '#3b82f6'}80, ${match.awayColor || '#3b82f6'})` }} />
+                    </div>
+                    <span className="text-[11px] font-bold" style={{ color: match.awayColor || '#3b82f6' }}>{100 - hp}% {match.away}</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         ) : (
           <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">

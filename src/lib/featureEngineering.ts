@@ -10,7 +10,7 @@
 
 import type { MatchStats } from './nesineTypes';
 import { estimateXgFromShots as estimateXgShared } from './estimateXg';
-import { predictFromElo, getFormIndex, getRating } from './eloRating';
+import { predictFromElo, getFormIndexEma, getRating } from './eloRating';
 import { getTimeBasedGoalMultiplier } from './dixonColes';
 import { logError } from '@/lib/devLog';
 
@@ -93,6 +93,20 @@ export interface MatchFeatures {
   last_5min_xg_delta_home: number;   // xG added by home in last 5 min, normalized [0, 1]
   last_5min_xg_delta_away: number;   // xG added by away in last 5 min, normalized [0, 1]
   consecutive_shots_on_target_home: number; // SOT count last 10 min home, normalized [0, 1]
+
+  // ── P1.1: Shot geometry (FotMob shotmap) ──
+  shot_avg_angle_norm: number;       // Mean shot angle normalized [0,1]
+  shot_avg_distance_norm: number;    // Mean shot distance normalized [0,1]
+  shot_defenders_avg: number;        // Avg defenders on shot line, normalized [0,1]
+
+  // ── P1.3: PPDA proxy (pressing intensity) ──
+  ppda_home: number;                 // dangerous_attacks / (attacks+1) normalized
+  ppda_away: number;
+
+  // ── P1.6: Context features ──
+  fixture_congestion_home: number;   // Days since last match, normalized [0,1] (0=fresh)
+  fixture_congestion_away: number;
+  rest_advantage: number;            // (home_rest - away_rest) / 7, [-1, +1]
 }
 
 // ── Feature extraction function ────────────────────────────────────
@@ -127,6 +141,22 @@ export interface FeatureExtractionInput {
     windSpeed: number;
     precipitation: number;
   } | null;
+  /** P1.1: FotMob shotmap for shot geometry features. */
+  shotmap?: Array<{
+    x: number; y: number;
+    expectedGoals: number;
+    shotType: string;
+    situation: string;
+    isBlocked: boolean;
+    isOnTarget: boolean;
+    teamId: number;
+  }> | null;
+  /** P1.1: Team IDs to assign shots to home/away */
+  fotmobHomeTeamId?: number | null;
+  fotmobAwayTeamId?: number | null;
+  /** P1.6: Last-match timestamps (ms) for fixture congestion calc */
+  homeLastMatchTs?: number | null;
+  awayLastMatchTs?: number | null;
 }
 
 // Normalization helpers
@@ -138,8 +168,21 @@ function normRate(per15min: number, maxExpected: number = 10): number {
   return Math.max(0, Math.min(1, per15min / maxExpected));
 }
 
+// P1.1: Pitch geometry helpers (FotMob uses 0-100 pct coords)
+const PITCH_LEN = 105, PITCH_WID = 68, GOAL_WID = 7.32;
+function shotAngleFromGoal(xPct: number): number {
+  const dx = 100 - xPct;
+  return Math.atan2(GOAL_WID / 2, Math.max(1, dx)) * 2;
+}
+function shotDistanceFromGoal(xPct: number, yPct: number): number {
+  const dx = (100 - xPct) / 100 * PITCH_LEN;
+  const dy = (50 - yPct) / 100 * PITCH_WID;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
 export async function extractFeatures(input: FeatureExtractionInput): Promise<MatchFeatures> {
-  const { stats, minute, homeGoals, awayGoals, pressureHistory, weather, homeTeam, awayTeam } = input;
+  const { stats, minute, homeGoals, awayGoals, pressureHistory, weather, homeTeam, awayTeam,
+    shotmap, homeLastMatchTs, awayLastMatchTs } = input;
 
   // Parse minute (handle stoppage time correctly: "45+2'" -> 47)
   let minNum = (() => {
@@ -164,6 +207,7 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
   const possH = getStat('possession', 'home');
   const possA = getStat('possession', 'away');
   const daH = getStat('dangerous_attacks', 'home');
+  const daA = getStat('dangerous_attacks', 'away');
   const sotH = getStat('shots_on_target', 'home');
   const sotA = getStat('shots_on_target', 'away');
   const totalShotsH = getStat('shots_total', 'home');
@@ -247,12 +291,59 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     try {
       const prediction = predictFromElo(homeTeam, awayTeam);
       eloDiffNorm = Math.max(-1, Math.min(1, prediction.ratingDiff / 400));
-      homeFormIdx = getFormIndex(homeTeam);
-      awayFormIdx = getFormIndex(awayTeam);
+      // P1.2: EMA-weighted form index (~2-week half-life)
+      homeFormIdx = getFormIndexEma(homeTeam);
+      awayFormIdx = getFormIndexEma(awayTeam);
       homeEloMatches = (getRating(homeTeam)?.matchesPlayed ?? 0) / 50;
       awayEloMatches = (getRating(awayTeam)?.matchesPlayed ?? 0) / 50;
     } catch (e) { logError('featureEngineering', e); }
   }
+
+  // ── P1.1: Shot geometry from FotMob shotmap ──
+  let shotAvgAngle = 0.15; // neutral default (15° opening = typical mid-range)
+  let shotAvgDistance = 0.5;
+  let shotDefendersAvg = 0.5;
+  if (shotmap && shotmap.length > 0) {
+    const angles: number[] = [];
+    const distances: number[] = [];
+    const blockers: number[] = [];
+    for (const s of shotmap) {
+      if (typeof s.x !== 'number' || typeof s.y !== 'number') continue;
+      angles.push(shotAngleFromGoal(s.x));
+      distances.push(shotDistanceFromGoal(s.x, s.y));
+      // isBlocked proxy for defenders on shot line
+      blockers.push(s.isBlocked ? 0.8 : 0.3);
+    }
+    if (angles.length > 0) {
+      const meanAngle = angles.reduce((a, b) => a + b, 0) / angles.length;
+      const meanDist = distances.reduce((a, b) => a + b, 0) / distances.length;
+      const meanBlock = blockers.reduce((a, b) => a + b, 0) / blockers.length;
+      // Normalize: angle [0, π/2] → [0,1], distance [0, ~80m] → [0,1]
+      shotAvgAngle = Math.max(0, Math.min(1, meanAngle / (Math.PI / 2)));
+      shotAvgDistance = Math.max(0, Math.min(1, meanDist / 50));
+      shotDefendersAvg = meanBlock;
+    }
+  }
+
+  // ── P1.3: PPDA proxy ──
+  const attacksH = getStat('attacks', 'home');
+  const attacksA = getStat('attacks', 'away');
+  // Higher DA/Attacks ratio = more efficient pressing = better quality
+  const ppdaH = attacksH > 0 ? daH / attacksH : 0;
+  const ppdaA = attacksA > 0 ? daA / attacksA : 0;
+  // Normalize: typical range 0.05-0.40 → [0,1]
+  const ppdaHome = Math.max(0, Math.min(1, ppdaH / 0.40));
+  const ppdaAway = Math.max(0, Math.min(1, ppdaA / 0.40));
+
+  // ── P1.6: Fixture congestion + rest advantage ──
+  const nowTs = Date.now();
+  const homeRestDays = homeLastMatchTs ? Math.max(0, (nowTs - homeLastMatchTs) / 86_400_000) : 7;
+  const awayRestDays = awayLastMatchTs ? Math.max(0, (nowTs - awayLastMatchTs) / 86_400_000) : 7;
+  // Normalize: 0 days = 1.0 (fatigue), 14+ days = 0.0 (rust)
+  const fixtureCongestionHome = Math.max(0, Math.min(1, 1 - homeRestDays / 14));
+  const fixtureCongestionAway = Math.max(0, Math.min(1, 1 - awayRestDays / 14));
+  // Rest advantage: positive = home had more rest (home advantage)
+  const restAdvantage = Math.max(-1, Math.min(1, (homeRestDays - awayRestDays) / 7));
 
   // ── xG advanced features ──
   const xgRateHome = xgHome / elapsed15;
@@ -439,7 +530,66 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     last_5min_xg_delta_home: Math.min(1, liveXgDeltaHome),
     last_5min_xg_delta_away: Math.min(1, liveXgDeltaAway),
     consecutive_shots_on_target_home: consecutiveSotH,
+
+    // P1.1: Shot geometry
+    shot_avg_angle_norm: shotAvgAngle,
+    shot_avg_distance_norm: shotAvgDistance,
+    shot_defenders_avg: shotDefendersAvg,
+
+    // P1.3: PPDA proxy
+    ppda_home: ppdaHome,
+    ppda_away: ppdaAway,
+
+    // P1.6: Context features
+    fixture_congestion_home: fixtureCongestionHome,
+    fixture_congestion_away: fixtureCongestionAway,
+    rest_advantage: restAdvantage,
   };
+}
+
+// P1.4: Feature drift monitor — in-memory ring buffer + JSON file flush.
+// Scheduler (separate task) reads buffer, computes per-feature stats,
+// writes to DriftLog table. Stays lightweight (sync write, no DB here).
+export interface FeatureDriftRecord {
+  date: string;
+  n: number;
+  perFeature: Record<string, { sum: number; sumSq: number; min: number; max: number }>;
+}
+let _driftBuffer: FeatureDriftRecord | null = null;
+let _driftBufferN = 0;
+
+export function pushFeatureSample(features: MatchFeatures): void {
+  const today = new Date().toISOString().slice(0, 10);
+  if (!_driftBuffer || _driftBuffer.date !== today) {
+    // Flush previous day + reset
+    if (_driftBuffer && _driftBuffer.n > 0) {
+      try {
+        const s = (typeof process !== 'undefined' && process.versions?.node) ? require('fs') : null;
+        if (s) {
+          const path = s.path.join(process.cwd(), 'data', 'drift', `${_driftBuffer.date}.json`);
+          s.mkdirSync(s.path.dirname(path), { recursive: true });
+          s.writeFileSync(path, JSON.stringify(_driftBuffer));
+        }
+      } catch { /* best-effort */ }
+    }
+    _driftBuffer = { date: today, n: 0, perFeature: {} };
+    _driftBufferN = 0;
+  }
+  if (_driftBufferN >= 5000) return; // cap per-day samples
+  _driftBuffer.n++;
+  _driftBufferN++;
+  for (const [k, v] of Object.entries(features)) {
+    if (typeof v !== 'number' || !isFinite(v)) continue;
+    const cur = _driftBuffer.perFeature[k] ?? { sum: 0, sumSq: 0, min: v, max: v };
+    cur.sum += v;
+    cur.sumSq += v * v;
+    cur.min = Math.min(cur.min, v);
+    cur.max = Math.max(cur.max, v);
+    _driftBuffer.perFeature[k] = cur;
+  }
+}
+export function getTodayDriftBuffer(): FeatureDriftRecord | null {
+  return _driftBuffer;
 }
 
 // ── Feature vector to array (for ML input) ────────────────────────
@@ -465,6 +615,12 @@ export const FEATURE_NAMES: (keyof MatchFeatures)[] = [
   'xt_home_recent', 'xt_away_recent', 'xt_dominance',
   'last_5min_pressure_growth', 'last_5min_xg_delta_home',
   'last_5min_xg_delta_away', 'consecutive_shots_on_target_home',
+  // P1.1: Shot geometry
+  'shot_avg_angle_norm', 'shot_avg_distance_norm', 'shot_defenders_avg',
+  // P1.3: PPDA proxy
+  'ppda_home', 'ppda_away',
+  // P1.6: Context
+  'fixture_congestion_home', 'fixture_congestion_away', 'rest_advantage',
 ];
 
 // ── Concurrency limiter ───────────────────────────────────────────

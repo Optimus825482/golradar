@@ -220,6 +220,10 @@ export async function GET(request: Request) {
     if (!ACTIVE_STATUSES.has(status) && !FINISHED_STATUSES.has(status))
       continue;
 
+    // Sadece Nesine'de canlı bahis oynanabilen maçları göster (BID > 0)
+    // Nesine'de canlı bahis listesinde olmayan maçlar uygulamada görünmesin
+    if ((m.BID ?? 0) <= 0 && ACTIVE_STATUSES.has(status)) continue;
+
     const parsed = parseMatch(m);
     updatePressureHistory(parsed);
 

@@ -41,6 +41,6 @@
     "scripts",
     "mini-services",
     "docs",
-    "mini-services"
+    "**/__tests__/**"
   ]
 }

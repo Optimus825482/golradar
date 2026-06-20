@@ -4,6 +4,10 @@ export interface XtGrid {
   grid: number[];
   movProbs: number[][];
   shotProbs: number[];
+  /** P(shot) per zone — raw count / total (for shot-rate-aware xT) */
+  shotDensity?: number[];
+  /** P(goal | shot from zone) — Karun Singh goal probability */
+  goalProb?: number[];
   source: string;
   trainedAt: string;
   version: string;
@@ -24,14 +28,14 @@ const sXt = getServerFs();
 const GRID_DIR = sXt ? sXt.path.join(process.cwd(), 'data', 'ml-models') : '';
 
 const DEFAULT_GRID: XtGrid = {
-  grid: new Array(12 * 8).fill(0.05),
+  grid: new Array(16 * 10).fill(0.05),
   movProbs: [],
-  shotProbs: new Array(12 * 8).fill(0.05),
+  shotProbs: new Array(16 * 10).fill(0.05),
   source: 'fallback-flat',
   trainedAt: new Date(0).toISOString(),
   version: '0.0.0-default',
-  cols: 12,
-  rows: 8,
+  cols: 16,
+  rows: 10,
 };
 
 let cachedGrid: XtGrid | null = null;

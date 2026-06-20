@@ -42,8 +42,10 @@ from scipy.sparse.linalg import spsolve
 
 # StatsBomb pitch (yards) → 12 col × 8 row grid. StatsBomb uses
 # 120 × 80 with x along the length, y along the width.
-GRID_COLS = 12
-GRID_ROWS = 8
+# 16x10 = 160 zones — sweet spot for N~4M events
+# (MDPI 2025: MM<=120@90% quantile, 160 still well-supported)
+GRID_COLS = 16
+GRID_ROWS = 10
 GRID_SIZE = GRID_COLS * GRID_ROWS
 PITCH_X = 120.0
 PITCH_Y = 80.0
@@ -189,9 +191,6 @@ def solve_xt(mov_counts: np.ndarray, shot_counts: np.ndarray) -> np.ndarray:
     goals-per-shot-per-zone count directly via the
     StatsBomb shot events (which carry shot_outcome = Goal/NoGoal).
     """
-    from statsbombpy import sb  # noqa: F401 — only needed if we
-    # extend this with shot_outcome aggregation later
-
     # Per-zone shot goal probability (with prior on goal rate).
     # We don't have shot_outcome data in this minimal version
     # so we use a distance-only proxy: closer to the goal →
@@ -309,6 +308,19 @@ def main() -> int:
     total_shots = shot_counts.sum()
     shot_probs = (shot_counts / total_shots).tolist() if total_shots > 0 else [0.0] * GRID_SIZE
 
+    # shotDensity = raw shot count per zone (for shot-rate-aware xT decomposition)
+    shot_density = shot_counts.tolist()
+    # goalProb = P(goal | shot from zone) — reuse solve_xt's goal_prob()
+    # (Recompute here because goal_prob is nested inside solve_xt.)
+    def _goal_prob(zone: int) -> float:
+        col = zone % GRID_COLS
+        row = zone // GRID_COLS
+        dy = (row - (GRID_ROWS - 1) / 2.0) * (PITCH_Y / GRID_ROWS)
+        dx = col * (PITCH_X / GRID_COLS)
+        dist = (dx * dx + dy * dy) ** 0.5
+        return 0.55 / (1.0 + (dist / 12.0) ** 1.4)
+    goal_prob_arr = [_goal_prob(z) for z in range(GRID_SIZE)]
+
     grid_out = {
         "version": args.version,
         "trainedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -318,6 +330,8 @@ def main() -> int:
         "grid": xT.tolist(),
         "movProbs": [[float(v) for v in row] for row in mov_counts.tolist()],
         "shotProbs": shot_probs,
+        "shotDensity": shot_density,
+        "goalProb": goal_prob_arr,
     }
     out_path = out_dir / f"xt-grid-v{args.version}.json"
     out_path.write_text(json.dumps(grid_out, indent=2), encoding="utf-8")

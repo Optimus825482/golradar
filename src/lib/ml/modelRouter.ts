@@ -18,7 +18,6 @@ import {
 } from "./xgbLoader";
 import { loadTeamStrength, type TeamStrengthModel } from './teamStrengthKalman';
 import { loadXtGrid, type XtGrid } from './xtGrid';
-import { logError } from '@/lib/devLog';
 
 export type ModelName = 'gbdt' | 'xgb' | 'inplay' | 'team-strength' | 'xt-grid';
 
@@ -293,10 +292,10 @@ export async function deleteArtifact(
     );
   }
 
-  // Delete file from disk
-  if (deleteFile) {
+  // Delete file from disk — guard for client bundle context + Turbopack ignore
+  if (deleteFile && typeof window === 'undefined') {
     try {
-      const { unlink } = await import('fs/promises');
+      const { unlink } = await import(/* turbopackIgnore: true */ 'fs/promises');
       await unlink(artifact.artifactPath);
     } catch {
       // ignore — file may not exist (e.g. after volume path changes)

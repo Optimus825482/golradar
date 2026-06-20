@@ -302,20 +302,20 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         )}
       </div>
 
-      {/* Charts Section — Compact, professional */}
-      <div className="p-3 sm:p-4 border-b border-gray-100 space-y-3" style={{ contain: 'paint layout style' }}>
+      {/* Charts Section — Desktop: side-by-side, Mobile: stacked */}
+      <div className="p-3 sm:p-4 border-b border-gray-100" style={{ contain: 'paint layout style' }}>
         {(pressureChartData.length > 2 || fotmobData?.momentum?.main?.data?.length || momentumBars.length >= 2 || xgFlowData.length >= 1 || match?.hasStats || fotmobLoading) ? (
-          <>
-            {/* Ana Momentum Grafiği — compact */}
+          <div className="md:grid md:grid-cols-2 md:gap-3 space-y-3 md:space-y-0">
+            {/* Ana Momentum Grafiği */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-3 pt-3 pb-1">
-                <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Momentum & xG Akışı</h3>
-                <div className="flex items-center gap-3 text-[10px]">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500" />{match.home}</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />{match.away}</span>
+              <div className="flex items-center justify-between px-4 pt-4 pb-2">
+                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Momentum & xG Akışı</h3>
+                <div className="flex items-center gap-3 text-[11px]">
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />{match.home}</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" />{match.away}</span>
                 </div>
               </div>
-              <div className="px-1 pb-2">
+              <div className="px-2 pb-3">
                 <ErrorBoundary context="UnifiedMatchMomentumChart">
                 <UnifiedMatchMomentumChart
                   momentumBars={momentumBars}
@@ -338,7 +338,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               </div>
             </div>
 
-            {/* Tehlikeli Hücum — Stacked Area (Profesyonel) */}
+            {/* Tehlikeli Hücum — Stacked Area */}
             <ErrorBoundary context="DangerousAttacksChart">
               <DangerousAttacksChart
                 data={daData}
@@ -357,7 +357,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                   })) ?? null}
               />
             </ErrorBoundary>
-          </>
+          </div>
         ) : (
           <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
             <div className="text-center">

@@ -110,7 +110,7 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
     return () => ro.disconnect()
   }, [])
 
-  const chartHeight = height ?? (width < 480 ? 220 : 280)
+  const chartHeight = height ?? (width < 480 ? 220 : 300)
 
   if (series.length === 0) {
     return (
@@ -213,9 +213,9 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
 
   return (
     <div ref={containerRef} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-4 pt-3 pb-1">
-        <h3 className="text-sm font-bold text-gray-800">{title}</h3>
-        <div className="flex items-center gap-3 text-[11px]">
+      <div className="flex items-center justify-between px-5 pt-4 pb-2">
+        <h3 className="text-base font-bold text-gray-800">{title}</h3>
+        <div className="flex items-center gap-3 text-xs">
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: homeColor }} />
             <span className="text-gray-600 font-medium">{homeTeam}</span>
@@ -227,20 +227,20 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
         </div>
       </div>
 
-      <div className="px-2 pb-2">
-        {/* Stat row */}
-        <div className="flex items-center justify-around py-1.5 px-2 mb-1 text-[11px]">
-          <div className="flex items-center gap-1.5">
-            <span className="text-gray-400">Toplam DH</span>
-            <span className="font-mono font-bold" style={{ color: homeColor }}>{total.cumHome}</span>
+      <div className="px-3 pb-3">
+        {/* Stat row — larger */}
+        <div className="flex items-center justify-around py-2.5 px-3 mb-2 text-[13px]">
+          <div className="flex items-center gap-2.5">
+            <span className="text-gray-500 font-medium">Toplam DH</span>
+            <span className="font-mono font-bold text-base" style={{ color: homeColor }}>{total.cumHome}</span>
             <span className="text-gray-300">–</span>
-            <span className="font-mono font-bold" style={{ color: awayColor }}>{total.cumAway}</span>
+            <span className="font-mono font-bold text-base" style={{ color: awayColor }}>{total.cumAway}</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-gray-400">Son 5dk</span>
-            <span className="font-mono font-bold" style={{ color: homeColor }}>+{daLast5Home}</span>
+          <div className="flex items-center gap-2.5">
+            <span className="text-gray-500 font-medium">Son 5dk</span>
+            <span className="font-mono font-bold text-base" style={{ color: homeColor }}>+{daLast5Home}</span>
             <span className="text-gray-300">–</span>
-            <span className="font-mono font-bold" style={{ color: awayColor }}>+{daLast5Away}</span>
+            <span className="font-mono font-bold text-base" style={{ color: awayColor }}>+{daLast5Away}</span>
           </div>
         </div>
 

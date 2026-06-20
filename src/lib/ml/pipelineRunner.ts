@@ -16,7 +16,7 @@ import { startTraining, pollJob } from './mlClient';
 import { registerArtifact, listArtifacts } from './modelRouter';
 import { logError, logInfo } from '../devLog';
 
-const FEATURE_DIR = join(process.cwd(), 'data', 'features');
+const FEATURE_DIR = join(process.cwd(), 'data', 'ml-training');
 
 export type PipelineModel = 'gbdt' | 'xgb' | 'inplay';
 export type PipelineStatus = 'pending' | 'extracting' | 'training' | 'comparing' | 'done' | 'failed';
@@ -125,7 +125,7 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
 
     // Serialize features to file
     await mkdir(FEATURE_DIR, { recursive: true });
-    const featureFile = join(FEATURE_DIR, `${modelName}-${horizonMin}min-${Date.now()}.jsonl`);
+    const featureFile = join(FEATURE_DIR, `features-${modelName}-${horizonMin}min-${Date.now()}.jsonl`);
     const lines = allFeatures.map(f => JSON.stringify(f)).join('\n');
     await writeFile(featureFile, lines, 'utf-8');
     const sha256 = createHash('sha256').update(lines).digest('hex');

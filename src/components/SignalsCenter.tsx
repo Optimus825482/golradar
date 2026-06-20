@@ -334,7 +334,7 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
         />
       </div>
 
-      <Tabs defaultValue="charts">
+      <Tabs defaultValue="signals">
         <TabsList className="bg-gray-100 border-0 h-9 w-full grid grid-cols-3">
           <TabsTrigger
             value="charts"
@@ -527,6 +527,11 @@ function SignalCard({ s, onClick }: { s: GoalSignalRecord; onClick: () => void }
           <div className="text-[10px] text-gray-400 mt-0.5">
             {s.league} · {fmtDate(s.signalTimestamp)}
           </div>
+          {(s.finalHomeScore != null || s.finalAwayScore != null || s.currentHomeGoals != null) && (
+            <div className="text-[10px] font-mono font-bold text-gray-700 mt-0.5">
+              MS: {s.currentHomeGoals ?? s.finalHomeScore ?? 0}-{s.currentAwayGoals ?? s.finalAwayScore ?? 0}
+            </div>
+          )}
         </div>
         {statusBadge(s)}
       </div>

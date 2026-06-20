@@ -29,6 +29,8 @@ import {
 } from '@/lib/advancedAnalytics'
 import { playGoalSound } from '@/lib/playGoalSound'
 import SignalsCenter from '@/components/SignalsCenter'
+import { usePresence } from '@/hooks/usePresence'
+import { tierConfig } from '@/lib/tier'
 
 import { Badge } from '@/components/ui/badge'
 import type { Match, PressureSnapshot, GoalNotification, BottomTab } from '@/components/match/types'
@@ -43,7 +45,6 @@ import { BottomNavBar } from '@/components/match/BottomNavBar'
 import { GoalRadarSection } from '@/components/match/GoalRadarSection'
 import { logError } from '@/lib/devLog';
 
-const POLL_INTERVAL = 15000
 const GOAL_FLASH_DURATION = 15000
 
 // Parse minute string handling stoppage time: "45+2" → 47, "90" → 90
@@ -157,6 +158,9 @@ export default function OptimusGolRadariPage() {
     return () => { mountedRef.current = false; abortRef.current?.abort() }
   }, [])
 
+  // Presence: track active users for tier-aware polling cadence
+  const { tier } = usePresence(true)
+
   // Stable fetchMatches — no state deps to prevent interval reset loop
   const fetchMatches = useCallback(async () => {
     try {
@@ -224,11 +228,11 @@ export default function OptimusGolRadariPage() {
   // Stable polling — interval never resets due to fetchMatches reference stability
   useEffect(() => {
     fetchMatches()
-    intervalRef.current = setInterval(fetchMatches, POLL_INTERVAL)
+    intervalRef.current = setInterval(fetchMatches, tierConfig(tier).pollIntervalMs)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [fetchMatches])
+  }, [fetchMatches, tier])
 
   const handleCloseMatch = useCallback(() => {
     setDrawerOpen(false)
@@ -410,7 +414,7 @@ export default function OptimusGolRadariPage() {
     if ((activeTab === 'finished' || matches.length === 0) && finishedMatches.length === 0 && !finishedLoading) {
       fetchFinishedMatches()
     }
-  }, [activeTab, matches.length, finishedMatches.length, fetchFinishedMatches, finishedLoading])
+  }, [activeTab, matches.length, finishedMatches.length, fetchFinishedMatches, finishedLoading, tier])
 
   // Goal Detection: report goals to signal tracker + UI notifications
   useEffect(() => {

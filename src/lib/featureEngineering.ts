@@ -164,7 +164,6 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
   const possH = getStat('possession', 'home');
   const possA = getStat('possession', 'away');
   const daH = getStat('dangerous_attacks', 'home');
-  const daA = getStat('dangerous_attacks', 'away');
   const sotH = getStat('shots_on_target', 'home');
   const sotA = getStat('shots_on_target', 'away');
   const totalShotsH = getStat('shots_total', 'home');
@@ -467,6 +466,25 @@ export const FEATURE_NAMES: (keyof MatchFeatures)[] = [
   'last_5min_pressure_growth', 'last_5min_xg_delta_home',
   'last_5min_xg_delta_away', 'consecutive_shots_on_target_home',
 ];
+
+// ── Concurrency limiter ───────────────────────────────────────────
+// Caps parallel heavy-pipeline calls (extractFeatures + DB write) to
+// avoid backpressure when many live matches are polled together.
+// Usage: import in route handlers and wrap fire-and-forget blocks.
+export class PipelineSemaphore {
+  private active = 0;
+  private queue: Array<() => void> = [];
+  constructor(private readonly max: number = 8) {}
+  acquire(): Promise<void> {
+    if (this.active < this.max) { this.active++; return Promise.resolve(); }
+    return new Promise<void>(resolve => this.queue.push(() => { this.active++; resolve(); }));
+  }
+  release(): void {
+    this.active--;
+    const next = this.queue.shift();
+    if (next) next();
+  }
+}
 
 export function featuresToArray(features: MatchFeatures): number[] {
   return FEATURE_NAMES.map(name => features[name]);

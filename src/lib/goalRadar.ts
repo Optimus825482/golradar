@@ -112,7 +112,7 @@ export function calculateGoalProbability(
           else if (homeGoalScored) recentGoalSide = "home";
           else recentGoalSide = "away";
           const progress = Math.min(1, snapshotsAgo / GOAL_COOLDOWN_SNAPSHOTS);
-          const cooldownFactor = Math.pow(progress, 0.4);
+          const cooldownFactor = Math.pow(progress, 1.5);
           if (homeGoalScored) goalCooldownHome = cooldownFactor;
           if (awayGoalScored) goalCooldownAway = cooldownFactor;
           break;
@@ -127,19 +127,25 @@ export function calculateGoalProbability(
     awayFactors: string[] = [],
     sharedFactors: string[] = [];
 
+  // Parse minute: handle stoppage correctly.
+  // Regular time: 1-90. Stoppage time: 45+ ≤ 95, 90+ ≤ 105.
   let minNum = parseInt(minute.replace(/[^0-9]/g, ""), 10);
-  if (!minNum || minNum === 0) minNum = 45;
-  minNum = Math.max(1, Math.min(120, minNum));
+  const isStoppage = /\d+\s*\+\s*\d+/.test(minute);
+  const MAX_MIN = isStoppage ? 105 : 90;
+  if (!minNum || minNum === 0) minNum = 1;
+  // Early-game fallback: if real minute < 5, use a conservative 5
+  // to avoid rate-based factors being inflated by division-by-small.
+  if (minNum < 5 && !isStoppage) minNum = 5;
+  minNum = Math.max(1, Math.min(MAX_MIN, minNum));
 
-  // Factor 1: Pressure dominance
+  // Factor 1: Pressure dominance (no gap gate — close games also signal)
   const pressure = calculatePressure(stats);
-  const pressureGap = Math.abs(pressure.home - pressure.away);
-  if (pressure.home > 55 && pressureGap > 8) {
+  if (pressure.home > 55) {
     const pts = Math.min(12, Math.round((pressure.home - 50) * 0.65));
     homeScore += pts;
     if (pts >= 6) homeFactors.push(`Baskı ${pressure.home}%`);
   }
-  if (pressure.away > 55 && pressureGap > 8) {
+  if (pressure.away > 55) {
     const pts = Math.min(12, Math.round((pressure.away - 50) * 0.65));
     awayScore += pts;
     if (pts >= 6) awayFactors.push(`Baskı ${pressure.away}%`);

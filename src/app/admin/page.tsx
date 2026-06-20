@@ -726,11 +726,13 @@ function PipelineRunCard({ run }: { run: any }) {
     if (status.status === 'done' || status.status === 'failed') return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/admin/ml/pipeline?id=${run.id}`);
+        const res = await authFetch(`/api/admin/ml/pipeline?id=${run.id}`);
         if (res.ok) {
           const data = await res.json();
           setStatus(data);
           if (data.status === 'done' || data.status === 'failed') clearInterval(interval);
+        } else if (res.status === 401) {
+          clearInterval(interval); // stop polling on auth failure
         }
       } catch {}
     }, 3000);

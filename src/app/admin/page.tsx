@@ -633,12 +633,149 @@ function MLModelsTab({ token }: { token: string }) {
         ) : <p className="text-xs text-gray-400">Dataset yok</p>}
       </Panel>
 
+      {/* ── ML Pipeline ────────────────────────────────────────── */}
+      <Panel title="Pipeline">
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <select id="pipelineModel" className="text-xs px-3 py-1.5 rounded border border-gray-200 bg-white" defaultValue="gbdt">
+              <option value="gbdt">GBDT</option>
+              <option value="xgb">XGBoost</option>
+              <option value="inplay">In-play</option>
+            </select>
+            <select id="pipelineHorizon" className="text-xs px-3 py-1.5 rounded border border-gray-200 bg-white" defaultValue="5">
+              <option value="5">5dk</option>
+              <option value="10">10dk</option>
+              <option value="15">15dk</option>
+            </select>
+            <button onClick={() => {
+              const model = (document.getElementById('pipelineModel') as HTMLSelectElement)?.value || 'gbdt';
+              const horizon = parseInt((document.getElementById('pipelineHorizon') as HTMLSelectElement)?.value || '5');
+              doAction('pipeline', '/api/admin/ml/pipeline', { modelName: model, horizonMin: horizon });
+            }} disabled={!!actionLoading}
+              className="px-4 py-1.5 text-xs font-bold rounded text-white disabled:opacity-50 transition-colors" style={{ background: '#6366f1' }}>
+              {actionLoading === 'pipeline' ? <Spinner /> : 'Pipeline Başlat'}
+            </button>
+          </div>
+
+          {/* Active/recent pipeline runs */}
+          <PipelineRunsView token={token} reloadTrigger={actionLoading} />
+        </div>
+      </Panel>
+
       {actionResult && <div className="p-3 rounded text-xs text-gray-600 font-mono break-all" style={{ background: '#f7f8fa' }}>{actionResult}</div>}
     </div>
   );
 }
 
-// ── Calibration Tab ───────────────────────────────────────────────
+function PipelineRunsView({ token, reloadTrigger }: { token: string; reloadTrigger: string }) {
+  const [runs, setRuns] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await authFetch('/api/admin/ml/pipeline');
+      if (res.ok) setRuns(await res.json());
+    } catch {}
+    setLoading(false);
+  }, [token, reloadTrigger]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const active = runs.filter(r => r.status !== 'done' && r.status !== 'failed');
+
+  return (
+    <div className="space-y-2 mt-2">
+      {active.length > 0 && (
+        <div>
+          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Aktif Pipeline</div>
+          {active.map(r => (
+            <PipelineRunCard key={r.id} run={r} />
+          ))}
+        </div>
+      )}
+      <div>
+        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Geçmiş</div>
+        {runs.filter(r => r.status === 'done' || r.status === 'failed').slice(0, 5).map(r => (
+          <div key={r.id} className="flex items-center justify-between py-1.5 px-2 rounded text-[11px] hover:bg-gray-50" style={r.status === 'failed' ? { borderLeft: '3px solid #e24d42' } : { borderLeft: '3px solid #3cb15c' }}>
+            <div className="flex items-center gap-2">
+              <span className="font-mono font-bold text-gray-700">{r.modelName}</span>
+              {r.newVersion && <span className="text-[10px] text-gray-400">v{r.newVersion}</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              {r.isPromoted && <span className="text-[10px] font-bold text-green-600">🏆 Champion</span>}
+              {r.brierDelta != null && (
+                <span className="text-[10px] font-mono" style={{ color: r.isBetter ? '#3cb15c' : '#e24d42' }}>
+                  Δ{r.brierDelta > 0 ? '+' : ''}{r.brierDelta.toFixed(4)}
+                </span>
+              )}
+              <span className="text-[9px] text-gray-400">{new Date(r.createdAt).toLocaleDateString('tr-TR')}</span>
+            </div>
+          </div>
+        ))}
+        {runs.length === 0 && !loading && <p className="text-[11px] text-gray-400 py-2">Henüz pipeline çalıştırılmadı.</p>}
+      </div>
+    </div>
+  );
+}
+
+function PipelineRunCard({ run }: { run: any }) {
+  const [status, setStatus] = useState(run);
+
+  useEffect(() => {
+    if (status.status === 'done' || status.status === 'failed') return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/admin/ml/pipeline?id=${run.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setStatus(data);
+          if (data.status === 'done' || data.status === 'failed') clearInterval(interval);
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [run.id, status.status]);
+
+  const pct = status.progressPct || 0;
+  const barColor = status.status === 'failed' ? '#e24d42' : status.status === 'done' ? '#3cb15c' : '#6366f1';
+
+  return (
+    <div className="p-3 rounded border border-gray-200 bg-white">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-gray-700">{status.modelName}</span>
+          {status.newVersion && <span className="text-[10px] text-gray-400 font-mono">v{status.newVersion}</span>}
+          <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+            status.status === 'done' ? 'bg-green-50 text-green-600' :
+            status.status === 'failed' ? 'bg-red-50 text-red-500' :
+            'bg-indigo-50 text-indigo-600'
+          }`}>{status.status}</span>
+        </div>
+        <span className="text-[10px] text-gray-400 font-mono">{pct}%</span>
+      </div>
+      <div className="h-2 rounded-full bg-gray-100 overflow-hidden mb-1">
+        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: barColor }} />
+      </div>
+      <div className="text-[10px] text-gray-500 truncate">{status.step || 'Başlatılıyor...'}</div>
+      {status.errorMsg && <div className="mt-1 text-[9px] text-red-400 truncate">{status.errorMsg}</div>}
+      {status.newBrier != null && (
+        <div className="flex items-center gap-3 mt-2 pt-2 border-t border-gray-100 text-[10px]">
+          <span>Brier: <strong>{status.newBrier.toFixed(4)}</strong></span>
+          {status.oldChampionBrier != null && (
+            <>
+              <span>Eski: <strong>{status.oldChampionBrier.toFixed(4)}</strong></span>
+              <span style={{ color: status.isBetter ? '#3cb15c' : '#e24d42' }}>
+                Δ{status.brierDelta > 0 ? '+' : ''}{status.brierDelta.toFixed(4)}
+              </span>
+            </>
+          )}
+          {status.isPromoted && <span className="font-bold text-green-600">🏆 Champion</span>}
+        </div>
+      )}
+    </div>
+  );
+}
 function CalibrationTab({ token }: { token: string }) {
   const [calData, setCalData] = useState<any>(null);
   const [smartData, setSmartData] = useState<any>(null);

@@ -96,40 +96,8 @@ export const POST = adminRoute(async (request: Request) => {
   let resolvedPath = body.dataset_path ?? null;
   let dataset_id = body.dataset_id ?? null;
 
-  // Always force a fresh export before training
-  try {
-    const exportResult = await triggerExportNow(horizon_min as 5 | 10 | 15);
-    if (exportResult) {
-      dataset_id = exportResult.datasetId;
-      resolvedPath = exportResult.path;
-    }
-  } catch {
-    /* fall through to DB lookup */
-  }
-
-  // Fallback: if export failed, look for existing dataset
+  // Önce mevcut en son dataset dosyasını bul (export beklemeden)
   if (!resolvedPath) {
-    if (dataset_id) {
-      const ds = await db.trainingDataset.findUnique({
-        where: { id: dataset_id },
-      });
-      if (ds) resolvedPath = ds.path;
-    }
-    if (!resolvedPath) {
-      const latestDataset = await db.trainingDataset.findFirst({
-        where: { horizonMin: horizon_min, status: "ready" },
-        orderBy: { createdAt: "desc" },
-      });
-      if (latestDataset) {
-        dataset_id = latestDataset.id;
-        resolvedPath = latestDataset.path;
-      }
-    }
-  }
-
-  // Verify the file actually exists on disk
-  if (!resolvedPath || !existsSync(resolvedPath)) {
-    // File not found — try listing available files and use the latest
     const dir = join(process.cwd(), 'data', 'ml-training');
     let availableFiles: string[] = [];
     try {
@@ -138,22 +106,34 @@ export const POST = adminRoute(async (request: Request) => {
         .sort()
         .reverse();
     } catch {}
-    
     if (availableFiles.length > 0) {
-      // Use the latest available file instead
-      const fallbackFile = availableFiles[0];
-      resolvedPath = join(dir, fallbackFile);
-      console.log(`[Train] Export file not found, using fallback: ${resolvedPath}`);
-    } else {
-      return NextResponse.json(
-        {
-          error: `No dataset file found. Expected in ${dir}`,
-          path: resolvedPath,
-          available: availableFiles,
-        },
-        { status: 400 },
-      );
+      resolvedPath = join(dir, availableFiles[0]);
     }
+  }
+
+  // Fallback to DB if no file found
+  if (!resolvedPath) {
+    if (dataset_id) {
+      const ds = await db.trainingDataset.findUnique({ where: { id: dataset_id } });
+      if (ds) resolvedPath = ds.path;
+    }
+    if (!resolvedPath) {
+      const latest = await db.trainingDataset.findFirst({
+        where: { horizonMin: horizon_min, status: "ready" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (latest) resolvedPath = latest.path;
+    }
+  }
+
+  if (!resolvedPath) {
+    const dir = join(process.cwd(), 'data', 'ml-training');
+    let availableFiles: string[] = [];
+    try { availableFiles = readdirSync(dir).filter(f => f.endsWith('.jsonl')); } catch {}
+    return NextResponse.json({
+      error: "No dataset file found",
+      dir, available: availableFiles,
+    }, { status: 400 });
   }
 
   // Start the job

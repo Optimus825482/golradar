@@ -17,8 +17,9 @@
 //   { ok: true, jobId, status, artifactPath, metrics, registered: bool }
 
 import { NextResponse } from 'next/server';
-import { existsSync, readdirSync } from "fs";
+import { existsSync as _existsSync, readdirSync } from "fs";
 import { join } from 'path';
+void _existsSync;
 import { db } from "@/lib/db";
 import {
   startTraining,
@@ -32,6 +33,7 @@ import {
   type ModelName,
 } from "@/lib/ml/modelRouter";
 import { triggerExportNow } from "@/lib/ml/trainingScheduler";
+void triggerExportNow;
 import { adminRoute } from "@/lib/adminRoute";
 
 export const dynamic = "force-dynamic";
@@ -64,9 +66,18 @@ export const POST = adminRoute(async (request: Request) => {
 
   const { name } = body;
 
-  if (!name || !["gbdt", "xgb", "inplay"].includes(name)) {
+  const SUPPORTED_TRAIN_MODELS = [
+    "gbdt",
+    "xgb",
+    "inplay",
+    "team-strength",
+    "xt-grid",
+  ];
+  if (!name || !SUPPORTED_TRAIN_MODELS.includes(name)) {
     return NextResponse.json(
-      { error: "name must be one of gbdt|xgb|inplay" },
+      {
+        error: `name must be one of: ${SUPPORTED_TRAIN_MODELS.join("|")}`,
+      },
       { status: 400 },
     );
   }

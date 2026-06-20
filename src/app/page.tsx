@@ -28,7 +28,7 @@ import {
   generateSyntheticSnapshots,
 } from '@/lib/advancedAnalytics'
 import { playGoalSound } from '@/lib/playGoalSound'
-import SignalHistoryPanel from '@/components/SignalHistoryPanel'
+import SignalsCenter from '@/components/SignalsCenter'
 
 import { Badge } from '@/components/ui/badge'
 import type { Match, PressureSnapshot, GoalNotification, BottomTab } from '@/components/match/types'
@@ -784,7 +784,10 @@ export default function OptimusGolRadariPage() {
               Biten Maçlar
             </button>
           </div>
-          <SignalHistoryPanel />
+          <SignalsCenter
+            matches={matches}
+            onSelectMatch={(m) => handleSelectMatch(m)}
+          />
         </div>
       )
     }

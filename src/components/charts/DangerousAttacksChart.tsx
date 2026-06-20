@@ -20,6 +20,7 @@ interface DangerousAttacksChartProps {
   homeColor?: string
   awayColor?: string
   title?: string
+  hideHeader?: boolean
   height?: number
   goalEvents?: Array<{ isHome?: boolean; minute: number }> | null
   homeShotsTotal?: number
@@ -52,6 +53,7 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
   homeColor = HOME_COLOR,
   awayColor = AWAY_COLOR,
   title = 'Tehlikeli Hücum',
+  hideHeader = false,
   height,
   goalEvents,
 }: DangerousAttacksChartProps) {
@@ -115,19 +117,21 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
   if (series.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-4 pt-3 pb-1">
-          <h3 className="text-sm font-bold text-gray-800">{title}</h3>
-          <div className="flex items-center gap-3 text-[11px]">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: homeColor }} />
-              <span className="text-gray-600 font-medium">{homeTeam}</span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: awayColor }} />
-              <span className="text-gray-600 font-medium">{awayTeam}</span>
-            </span>
+        {!hideHeader && (
+          <div className="flex items-center justify-between px-4 pt-3 pb-1">
+            <h3 className="text-sm font-bold text-gray-800">{title}</h3>
+            <div className="flex items-center gap-3 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: homeColor }} />
+                <span className="text-gray-600 font-medium">{homeTeam}</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: awayColor }} />
+                <span className="text-gray-600 font-medium">{awayTeam}</span>
+              </span>
+            </div>
           </div>
-        </div>
+        )}
         <div className="h-[160px] flex items-center justify-center text-gray-400 text-xs">Veri bekleniyor…</div>
       </div>
     )

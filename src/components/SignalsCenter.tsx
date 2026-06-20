@@ -65,6 +65,26 @@ const statusBadge = (s: GoalSignalRecord) => {
 
 const sideBadge = (s: GoalSignalRecord) => {
   const isHome = s.signalSide === "home";
+  const baseLabel = isHome ? "Ev" : "Dep";
+
+  // Goal happened: green if correct, red if wrong
+  if (s.goalHappened === true) {
+    const correct = s.correctPrediction === true;
+    return (
+      <span
+        className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+          correct
+            ? "bg-emerald-100 text-emerald-700 border-emerald-300"
+            : "bg-red-100 text-red-700 border-red-300"
+        }`}
+        title={correct ? "Doğru yön" : "Yanlış yön"}
+      >
+        {correct ? "✓" : "✗"} {baseLabel}
+      </span>
+    );
+  }
+
+  // Pending: orange/blue (no result yet)
   return (
     <span
       className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
@@ -73,7 +93,7 @@ const sideBadge = (s: GoalSignalRecord) => {
           : "bg-blue-50 text-blue-700 border-blue-200"
       }`}
     >
-      {isHome ? "Ev" : "Dep"}
+      {baseLabel}
     </span>
   );
 };

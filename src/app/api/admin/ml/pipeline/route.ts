@@ -15,8 +15,18 @@ export const POST = adminRoute(async (request: Request) => {
     const body = await request.json();
     const { modelName, horizonMin } = body;
 
-    if (!['gbdt', 'xgb', 'inplay'].includes(modelName)) {
-      return NextResponse.json({ error: 'Invalid model name' }, { status: 400 });
+    const SUPPORTED_PIPELINE_MODELS = [
+      'gbdt',
+      'xgb',
+      'inplay',
+      'team-strength',
+      'xt-grid',
+    ];
+    if (!SUPPORTED_PIPELINE_MODELS.includes(modelName)) {
+      return NextResponse.json(
+        { error: `modelName must be one of: ${SUPPORTED_PIPELINE_MODELS.join('|')}` },
+        { status: 400 },
+      );
     }
 
     const runId = await runPipeline({ modelName, horizonMin: horizonMin || 5 });

@@ -69,6 +69,22 @@ export default function OptimusGolRadariPage() {
   const [sortBy, setSortBy] = useState<'league' | 'time'>('league')
   const [statsHalf, setStatsHalf] = useState<'full' | '1h' | '2h'>('full')
   const [allPressureData, setAllPressureData] = useState<Record<number, PressureSnapshot[]>>({})
+  const [dailyMetrics, setDailyMetrics] = useState<{
+    ok: boolean;
+    today: {
+      signalsTotal: number;
+      goalsHit: number;
+      fail: number;
+      pending: number;
+      successRate: number;
+      resolved: number;
+      analyzedMatches: number;
+    };
+    upcoming: { liveNow: number; startsSoon: number; total: number };
+    allTime: { successRate: number; totalSignals: number; totalGoals: number };
+    date: string;
+    lastUpdated: number;
+  } | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const retryCountRef = useRef(0)
   const MAX_RETRIES = 5
@@ -233,6 +249,24 @@ export default function OptimusGolRadariPage() {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
   }, [fetchMatches, tier])
+
+  // Daily metrics fetch — refresh every 5 minutes
+  const fetchDailyMetrics = useCallback(async () => {
+    try {
+      const resp = await fetch("/api/daily-metrics", { cache: "no-store" })
+      if (resp.ok) {
+        const data = await resp.json()
+        setDailyMetrics(data)
+      }
+    } catch (e) {
+      // Silent — KPI strip degrades gracefully
+    }
+  }, [])
+  useEffect(() => {
+    fetchDailyMetrics()
+    const dm = setInterval(fetchDailyMetrics, 5 * 60_000)
+    return () => clearInterval(dm)
+  }, [fetchDailyMetrics])
 
   const handleCloseMatch = useCallback(() => {
     setDrawerOpen(false)
@@ -957,6 +991,123 @@ export default function OptimusGolRadariPage() {
           </div>
         </div>
       </header>
+
+      {/* ── Daily KPI Strip ──────────────────────────────────── */}
+      {dailyMetrics && (
+        <div className="bg-gradient-to-r from-indigo-50 via-white to-emerald-50 border-b border-gray-200">
+          <div className="max-w-350 mx-auto px-3 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">
+                📊 Bugünün Performansı
+              </h2>
+              <span className="text-[9px] text-gray-400">
+                {dailyMetrics.date}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+              {/* 1. Bugün Gol Sinyali Başarısı */}
+              <div className="bg-white rounded-lg border border-indigo-100 p-2.5 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-base">🎯</span>
+                  <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wide">
+                    Bugün Başarı
+                  </span>
+                </div>
+                <div className={`text-xl font-black ${
+                  dailyMetrics.today.successRate >= 0.6 ? "text-emerald-600" :
+                  dailyMetrics.today.successRate >= 0.4 ? "text-amber-500" : "text-red-500"
+                }`}>
+                  {(dailyMetrics.today.successRate * 100).toFixed(0)}%
+                </div>
+                <div className="text-[9px] text-gray-400 mt-0.5">
+                  {dailyMetrics.today.goalsHit}/{dailyMetrics.today.resolved} gol
+                </div>
+              </div>
+
+              {/* 2. Bugün Analiz Edilen Maç */}
+              <div className="bg-white rounded-lg border border-blue-100 p-2.5 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-base">⚽</span>
+                  <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wide">
+                    Analiz Edilen
+                  </span>
+                </div>
+                <div className="text-xl font-black text-blue-600">
+                  {dailyMetrics.today.analyzedMatches}
+                </div>
+                <div className="text-[9px] text-gray-400 mt-0.5">maç bugün</div>
+              </div>
+
+              {/* 3. Bugün Verilen Gol Sinyali */}
+              <div className="bg-white rounded-lg border border-orange-100 p-2.5 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-base">📡</span>
+                  <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wide">
+                    Verilen Sinyal
+                  </span>
+                </div>
+                <div className="text-xl font-black text-orange-600">
+                  {dailyMetrics.today.signalsTotal}
+                </div>
+                <div className="text-[9px] text-gray-400 mt-0.5">
+                  {dailyMetrics.today.pending} bekliyor
+                </div>
+              </div>
+
+              {/* 4. Bugün Başarılı Sinyal Sayısı */}
+              <div className="bg-white rounded-lg border border-emerald-100 p-2.5 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-base">⚽</span>
+                  <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wide">
+                    Bugün Gol
+                  </span>
+                </div>
+                <div className="text-xl font-black text-emerald-600">
+                  {dailyMetrics.today.goalsHit}
+                </div>
+                <div className="text-[9px] text-gray-400 mt-0.5">
+                  / {dailyMetrics.today.fail} yanlış
+                </div>
+              </div>
+
+              {/* 5. Bugün Oynanacak Maç */}
+              <div className="bg-white rounded-lg border border-purple-100 p-2.5 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-base">🎬</span>
+                  <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wide">
+                    Oynanacak
+                  </span>
+                </div>
+                <div className="text-xl font-black text-purple-600">
+                  {dailyMetrics.upcoming.total}
+                </div>
+                <div className="text-[9px] text-gray-400 mt-0.5">
+                  🟢 {dailyMetrics.upcoming.liveNow} canlı · ⏰ {dailyMetrics.upcoming.startsSoon} başlayacak
+                </div>
+              </div>
+
+              {/* 6. Genel Başarı Oranı */}
+              <div className="bg-white rounded-lg border border-amber-100 p-2.5 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-base">🏆</span>
+                  <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wide">
+                    Genel (90g)
+                  </span>
+                </div>
+                <div className={`text-xl font-black ${
+                  dailyMetrics.allTime.successRate >= 0.6 ? "text-emerald-600" :
+                  dailyMetrics.allTime.successRate >= 0.4 ? "text-amber-500" : "text-red-500"
+                }`}>
+                  {(dailyMetrics.allTime.successRate * 100).toFixed(0)}%
+                </div>
+                <div className="text-[9px] text-gray-400 mt-0.5">
+                  {dailyMetrics.allTime.totalGoals}/{dailyMetrics.allTime.totalSignals} sinyal
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Goal Radar Alert Banner ──────────────────────────── */}
       {radarCount > 0 && activeTab !== 'radar' && (

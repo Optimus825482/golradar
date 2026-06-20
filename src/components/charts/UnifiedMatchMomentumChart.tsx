@@ -180,7 +180,6 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
     if (pts1.length >= 2) { const a = cp(pts1); if (a) { const l = pts1[pts1.length - 1], f = pts1[0]; ap += `${a} L ${l[0].toFixed(2)} ${zy.toFixed(2)} L ${f[0].toFixed(2)} ${zy.toFixed(2)} Z ` } }
     if (pts2.length >= 2) { const a = cp(pts2); if (a) { const l = pts2[pts2.length - 1], f = pts2[0]; ap += `${a} L ${l[0].toFixed(2)} ${zy.toFixed(2)} L ${f[0].toFixed(2)} ${zy.toFixed(2)} Z` } }
     ap = ap.trim()
-    const lastP = pts[pts.length - 1]
 
     if (lpRef.current) lpRef.current.setAttribute('d', lp)
     if (apRef.current) apRef.current.setAttribute('d', ap)
@@ -265,7 +264,7 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
       </div>
 
       <div className="px-2">
-        <div ref={svgRef} style={{ position: 'relative', width: '100%', aspectRatio: '16 / 7', cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={onLeave}>
+        <div ref={svgRef} style={{ position: 'relative', width: '100%', aspectRatio: '16 / 7', maxHeight: typeof window !== 'undefined' && window.innerWidth < 480 ? 240 : 280, cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={onLeave}>
           <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="xMidYMid meet" style={{ width: '100%', height: '100%', display: 'block' }}>
             <defs>
               <linearGradient id={`gP_${uid}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={vHome} stopOpacity={0.55} /><stop offset="100%" stopColor={vHome} stopOpacity={0.03} /></linearGradient>
@@ -273,8 +272,8 @@ export const UnifiedMatchMomentumChart = memo(function UnifiedMatchMomentumChart
               <linearGradient id={`gL_${uid}`} x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor={vHome} /><stop offset="50%" stopColor="#0f172a" /><stop offset="100%" stopColor={vAway} /></linearGradient>
               <filter id={`gS_${uid}`} x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.5" result="blur" /><feOffset dx="0" dy="1" in="blur" result="offsetBlur" /><feComponentTransfer><feFuncA type="linear" slope="0.4" /></feComponentTransfer><feMerge><feMergeNode in="offsetBlur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
             </defs>
-            {YT.map(v => { const y = yS(v); return <g key={v}><line x1={PAD.l} y1={y} x2={CHART_W - PAD.r} y2={y} stroke={v === 0 ? '#94a3b8' : '#f1f5f9'} strokeWidth={v === 0 ? 1.5 : 0.75} strokeDasharray={v === 0 ? '0' : '4 6'} /><text x={PAD.l - 8} y={y + 4} textAnchor="end" fill={v === 0 ? '#334155' : (v === 100 ? vHome : v === -100 ? vAway : '#94a3b8')} fontSize={10} fontWeight={v === 0 || Math.abs(v) === 100 ? 700 : 400}>{v === 100 ? homeTeam.substring(0, 8) : v === -100 ? awayTeam.substring(0, 8) : (v > 0 ? '+' : '') + v}</text></g> })}
-            {computeXTicks(maxMinute).map(m => { const x = xS(m, maxMinute); return <g key={m}><line x1={x} y1={PAD.t} x2={x} y2={CHART_H - PAD.b} stroke={m === 45 ? '#16a34a' : '#e2e8f0'} strokeWidth={m === 45 ? 1 : 0.5} strokeDasharray={m === 45 ? '0' : '2 4'} opacity={m === 45 ? 0.6 : 0.7} /><text x={x} y={CHART_H - PAD.b + 18} textAnchor="middle" fill={m === 45 ? '#16a34a' : '#64748b'} fontSize={11} fontWeight={m === 45 ? 700 : 400}>{m}'{m === 45 ? '  Devre Arası' : ''}</text></g> })}
+            {YT.map(v => { const y = yS(v); return <g key={v}><line x1={PAD.l} y1={y} x2={CHART_W - PAD.r} y2={y} stroke={v === 0 ? '#94a3b8' : '#f1f5f9'} strokeWidth={v === 0 ? 1.5 : 0.75} strokeDasharray={v === 0 ? '0' : '4 6'} /><text x={PAD.l - 8} y={y + 4} textAnchor="end" fill={v === 0 ? '#334155' : (v === 100 ? vHome : v === -100 ? vAway : '#94a3b8')} fontSize={10} fontWeight={v === 0 || Math.abs(v) === 100 ? 700 : 400}>{v === 100 ? homeTeam.substring(0, 6) : v === -100 ? awayTeam.substring(0, 6) : (v > 0 ? '+' : '') + v}</text></g> })}
+            {computeXTicks(maxMinute).map(m => { const x = xS(m, maxMinute); const isHT = m === 45; return <g key={m}><line x1={x} y1={PAD.t} x2={x} y2={CHART_H - PAD.b} stroke={isHT ? '#16a34a' : '#e2e8f0'} strokeWidth={isHT ? 1.5 : 0.5} strokeDasharray={isHT ? '3 3' : '2 4'} opacity={isHT ? 0.7 : 0.5} /><text x={x} y={CHART_H - PAD.b + 18} textAnchor="middle" fill={isHT ? '#16a34a' : '#64748b'} fontSize={10} fontWeight={isHT ? 700 : 400}>{m}'{isHT ? '  HT' : ''}</text></g> })}
             <path ref={apRef} fill={`url(#gP_${uid})`} />
             <path ref={anRef} fill={`url(#gN_${uid})`} />
             <path ref={lpRef} fill="none" stroke={`url(#gL_${uid})`} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" filter={`url(#gS_${uid})`} />

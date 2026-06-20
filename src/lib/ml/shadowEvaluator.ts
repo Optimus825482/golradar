@@ -20,6 +20,7 @@ import { db } from '../db';
 import { ShadowStatus } from './shadowDelta';
 import type { ModelName } from './modelRouter';
 import { logWarn } from '@/lib/devLog';
+import { computeECE } from '@/lib/calibration';
 
 export interface DailyMetricsResult {
   date: string; // YYYY-MM-DD
@@ -155,7 +156,6 @@ export async function evaluateDailyShadows(
   const suspendedVariants: string[] = [];
   if (championBrier > 0) {
     const yesterday = new Date(dayStart.getTime() - 24 * 60 * 60 * 1000);
-    const yStr = yesterday.toISOString().slice(0, 10);
     const prevMetrics = await db.modelMetrics.findUnique({
       where: { date: yesterday },
     });
@@ -175,8 +175,19 @@ export async function evaluateDailyShadows(
         }
       }
     }
-    void yStr; // suppress unused warning
   }
+
+  // P0.1: ECE + accuracy from resolved logs
+  const ece = logs.length > 50 ? computeECE(
+    logs.map(l => l.calibratedP),
+    logs.map(l => l.goalScored ? 1 : 0),
+  ) : 0;
+  const correctCount = logs.filter(l => (l.calibratedP > 0.5) === l.goalScored).length;
+  const accuracy = logs.length > 0 ? correctCount / logs.length : 0;
+  const totalGoals = logs.filter(l => l.goalScored).length;
+  const avgCalibratedP = logs.length > 0
+    ? logs.reduce((s, l) => s + l.calibratedP, 0) / logs.length
+    : 0;
 
   // Persist to ModelMetrics
   let modelMetricsId: string | null = null;
@@ -186,14 +197,14 @@ export async function evaluateDailyShadows(
       create: {
         date: dayStart,
         brierScore: championBrier,
-        logLoss: 0, // populated separately if needed
-        accuracy: 0,
+        logLoss: 0,
+        accuracy,
         totalPredictions: logs.length,
-        totalGoals: logs.filter((l) => l.goalScored).length,
-        avgCalibratedP: 0,
+        totalGoals,
+        avgCalibratedP,
         goalAfterSignalP: 0,
         avgMinutesToGoal: 0,
-        calibrationError: 0,
+        calibrationError: ece,
         gbdtBrier: perNameBrier['gbdt'] ?? null,
         xgbBrier: perNameBrier['xgb'] ?? null,
         teamStrengthBrier: perNameBrier['team-strength'] ?? null,
@@ -203,8 +214,11 @@ export async function evaluateDailyShadows(
       },
       update: {
         brierScore: championBrier,
+        accuracy,
         totalPredictions: logs.length,
-        totalGoals: logs.filter((l) => l.goalScored).length,
+        totalGoals,
+        avgCalibratedP,
+        calibrationError: ece,
         gbdtBrier: perNameBrier['gbdt'] ?? null,
         xgbBrier: perNameBrier['xgb'] ?? null,
         teamStrengthBrier: perNameBrier['team-strength'] ?? null,

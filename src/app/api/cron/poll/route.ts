@@ -105,16 +105,17 @@ async function processMatch(
   heavyAnalytics: boolean;
 }> {
   const status = (raw.S as number) || 0;
-  const isLive = status > 0 && status < 100;
+  const isLive = status === 4 || status === 5 || status === 6 || status === 7;
   const isFinished = FINISHED_STATUSES.has(status);
   const isHalftime = status === 3 || status === 28;
 
   const matchCode = raw.C as number;
-  const home = String(raw.H || "");
-  const away = String(raw.A || "");
+  const home = String(raw.HT || "");
+  const away = String(raw.AT || "");
   const minute = String(raw.M || "0");
-  const homeGoals = (raw.HG as number) || 0;
-  const awayGoals = (raw.AG as number) || 0;
+  // Goal scores: ES[0] holds current set score (T:1 = first half / live)
+  const homeGoals = (raw.ES?.[0]?.H as number) || 0;
+  const awayGoals = (raw.ES?.[0]?.A as number) || 0;
   const league = String(raw.L || "");
 
   if (!matchCode || !home || !away) {

@@ -76,16 +76,24 @@ export const MatchDetailContent = memo(function MatchDetailContent({
           <MatchStatusBadge match={match} />
         </div>
 
-        <div className="flex items-center justify-center gap-6 sm:gap-8">
-          <div className="text-center flex-1">
-            <div
-              className="w-12 h-12 sm:w-14 sm:h-14 rounded-full mx-auto mb-2 flex items-center justify-center text-white font-bold text-base sm:text-lg shadow-md"
-              style={{ backgroundColor: match.homeColor || '#f97316' }}
-            >
-              {match.homeAbbrev || match.homeTr?.substring(0, 3).toUpperCase()}
+        <div className="flex items-center justify-center gap-4 sm:gap-8">
+          <div className="text-center flex-1 min-w-0">
+            <div className="relative mx-auto mb-2" style={{ width: 72, height: 72 }}>
+              {/* Gauge arc */}
+              <svg width="72" height="72" viewBox="0 0 72 72" className="absolute inset-0">
+                <circle cx="36" cy="36" r="32" fill="none" stroke="#f1f5f9" strokeWidth="6" />
+                <circle cx="36" cy="36" r="32" fill="none" stroke="#f97316" strokeWidth="6"
+                  strokeDasharray={`${(currentPressure.home / 100) * 201} 201`}
+                  strokeLinecap="round" transform="rotate(-90 36 36)"
+                  className="transition-all duration-700 ease-out" />
+              </svg>
+              {/* Center value */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-lg font-black text-orange-600">{currentPressure.home}%</span>
+              </div>
             </div>
             <p className="text-sm font-bold text-gray-900 truncate flex items-center justify-center gap-1">{match.home}<RedCardIndicator count={match.homeRedCards} /></p>
-            <p className="text-[10px] text-gray-400">Ev Sahibi</p>
+            <p className="text-[9px] text-gray-400">Baskı</p>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
@@ -94,15 +102,23 @@ export const MatchDetailContent = memo(function MatchDetailContent({
             <span className="text-4xl sm:text-5xl font-black text-gray-900">{match.awayGoals}</span>
           </div>
 
-          <div className="text-center flex-1">
-            <div
-              className="w-12 h-12 sm:w-14 sm:h-14 rounded-full mx-auto mb-2 flex items-center justify-center text-white font-bold text-base sm:text-lg shadow-md"
-              style={{ backgroundColor: match.awayColor || '#3b82f6' }}
-            >
-              {match.awayAbbrev || match.awayTr?.substring(0, 3).toUpperCase()}
+          <div className="text-center flex-1 min-w-0">
+            <div className="relative mx-auto mb-2" style={{ width: 72, height: 72 }}>
+              {/* Gauge arc */}
+              <svg width="72" height="72" viewBox="0 0 72 72" className="absolute inset-0">
+                <circle cx="36" cy="36" r="32" fill="none" stroke="#f1f5f9" strokeWidth="6" />
+                <circle cx="36" cy="36" r="32" fill="none" stroke="#3b82f6" strokeWidth="6"
+                  strokeDasharray={`${(currentPressure.away / 100) * 201} 201`}
+                  strokeLinecap="round" transform="rotate(-90 36 36)"
+                  className="transition-all duration-700 ease-out" />
+              </svg>
+              {/* Center value */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-lg font-black text-blue-600">{currentPressure.away}%</span>
+              </div>
             </div>
             <p className="text-sm font-bold text-gray-900 truncate flex items-center justify-center gap-1">{match.away}<RedCardIndicator count={match.awayRedCards} /></p>
-            <p className="text-[10px] text-gray-400">Deplasman</p>
+            <p className="text-[9px] text-gray-400">Baskı</p>
           </div>
         </div>
 
@@ -111,24 +127,6 @@ export const MatchDetailContent = memo(function MatchDetailContent({
             <span className="text-xs text-gray-400">İY: {match.firstHalfScore}</span>
           </div>
         )}
-
-        {/* Pressure Bar */}
-        <div className="mt-4">
-          <div className="flex items-center justify-between text-[11px] text-gray-400 mb-1">
-            <span className="font-medium text-orange-600">{currentPressure.home}% {match.home}</span>
-            <span className="font-medium text-blue-600">{match.away} {currentPressure.away}%</span>
-          </div>
-          <div className="flex h-3 rounded-full overflow-hidden bg-gray-100 shadow-inner">
-            <div
-              className="bg-gradient-to-r from-orange-500 to-orange-400 transition-all duration-700 ease-out rounded-l-full"
-              style={{ width: `${currentPressure.home}%` }}
-            />
-            <div
-              className="bg-gradient-to-l from-blue-500 to-blue-400 transition-all duration-700 ease-out rounded-r-full"
-              style={{ width: `${currentPressure.away}%` }}
-            />
-          </div>
-        </div>
 
         {/* Goal Radar Indicator */}
         {selectedGoalProb && selectedGoalProb.score >= 60 && selectedGoalProb.goalProbability5min >= 0.25 && (

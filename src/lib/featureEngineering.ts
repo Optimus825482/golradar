@@ -559,17 +559,21 @@ let _driftBuffer: FeatureDriftRecord | null = null;
 let _driftBufferN = 0;
 
 export function pushFeatureSample(features: MatchFeatures): void {
+  // Drift buffer flush uses fs — bail in client bundles to keep
+  // 'fs' out of the browser trace entirely.
+  if (typeof window !== 'undefined') return;
   const today = new Date().toISOString().slice(0, 10);
   if (!_driftBuffer || _driftBuffer.date !== today) {
     // Flush previous day + reset
     if (_driftBuffer && _driftBuffer.n > 0) {
+      const snap = _driftBuffer;
       try {
-        const s = (typeof process !== 'undefined' && process.versions?.node) ? require('fs') : null;
-        if (s) {
-          const path = s.path.join(process.cwd(), 'data', 'drift', `${_driftBuffer.date}.json`);
-          s.mkdirSync(s.path.dirname(path), { recursive: true });
-          s.writeFileSync(path, JSON.stringify(_driftBuffer));
-        }
+        Promise.all([import('fs'), import('path')]).then(([fsMod, pathMod]) => {
+          const pathModAny = pathMod as { default: { join: typeof import('path').join; dirname: typeof import('path').dirname } };
+          const p = pathModAny.default.join(process.cwd(), 'data', 'drift', `${snap.date}.json`);
+          fsMod.mkdirSync(pathModAny.default.dirname(p), { recursive: true });
+          fsMod.writeFileSync(p, JSON.stringify(snap));
+        }).catch(() => { /* best-effort */ });
       } catch { /* best-effort */ }
     }
     _driftBuffer = { date: today, n: 0, perFeature: {} };

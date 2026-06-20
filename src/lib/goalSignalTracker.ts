@@ -31,6 +31,7 @@ import {
   findPendingForMatch as repoFindPendingForMatch,
   findAllPendingForMatch as repoFindAllPending,
   findAllForMatch as repoFindAllForMatch,
+  // findPendingForMatch imported but unused — see TS6133 cleanup
   getAvailableDates as repoGetDates,
   calculateSignalStats as repoCalculateStats,
   updateVerification as repoUpdateVerification,
@@ -491,6 +492,7 @@ function stopExpiryChecker(): void {
     expiryInterval = null;
   }
 }
+void stopExpiryChecker;
 
 // ════════════════════════════════════════════════════════════════
 // MAÇ BİTİŞİ — FINALIZE

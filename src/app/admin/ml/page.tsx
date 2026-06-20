@@ -2,10 +2,15 @@
 
 import { useEffect, useState } from 'react';
 
-function authFetch(path: string) {
+function authFetch(path: string, init?: RequestInit) {
   const token = sessionStorage.getItem('admin_token');
   return fetch(path, {
-    headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' },
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers || {}),
+    },
   });
 }
 
@@ -29,23 +34,53 @@ const MODEL_NAMES: Record<string, { label: string; color: string; description: s
   'xt-grid': { label: 'xT Grid', color: '#56a6d9', description: 'Expected Threat — pozisyon bazlı tehlike' },
 };
 
+interface ModelWeight {
+  name: string;
+  version: string | null;
+  isChampion: boolean;
+  brierScore: number | null;
+  weight: number;
+  status: 'active' | 'disabled' | 'archived';
+  lastUpdated: string | null;
+}
+
 export default function AdminMLPage() {
   const [artifacts, setArtifacts] = useState<ModelArtifact[]>([]);
   const [status, setStatus] = useState<any>(null);
+  const [weights, setWeights] = useState<ModelWeight[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const load = () => {
     Promise.all([
       authFetch('/api/admin/ml/artifact').then(r => r.ok ? r.json() : null),
       authFetch('/api/admin/ml/status').then(r => r.ok ? r.json() : null),
-    ]).then(([arts, st]) => {
+      authFetch('/api/admin/ml/weights').then(r => r.ok ? r.json() : null),
+    ]).then(([arts, st, w]) => {
       setArtifacts((arts?.artifacts || []).map((a: any) => ({
         ...a,
         metrics: typeof a.metrics === 'string' ? JSON.parse(a.metrics) : (a.metrics || {}),
       })));
       setStatus(st);
+      setWeights(w?.weights || []);
       setLoading(false);
     });
+  };
+
+  const weightAction = async (name: string, version: string, action: 'archive' | 'disable' | 'promote') => {
+    if (typeof window !== 'undefined' && !window.confirm(`${name}@${version} için "${action}" işlemi?`)) return;
+    const res = await authFetch('/api/admin/ml/weights', {
+      method: 'PUT',
+      body: JSON.stringify({ name, version, action }),
+    });
+    const data = await res.json();
+    if (data.ok) load();
+    else if (typeof window !== 'undefined') window.alert(data.error || 'İşlem başarısız');
+  };
+
+  useEffect(() => {
+    load();
+    const i = setInterval(load, 30000);
+    return () => clearInterval(i);
   }, []);
 
   if (loading) return <div className="flex justify-center py-20"><div className="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full" /></div>;
@@ -89,6 +124,107 @@ export default function AdminMLPage() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Weight Router */}
+      {weights.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-purple-400 to-indigo-500" />
+              <h2 className="text-sm font-bold text-gray-800">⚖️ Weight Router (Brier Bazlı)</h2>
+            </div>
+            <span className="text-[10px] text-gray-400">
+              Champion = 1.0 · 0.40+ → disabled · 0.50+ → archived
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-gray-200 text-gray-500">
+                  <th className="text-left py-2 px-2 font-semibold">Model</th>
+                  <th className="text-center py-2 px-2 font-semibold">Sürüm</th>
+                  <th className="text-center py-2 px-2 font-semibold">Tip</th>
+                  <th className="text-right py-2 px-2 font-semibold">Brier</th>
+                  <th className="text-center py-2 px-2 font-semibold">Ağırlık</th>
+                  <th className="text-center py-2 px-2 font-semibold">Durum</th>
+                  <th className="text-center py-2 px-2 font-semibold">Aksiyon</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weights.map((w) => (
+                  <tr key={`${w.name}-${w.version}-${w.isChampion}`} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-2 px-2 font-bold text-gray-800">{w.name}</td>
+                    <td className="py-2 px-2 text-center font-mono text-gray-600">{w.version || '—'}</td>
+                    <td className="py-2 px-2 text-center">
+                      {w.isChampion ? (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-bold">⭐ Champion</span>
+                      ) : (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-bold">Shadow</span>
+                      )}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono">
+                      <span className={
+                        w.brierScore == null ? 'text-gray-400' :
+                        w.brierScore < 0.2 ? 'text-emerald-600 font-bold' :
+                        w.brierScore < 0.3 ? 'text-amber-600' : 'text-red-600 font-bold'
+                      }>
+                        {w.brierScore?.toFixed(4) ?? '—'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <div className="inline-flex items-center gap-2">
+                        <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${
+                            w.weight >= 0.75 ? 'bg-emerald-500' :
+                            w.weight >= 0.5 ? 'bg-amber-500' :
+                            w.weight > 0 ? 'bg-red-400' : 'bg-gray-300'
+                          }`} style={{ width: `${w.weight * 100}%` }} />
+                        </div>
+                        <span className={`font-mono font-bold text-[11px] ${
+                          w.weight >= 0.75 ? 'text-emerald-700' :
+                          w.weight >= 0.5 ? 'text-amber-700' :
+                          w.weight > 0 ? 'text-red-700' : 'text-gray-400'
+                        }`}>
+                          {w.weight.toFixed(2)}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
+                        w.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
+                        w.status === 'disabled' ? 'bg-amber-100 text-amber-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {w.status}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      {!w.isChampion && w.status !== 'archived' && (
+                        <div className="flex gap-1 justify-center">
+                          {w.status === 'active' && (
+                            <button onClick={() => weightAction(w.name, w.version!, 'promote')}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-bold">
+                              Promote
+                            </button>
+                          )}
+                          <button onClick={() => weightAction(w.name, w.version!, 'disable')}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 hover:bg-amber-200 font-bold">
+                            Disable
+                          </button>
+                          <button onClick={() => weightAction(w.name, w.version!, 'archive')}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 font-bold">
+                            Archive
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

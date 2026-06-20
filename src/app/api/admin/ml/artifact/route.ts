@@ -6,7 +6,7 @@
 // olan artifact silinemez — once baskasini champion yap.
 
 import { NextResponse } from 'next/server';
-import { deleteArtifact, type ModelName } from '@/lib/ml/modelRouter';
+import { listArtifacts, deleteArtifact, type ModelName } from '@/lib/ml/modelRouter';
 import { adminRoute } from '@/lib/adminRoute';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +14,31 @@ export const dynamic = 'force-dynamic';
 const VALID_NAMES = new Set<ModelName>([
   'gbdt', 'xgb', 'inplay', 'team-strength', 'xt-grid',
 ]);
+
+export const GET = adminRoute(async (request: Request) => {
+  try {
+    const { searchParams } = new URL(request.url);
+    const name = searchParams.get('name') as ModelName | null;
+    const artifacts = await listArtifacts(name || undefined);
+    return NextResponse.json({
+      ok: true,
+      count: artifacts.length,
+      artifacts: artifacts.map((a) => ({
+        name: a.name,
+        version: a.version,
+        isChampion: a.isChampion,
+        metrics: a.metrics,
+        artifactPath: a.artifactPath,
+        createdAt: a.createdAt,
+        sha256: a.sha256,
+        bytes: a.bytes,
+      })),
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'internal_error';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+});
 
 export const DELETE = adminRoute(async (request: Request) => {
   try {

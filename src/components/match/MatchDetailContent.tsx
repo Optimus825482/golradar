@@ -1,14 +1,13 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import type { GoalProbability } from '@/lib/nesine'
 import type { FotMobMatchDetails } from '@/lib/fotmob'
 import type { MomentumBarDataPoint, xGFlowPoint, ThreatIndex } from '@/lib/advancedAnalytics'
 import type { Match, MatchStats } from './types'
 import { statKeys } from './types'
-import { calculatePressure } from './utils'
 import { CountryFlag, MatchStatusBadge, StatBar, RedCardIndicator } from './shared-components'
-import { StatsLineChart } from '@/components/charts/StatsLineChart'
+import { DangerousAttacksChart } from '@/components/charts/DangerousAttacksChart'
 import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomentumChart'
 import { FotMobSection } from '@/components/fotmob/FotMobSection'
 import { estimateXgFromShots } from '@/lib/advancedAnalytics'
@@ -34,8 +33,8 @@ export interface MatchDetailContentProps {
   scoremerHtStats?: Record<string, { home: number | null; away: number | null }> | null
   scoremerLoading?: boolean
   goalooMatchId?: number
-  activeChartTab: string
-  setActiveChartTab: (tab: string) => void
+  activeChartTab?: string
+  setActiveChartTab?: (tab: string) => void
 }
 
 export const MatchDetailContent = memo(function MatchDetailContent({
@@ -57,11 +56,28 @@ export const MatchDetailContent = memo(function MatchDetailContent({
   scoremerStats,
   scoremerHtStats,
   scoremerLoading,
-  goalooMatchId,
-  activeChartTab,
-  setActiveChartTab,
 }: MatchDetailContentProps) {
-  const POLL_INTERVAL = 15000
+
+  // Map statsChartData → DangerousAttacksChart data format
+  const daData = useMemo(
+    () =>
+      statsChartData.map(d => {
+        const raw = d.minute ?? ''
+        const min =
+          typeof d.minute === 'number'
+            ? d.minute
+            : parseInt(String(raw).replace(/[^0-9]/g, ''), 10)
+        return {
+          minute: isNaN(min) ? 0 : min,
+          minuteLabel: typeof d.minute === 'string' ? d.minute : `${min}'`,
+          homeDangerousAttacks: d.homeDangerousAttacks ?? 0,
+          awayDangerousAttacks: d.awayDangerousAttacks ?? 0,
+          homeShots: d.homeShotsTotal ?? 0,
+          awayShots: d.awayShotsTotal ?? 0,
+        }
+      }),
+    [statsChartData],
+  )
 
   return (
     <div style={{ contain: 'paint layout style' }}>
@@ -161,7 +177,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                     selectedGoalProb.level === 'high' ? 'text-orange-500' :
                     'text-yellow-500'
                   }`}>
-                    İhtimal: %{selectedGoalProb.score}
+                    İhtimal: %{(selectedGoalProb.score).toFixed(0)}
                   </span>
                 </div>
               </div>
@@ -322,21 +338,17 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               </div>
             </div>
 
-            {/* Tehlikeli Hücum — Profesyonel Görünüm */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-3 pt-3 pb-1">
-                <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Tehlikeli Hücum</h3>
-                <div className="flex items-center gap-3 text-[10px]">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500" />{match.home}</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />{match.away}</span>
-                </div>
-              </div>
-              <div className="px-1 pb-2">
-                <ErrorBoundary context="StatsLineChart">
-                <StatsLineChart data={statsChartData} homeKey="homeDangerousAttacks" awayKey="awayDangerousAttacks" homeName={`${match.home}`} awayName={`${match.away}`} homeTeam={match.home} awayTeam={match.away} title="" />
-                </ErrorBoundary>
-              </div>
-            </div>
+            {/* Tehlikeli Hücum — Stacked Area (Profesyonel) */}
+            <ErrorBoundary context="DangerousAttacksChart">
+              <DangerousAttacksChart
+                data={daData}
+                homeTeam={match.home}
+                awayTeam={match.away}
+                homeColor={match.homeColor || '#f97316'}
+                awayColor={match.awayColor || '#3b82f6'}
+                title="Tehlikeli Hücum"
+              />
+            </ErrorBoundary>
           </>
         ) : (
           <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">

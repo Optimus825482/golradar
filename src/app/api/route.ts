@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
 
 export const dynamic = 'force-dynamic';
 
@@ -8,10 +9,7 @@ export async function GET() {
 
   // DB connectivity check
   try {
-    const { PrismaClient } = await import('@prisma/client');
-    const db = new PrismaClient();
     await db.$queryRaw`SELECT 1`;
-    await db.$disconnect();
     checks.db = 'ok';
   } catch {
     checks.db = 'error';

@@ -10,13 +10,14 @@ const windows = new Map<string, RateLimitEntry>();
 
 // Cleanup stale entries every 5 minutes
 if (typeof setInterval !== 'undefined') {
-  setInterval(() => {
+  const cleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of windows) {
       entry.timestamps = entry.timestamps.filter(t => now - t < 60_000);
       if (entry.timestamps.length === 0) windows.delete(key);
     }
   }, 300_000);
+  cleanupInterval.unref?.();
 }
 
 export interface RateLimitConfig {

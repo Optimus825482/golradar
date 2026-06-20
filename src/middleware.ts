@@ -2,13 +2,19 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 // Middleware to force browser cache busting in dev mode
-// Prevents stale Turbopack chunks from causing styled-jsx HMR errors
+// Prevents stale Turbopack chunks from causing styled-jsx HMR errors.
+// DEV-ONLY: production serves versioned, immutable assets.
 export function middleware(request: NextRequest) {
   const response = NextResponse.next();
 
-  // Force no-cache for all JS/CSS assets in development
-  if (request.nextUrl.pathname.startsWith("/_next/static/chunks/")) {
-    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  if (
+    process.env.NODE_ENV !== "production" &&
+    request.nextUrl.pathname.startsWith("/_next/static/chunks/")
+  ) {
+    response.headers.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    );
     response.headers.set("Pragma", "no-cache");
     response.headers.set("Expires", "0");
   }

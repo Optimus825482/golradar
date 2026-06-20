@@ -4,6 +4,7 @@
 
 import { db } from "./db";
 import crypto from "crypto";
+import { logInfo } from "./devLog";
 
 const ITERATIONS = 100_000;
 const KEY_LEN = 64;
@@ -89,7 +90,19 @@ export async function seedDefaultAdmin(): Promise<void> {
   const existing = await db.user.findUnique({ where: { username: "admin" } });
   if (existing) return;
 
-  const { hash, salt } = hashPassword("admin123");
+  const defaultPassword =
+    process.env.ADMIN_DEFAULT_PASSWORD ??
+    (process.env.NODE_ENV === "development" ? "admin123" : null);
+
+  if (!defaultPassword) {
+    logInfo(
+      "AUTH",
+      "No admin user exists and ADMIN_DEFAULT_PASSWORD not set. Skipping seed.",
+    );
+    return;
+  }
+
+  const { hash, salt } = hashPassword(defaultPassword);
   await db.user.create({
     data: {
       username: "admin",
@@ -98,5 +111,5 @@ export async function seedDefaultAdmin(): Promise<void> {
       mustChangePassword: true,
     },
   });
-  console.log("[AUTH] Default admin user created (admin / admin123)");
+  logInfo("AUTH", "Default admin user created — must change password on first login");
 }

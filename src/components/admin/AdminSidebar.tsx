@@ -40,6 +40,27 @@ const NAV_ITEMS = [
     description: "Brier trend, drift, shadow takibi",
   },
   {
+    key: "signals",
+    href: "/admin/signals",
+    label: "Sinyaller",
+    icon: "📡",
+    description: "Raw sinyal kayıtları, level, bucket",
+  },
+  {
+    key: "signals-backtest",
+    href: "/admin/signals/backtest",
+    label: "Sinyal Backtest",
+    icon: "🧪",
+    description: "Algoritma backtest + replay",
+  },
+  {
+    key: "elo",
+    href: "/admin/elo",
+    label: "Elo Ratings",
+    icon: "⚡",
+    description: "Takım gücü ratingleri",
+  },
+  {
     key: "calibration",
     href: "/admin/calibration",
     label: "Kalibrasyon",

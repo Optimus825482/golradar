@@ -42,7 +42,7 @@ export const MomentumChart = memo(function MomentumChart({ data, homeTeam, awayT
 
   const gaugeOpts = (teamColor: string) => ({
     width: gaugeWidthRef.current,
-    height: 130,
+    height: gaugeWidthRef.current < 140 ? 100 : 120,
     min: 0, max: 100,
     greenFrom: 55, greenTo: 100,
     greenColor: teamColor,

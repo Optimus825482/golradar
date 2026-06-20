@@ -129,19 +129,31 @@ export const POST = adminRoute(async (request: Request) => {
 
   // Verify the file actually exists on disk
   if (!resolvedPath || !existsSync(resolvedPath)) {
-    // File not found — try to list available files for debugging
+    // File not found — try listing available files and use the latest
     const dir = join(process.cwd(), 'data', 'ml-training');
     let availableFiles: string[] = [];
-    try { availableFiles = readdirSync(dir).filter(f => f.endsWith('.jsonl')); } catch {}
-    return NextResponse.json(
-      {
-        error: `dataset file not found on disk. Available files: ${availableFiles.join(', ') || 'none'}`,
-        path: resolvedPath,
-        dir,
-        available: availableFiles,
-      },
-      { status: 400 },
-    );
+    try {
+      availableFiles = readdirSync(dir)
+        .filter(f => f.endsWith('.jsonl') && f.includes(`${horizon_min}min`))
+        .sort()
+        .reverse();
+    } catch {}
+    
+    if (availableFiles.length > 0) {
+      // Use the latest available file instead
+      const fallbackFile = availableFiles[0];
+      resolvedPath = join(dir, fallbackFile);
+      console.log(`[Train] Export file not found, using fallback: ${resolvedPath}`);
+    } else {
+      return NextResponse.json(
+        {
+          error: `No dataset file found. Expected in ${dir}`,
+          path: resolvedPath,
+          available: availableFiles,
+        },
+        { status: 400 },
+      );
+    }
   }
 
   // Start the job

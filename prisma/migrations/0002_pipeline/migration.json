@@ -1,0 +1,9 @@
+{
+  "version": "6.11.1",
+  "steps": [
+    {
+      "tag": "CreateMigration",
+      "migration_name": "0002_pipeline"
+    }
+  ]
+}

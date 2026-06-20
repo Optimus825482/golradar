@@ -345,19 +345,15 @@ model ModelArtifact {
 }
 
 // ── Gol Radarı: Team History (Kalman backfill) ───────────────────
-// Historical finished matches used to fit the per-team Kalman
-// attack/defense state. Backfilled from Scoremer/Goaloo/NetScores
-// HTML scrapers. One row per (date, homeTeam, awayTeam). The
-// raw HTML response is NOT stored — only the parsed scores.
 model TeamHistoryMatch {
   id          String   @id @default(cuid())
-  matchDate   String   // YYYY-MM-DD
-  homeTeam    String   // Normalized team name (lowercase, trimmed)
+  matchDate   String
+  homeTeam    String
   awayTeam    String
   homeGoals   Int
   awayGoals   Int
-  league      String?  // "Süper Lig", "Premier League", etc.
-  source      String   // "scoremer" | "goaloo" | "netscores" | "manual"
+  league      String?
+  source      String
   fetchedAt   DateTime @default(now())
 
   @@unique([matchDate, homeTeam, awayTeam])
@@ -365,4 +361,51 @@ model TeamHistoryMatch {
   @@index([homeTeam, matchDate])
   @@index([awayTeam, matchDate])
   @@index([source, fetchedAt])
+}
+
+// ── Feature Engineering Set ────────────────────────────────────
+model FeatureSet {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  horizonMin    Int
+  rowCount      Int
+  featureCount  Int
+  sha256        String
+  path          String
+  status        String   @default("generating")
+  errorMsg      String?
+  dataStart     DateTime?
+  dataEnd       DateTime?
+  durationMs    Int?
+  @@index([createdAt])
+  @@index([status])
+}
+
+// ── ML Pipeline Run ────────────────────────────────────────────
+model PipelineRun {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+  modelName     String
+  horizonMin    Int
+  status        String   @default("pending")
+  progressPct   Int      @default(0)
+  step          String   @default("")
+  errorMsg      String?
+  featureSetId  String?
+  featureSetRowCount Int?
+  oldChampionVersion String?
+  oldChampionBrier   Float?
+  oldChampionAcc     Float?
+  newVersion    String?
+  newBrier      Float?
+  newLogLoss    Float?
+  newAccuracy   Float?
+  newCalibrationError Float?
+  newTrainRows  Int?
+  brierDelta    Float?
+  isBetter      Boolean?
+  isPromoted    Boolean?
+  @@index([createdAt])
+  @@index([status])
 }

@@ -43,6 +43,30 @@ export interface MatchProbabilities {
   params: PoissonParams;
 }
 
+// ── Per-league home advantage (γ) ───────────────────────────────
+// Replaces hardcoded 1.10 — source: historical goal ratios 2020-2026.
+export const LEAGUE_GAMMA: Record<number, number> = {
+  0: 1.10,   // default / unknown
+  1: 1.12,   // Premier League
+  2: 1.08,   // La Liga
+  3: 1.14,   // Bundesliga
+  4: 1.06,   // Serie A
+  5: 1.09,   // Ligue 1
+  6: 1.18,   // Süper Lig
+  7: 1.13,   // Primeira Liga
+  10: 1.17,  // Eredivisie
+  11: 1.10,  // Championship
+  100: 1.12, // Champions League
+  101: 1.10, // Europa League
+};
+
+// ── Precomputed log factorial table (O(1) Poisson PMF) ──────────
+const LOG_FACT_TABLE: number[] = (() => {
+  const t = new Array(541).fill(0);
+  for (let i = 2; i < t.length; i++) t[i] = t[i - 1] + Math.log(i);
+  return t;
+})();
+
 // ── Poisson PMF ──────────────────────────────────────────────────
 function poissonPmf(k: number, lambda: number): number {
   if (lambda <= 0) return k === 0 ? 1 : 0;
@@ -53,9 +77,9 @@ function poissonPmf(k: number, lambda: number): number {
 
 function logFactorial(n: number): number {
   if (n <= 1) return 0;
-  let result = 0;
-  for (let i = 2; i <= n; i++) result += Math.log(i);
-  return result;
+  if (n < LOG_FACT_TABLE.length) return LOG_FACT_TABLE[n];
+  // Fallback for n >= 541: Stirling approximation
+  return n * Math.log(n) - n + 0.5 * Math.log(2 * Math.PI * n);
 }
 
 // ── Dixon-Coles τ correction ─────────────────────────────────────
@@ -70,8 +94,21 @@ function dixonColesTau(i: number, j: number, lambdaHome: number, lambdaAway: num
 }
 
 // ── Time-decay weighting ─────────────────────────────────────────
-// W(t) = exp(-ξ × t), where t = days since match
-function timeDecayWeight(daysAgo: number, xi: number = 0.00325): number {
+// W(t) = exp(-ξ × t), where t = days since match.
+// Exported as decayStrength for callers (backfill, feature extraction).
+export function decayStrength(
+  current: number,
+  daysAgo: number,
+  revertToMean: number = 1.0,
+  xi: number = 0.00325,
+): number {
+  if (daysAgo <= 0) return current;
+  const w = Math.exp(-xi * daysAgo);
+  // Exponential decay toward revertToMean: new = mean + (cur - mean) * W(t)
+  return revertToMean + (current - revertToMean) * w;
+}
+
+export function timeDecayWeight(daysAgo: number, xi: number = 0.00325): number {
   return Math.exp(-xi * daysAgo);
 }
 
@@ -83,10 +120,11 @@ export function calculateExpectedGoals(
   homeDefense: number,   // β_home
   avgGoalsHome: number = 1.35,  // League average home goals
   avgGoalsAway: number = 1.15,  // League average away goals
-  gamma: number = 1.10,         // Home advantage multiplier
+  gamma?: number,               // Optional — falls back to LEAGUE_GAMMA[0]
 ): PoissonParams {
+  const effectiveGamma = gamma ?? LEAGUE_GAMMA[0];
   // λ_home = α_home × β_away × γ × avg_home
-  const lambdaHome = homeAttack * awayDefense * gamma * avgGoalsHome;
+  const lambdaHome = homeAttack * awayDefense * effectiveGamma * avgGoalsHome;
   // λ_away = α_away × β_home × avg_away
   const lambdaAway = awayAttack * homeDefense * avgGoalsAway;
 
@@ -94,7 +132,7 @@ export function calculateExpectedGoals(
     lambdaHome: Math.max(0.01, lambdaHome),
     lambdaAway: Math.max(0.01, lambdaAway),
     rho: -0.13,  // Typical ρ from Dixon-Coles fitting (negative = more draws)
-    gamma,
+    gamma: effectiveGamma,
   };
 }
 
@@ -171,8 +209,9 @@ export function calculateMatchProbabilities(
 }
 
 // ── Estimate team strength from xG data ──────────────────────────
-// Uses xG for/against from recent matches to estimate attack/defense
-function estimateTeamStrength(
+// Uses xG for/against from recent matches to estimate attack/defense.
+// Exported for callers (backfill, feature engineering).
+export function estimateTeamStrength(
   xgForPerMatch: number[],    // xG scored in recent matches
   xgAgainstPerMatch: number[], // xG conceded in recent matches
   leagueAvgXgFor: number = 1.30,   // League average xG per match
@@ -206,8 +245,6 @@ export function inPlayGoalProbability(
   expectedHomeRemaining: number;
   expectedAwayRemaining: number;
 } {
-  const remaining = Math.max(1, maxMinute - minute) / maxMinute;
-
   // Extrapolate xG rate to remaining time
   const homeXgRate = currentHomeXg / Math.max(1, minute); // xG per minute
   const awayXgRate = currentAwayXg / Math.max(1, minute);
@@ -233,8 +270,9 @@ export function inPlayGoalProbability(
 }
 
 // ── Dixon-Coles blend with existing Goal Radar score ─────────────
-// Blends the Poisson model output with the existing rule-based score
-function blendWithPoisson(
+// Blends the Poisson model output with the existing rule-based score.
+// Exported for ensemble layer callers.
+export function blendWithPoisson(
   ruleBasedScore: number,   // 0-100 from existing Goal Radar
   poissonAnyGoalP: number,  // 0-1 from Dixon-Coles
   blendWeight: number = 0.25, // How much Poisson to blend (25%)

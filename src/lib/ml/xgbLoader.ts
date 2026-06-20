@@ -303,14 +303,15 @@ export function predictXgbBatch(model: XgbModel, rows: number[][]): number[] {
 interface CacheEntry {
   model: XgbModel;
   loadedAt: number;
+  hits: number;
 }
 const modelCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1h — refresh hourly
-const CACHE_MAX = 8;
+const CACHE_MAX = 16;
 
 function evictIfFull(): void {
   if (modelCache.size <= CACHE_MAX) return;
-  // Evict oldest entry
+  // LRU-ish: evict oldest by loadedAt
   let oldest: string | null = null;
   let oldestT = Infinity;
   for (const [k, v] of modelCache.entries()) {
@@ -330,11 +331,12 @@ function evictIfFull(): void {
 export async function getXgbModelCached(path: string): Promise<XgbModel> {
   const cached = modelCache.get(path);
   if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS) {
+    cached.hits++;
     return cached.model;
   }
   const { model } = await loadXgbModel(path);
   evictIfFull();
-  modelCache.set(path, { model, loadedAt: Date.now() });
+  modelCache.set(path, { model, loadedAt: Date.now(), hits: 0 });
   return model;
 }
 

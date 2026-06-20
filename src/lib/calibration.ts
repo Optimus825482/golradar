@@ -50,7 +50,7 @@ const RECORDS_FILE = s ? s.path.join(DATA_DIR, 'records.json') : '';
 // Parameters are runtime-mutable — autoCalibrateFromDB() updates them
 // from actual PredictionLog outcomes.
 export const CALIBRATION_PARAMS = {
-  L: 0.80,      // max probability (ceiling)
+  L: 0.95,      // max probability (ceiling) — was 0.80, raised to allow high-confidence signals
   k: 0.065,     // steepness
   x0: 65,       // midpoint (score → 50% probability)
 };
@@ -158,24 +158,6 @@ function ensureDataDir(): void {
   if (!s2) return;
   if (!s2.fs.existsSync(DATA_DIR)) {
     s2.fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
-
-function saveCalibrationRecord(record: CalibrationRecord): void {
-  try {
-    const s2 = getServerFs();
-    if (!s2) return;
-    ensureDataDir();
-    let records: CalibrationRecord[] = [];
-    if (s2.fs.existsSync(RECORDS_FILE)) {
-      records = JSON.parse(s2.fs.readFileSync(RECORDS_FILE, 'utf-8'));
-    }
-    records.push(record);
-    if (records.length > 10000) records = records.slice(-10000);
-    // Use compact JSON (no pretty-print) to reduce file size and I/O
-    s2.fs.writeFileSync(RECORDS_FILE, JSON.stringify(records));
-  } catch (e) {
-    logError('calibration', 'Failed to save record:', e);
   }
 }
 

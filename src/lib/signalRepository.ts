@@ -317,8 +317,9 @@ export async function createSignal(
 }
 
 /**
- * Update verification fields for a signal. Returns the updated record
- * or null if the id does not exist.
+ * Update verification fields for a signal. Uses optimistic lock via
+ * updatedAt check to prevent finalize race when two callers race.
+ * Returns the updated record or null if conflict/not-found.
  */
 export async function updateVerification(
   id: string,
@@ -329,11 +330,18 @@ export async function updateVerification(
     correctPrediction?: boolean;
     minutesAfterSignal?: number;
     goalTimestamp?: number | null;
+    /** Pass the observed `updatedAt` from the prior read for optimistic lock.
+     * If omitted, falls back to plain update (legacy callers). */
+    expectedUpdatedAt?: number | null;
   },
 ): Promise<GoalSignalRecord | null> {
   try {
+    const where: { id: string; updatedAt?: Date } = { id };
+    if (fields.expectedUpdatedAt != null) {
+      where.updatedAt = new Date(fields.expectedUpdatedAt);
+    }
     const row = await db.signal.update({
-      where: { id },
+      where,
       data: {
         goalHappened: fields.goalHappened,
         goalMinute: fields.goalMinute,
@@ -351,6 +359,9 @@ export async function updateVerification(
     return toGoalSignalRecord(row);
   } catch (err: unknown) {
     if (isPrismaNotFound(err)) return null;
+    // P2034 = transaction conflict — another writer beat us
+    if (typeof err === 'object' && err !== null && 'code' in err &&
+        (err as { code?: string }).code === 'P2034') return null;
     throw err;
   }
 }

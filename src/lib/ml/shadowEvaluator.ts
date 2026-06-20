@@ -19,6 +19,7 @@
 import { db } from '../db';
 import { ShadowStatus } from './shadowDelta';
 import type { ModelName } from './modelRouter';
+import { logWarn } from '@/lib/devLog';
 
 export interface DailyMetricsResult {
   date: string; // YYYY-MM-DD
@@ -80,6 +81,19 @@ export async function evaluateDailyShadows(
     existing.sum += brier;
     existing.n += 1;
     perVariantAgg.set(v, existing);
+  }
+
+  // Feature parity check: champion and shadow must share label space.
+  // If shadow variant n is < 20% of champion n, flag as under-sampled.
+  const championN = perVariantAgg.get('champion')?.n ?? 0;
+  if (championN > 50) {
+    for (const [v, agg] of perVariantAgg.entries()) {
+      if (v === 'champion') continue;
+      if (agg.n > 0 && agg.n < championN * 0.2) {
+        logWarn('shadowEvaluator',
+          `Parity gap: ${v} has ${agg.n} samples vs champion ${championN} — may under-represent`);
+      }
+    }
   }
 
   // Resolve artifact names from disk (for shadow/artifact variants,

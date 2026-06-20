@@ -16,6 +16,7 @@ import {
 import { getCachedMatchDetails } from "@/lib/fotmob";
 import { autoFetchMissingRatings, getRating } from "@/lib/eloRating";
 import { db } from "@/lib/db";
+import { applyCalibration } from "@/lib/calibration";
 import { extractFeatures, featuresToArray } from "@/lib/featureEngineering";
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
@@ -274,10 +275,11 @@ export async function GET(request: Request) {
           } catch {
             // features not available — log without them
           }
-          // Use champion ML probability when available, fall back to sigmoid calibration
+          // P0.3: Unified calibration path — route through isotonic/sigmoid
+          // regardless of source. ML raw championP no longer bypasses calibration.
           const finalCalibratedP =
             championP != null
-              ? Math.max(0, Math.min(1, championP))
+              ? applyCalibration(championP)
               : goalRadar.calibratedP;
           await db.predictionLog
             .create({

@@ -82,7 +82,9 @@ export function calculateGoalProbability(
   let goalCooldownHome = 0;
   let goalCooldownAway = 0;
   let recentGoalSide: "home" | "away" | "both" | null = null;
-  const GOAL_COOLDOWN_SNAPSHOTS = 6;
+  // P0.4: Expanded cooldown window — 20 snapshots (~5 min) covers
+  // post-goal threat waves (PLOS One 2024 event-sequence window).
+  const GOAL_COOLDOWN_SNAPSHOTS = 20;
 
   if (pressureHistory && pressureHistory.length >= 2) {
     const currentHG =
@@ -112,7 +114,10 @@ export function calculateGoalProbability(
           else if (homeGoalScored) recentGoalSide = "home";
           else recentGoalSide = "away";
           const progress = Math.min(1, snapshotsAgo / GOAL_COOLDOWN_SNAPSHOTS);
-          const cooldownFactor = Math.pow(progress, 1.5);
+          // P0.4: Stronger quadratic cooldown. After 5 snapshots (75s),
+          // factor ≈ (5/20)² = 0.063 — near-total suppression.
+          // Full recovery at 20 snapshots (~5 min).
+          const cooldownFactor = Math.pow(progress, 2.0);
           if (homeGoalScored) goalCooldownHome = cooldownFactor;
           if (awayGoalScored) goalCooldownAway = cooldownFactor;
           break;
@@ -1130,12 +1135,7 @@ export function calculateGoalProbability(
   );
   let finalScore = Math.max(finalHomeScore, finalAwayScore);
 
-  if (finalScore >= 80) level = "critical";
-  else if (finalScore >= 70) level = "high";
-  else if (finalScore >= 55) level = "medium";
-  else level = "low";
-
-  // 5-minute goal probability
+  // 5-minute goal probability (hoisted — referenced by P0.5 below)
   let goalProbability5min = 0;
   try {
     const homeXgRate = xg.home / Math.max(1, minNum),
@@ -1148,6 +1148,24 @@ export function calculateGoalProbability(
     goalProbability5min *= minuteScale;
     goalProbability5min = Math.min(0.95, goalProbability5min);
   } catch (e) { logError('goalRadar', e); /* fallback */ }
+
+  // P0.5: Critical multi-confirmation gate — score ≥80 is necessary but
+  // insufficient. Requires ≥2 of 4 independent confirms to prevent
+  // single-factor spikes (e.g., red card only) from triggering critical.
+  if (finalScore >= 80) {
+    const xgThreat = xg.home > 0.4 || xg.away > 0.4;
+    const pressureConfirm = pressure.home > 55 || pressure.away > 55;
+    const factorsConfirm = homeFactors.length >= 2 || awayFactors.length >= 2;
+    const goalProbConfirm = goalProbability5min >= 0.20;
+    const confirms = [xgThreat, pressureConfirm, factorsConfirm, goalProbConfirm];
+    if (confirms.filter(Boolean).length >= 2) {
+      level = "critical";
+    } else {
+      level = "high";
+    }
+  } else if (finalScore >= 70) level = "high";
+  else if (finalScore >= 55) level = "medium";
+  else level = "low";
 
   // ── FotMob Intelligence Integration ─────────────────────────────
   // Applies weather, squad, H2H, form, and formation adjustments

@@ -47,6 +47,8 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
   const containerRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(640)
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  // Unique ID prefix to avoid gradient ID collisions if multiple instances
+  const uid = useRef(`da${Math.random().toString(36).slice(2, 9)}`).current
 
   // Sort + clamp minute
   const series = useMemo(() => {
@@ -165,6 +167,29 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
   }, [maxMinute])
 
   const total = cumulative[cumulative.length - 1]
+
+  // Compute last-5-minutes DA delta correctly (not raw snapshot value)
+  const daLast5Home = useMemo(() => {
+    if (cumulative.length < 2) return 0
+    const nowMin = cumulative[cumulative.length - 1].minute
+    const fiveMinAgo = nowMin - 5
+    let prevCum = 0
+    for (const d of cumulative) {
+      if (d.minute <= fiveMinAgo) prevCum = d.cumHome
+    }
+    return total.cumHome - prevCum
+  }, [cumulative, total])
+  const daLast5Away = useMemo(() => {
+    if (cumulative.length < 2) return 0
+    const nowMin = cumulative[cumulative.length - 1].minute
+    const fiveMinAgo = nowMin - 5
+    let prevCum = 0
+    for (const d of cumulative) {
+      if (d.minute <= fiveMinAgo) prevCum = d.cumAway
+    }
+    return total.cumAway - prevCum
+  }, [cumulative, total])
+
   const hovered = hoverIdx != null ? cumulative[hoverIdx] : null
 
   return (
@@ -187,16 +212,16 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
         {/* Stat row */}
         <div className="flex items-center justify-around py-1.5 px-2 mb-1 text-[11px]">
           <div className="flex items-center gap-1.5">
-            <span className="text-gray-400">Toplam DA</span>
+            <span className="text-gray-400">Toplam DH</span>
             <span className="font-mono font-bold" style={{ color: homeColor }}>{total.cumHome}</span>
             <span className="text-gray-300">–</span>
             <span className="font-mono font-bold" style={{ color: awayColor }}>{total.cumAway}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-gray-400">Son 5dk</span>
-            <span className="font-mono font-bold" style={{ color: homeColor }}>{total.homeDangerousAttacks}</span>
+            <span className="font-mono font-bold" style={{ color: homeColor }}>+{daLast5Home}</span>
             <span className="text-gray-300">–</span>
-            <span className="font-mono font-bold" style={{ color: awayColor }}>{total.awayDangerousAttacks}</span>
+            <span className="font-mono font-bold" style={{ color: awayColor }}>+{daLast5Away}</span>
           </div>
         </div>
 
@@ -210,13 +235,13 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
             onMouseLeave={() => setHoverIdx(null)}
           >
             <defs>
-              <linearGradient id="da-home-grad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={homeColor} stopOpacity="0.55" />
-                <stop offset="100%" stopColor={homeColor} stopOpacity="0.05" />
+              <linearGradient id={`${uid}-home`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={homeColor} stopOpacity="0.50" />
+                <stop offset="100%" stopColor={homeColor} stopOpacity="0.04" />
               </linearGradient>
-              <linearGradient id="da-combined-grad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={awayColor} stopOpacity="0.45" />
-                <stop offset="100%" stopColor={awayColor} stopOpacity="0.05" />
+              <linearGradient id={`${uid}-away`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={awayColor} stopOpacity="0.35" />
+                <stop offset="100%" stopColor={awayColor} stopOpacity="0.04" />
               </linearGradient>
             </defs>
 
@@ -261,29 +286,48 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
               </g>
             ))}
 
-            {/* Combined area (home + away stacked) */}
+            {/* Away area (stacked behind home) */}
             <path
-              d={`${combinedLinePath} L ${xScale(total.minute)} ${yScale(0)} L ${xScale(cumulative[0].minute)} ${yScale(0)} Z`}
-              fill="url(#da-combined-grad)"
+              d={combinedLinePath}
+              fill={`url(#${uid}-away)`}
+              stroke={awayColor}
+              strokeWidth={1}
+              strokeLinejoin="round"
+              opacity={0.6}
             />
 
             {/* Home area */}
             <path
               d={homeAreaPath}
-              fill="url(#da-home-grad)"
+              fill={`url(#${uid}-home)`}
               stroke={homeColor}
               strokeWidth={1.5}
               strokeLinejoin="round"
             />
 
-            {/* Away combined top line (home+away) */}
+            {/* Away only area fill (cumHome to cumHome+cumAway) */}
+            <path
+              d={cumulative
+                .map((d, i) => `${i === 0 ? 'M' : 'L'} ${xScale(d.minute)} ${yScale(d.cumHome + d.cumAway)}`)
+                .join(' ') +
+                ' L ' + xScale(cumulative[cumulative.length - 1].minute) + ' ' + yScale(cumulative[cumulative.length - 1].cumHome) +
+                ' ' + [...cumulative].reverse().map((d) => `L ${xScale(d.minute)} ${yScale(d.cumHome)}`).join(' ') +
+                ' Z'
+              }
+              fill="none"
+              stroke={awayColor}
+              strokeWidth={0}
+              opacity={0}
+            />
+
+            {/* Away combined top line (total) */}
             <path
               d={combinedLinePath}
               fill="none"
               stroke={awayColor}
               strokeWidth={1.5}
               strokeDasharray="4,3"
-              opacity={0.7}
+              opacity={0.5}
             />
 
             {/* Goal markers */}
@@ -381,7 +425,9 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
             <div
               className="absolute pointer-events-none bg-gray-900 text-white text-[10px] rounded-md px-2 py-1.5 shadow-lg z-10"
               style={{
-                left: Math.min(width - 110, xScale(hovered.minute) + 8),
+                left: xScale(hovered.minute) > width - 120
+                  ? Math.max(4, xScale(hovered.minute) - 100)
+                  : xScale(hovered.minute) + 8,
                 top: 8,
                 minWidth: 100,
               }}

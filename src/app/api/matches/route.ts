@@ -17,7 +17,7 @@ import { getCachedMatchDetails } from "@/lib/fotmob";
 import { autoFetchMissingRatings, getRating } from "@/lib/eloRating";
 import { db } from "@/lib/db";
 import { applyCalibration } from "@/lib/calibration";
-import { extractFeatures, featuresToArray } from "@/lib/featureEngineering";
+import { extractFeatures, featuresToArray, pushFeatureSample } from "@/lib/featureEngineering";
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
 import { logError } from '@/lib/devLog';
@@ -262,6 +262,8 @@ export async function GET(request: Request) {
             });
             const fa = featuresToArray(features);
             featuresJson = JSON.stringify(fa);
+            // P1.4: feed drift monitor — async-safe, no backpressure impact
+            try { pushFeatureSample(features); } catch { /* best-effort */ }
             // Run champion XGB/GBDT model on the same features for ensemble-calibratedP
             for (const championName of ["xgb", "gbdt"] as const) {
               try {

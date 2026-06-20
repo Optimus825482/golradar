@@ -102,6 +102,22 @@ function kFactor(rating: EloRating, goalDiff: number): number {
   return Math.min(k, K_BASE * 3);
 }
 
+// P1.5: Time-decayed prior — ratings fade toward 1500 (league mean) over
+// days since last match. ξ = 0.00325/day, half-life ≈ 213 days.
+// Synchronous lazy import via require (CommonJS) to keep updateRatings sync.
+let _decayFn: ((current: number, daysAgo: number, revert: number) => number) | null = null;
+function getDecayFn(): (current: number, daysAgo: number, revert: number) => number {
+  if (_decayFn) return _decayFn;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('./dixonColes');
+    _decayFn = (current, daysAgo, revert) => mod.decayStrength(current, daysAgo, revert, 0.00325);
+  } catch {
+    _decayFn = (current) => current; // graceful fallback if require fails
+  }
+  return _decayFn;
+}
+
 export function updateRatings(home: string, away: string, homeGoals: number, awayGoals: number): { home: EloRating; away: EloRating } {
   const ratings = loadRatings();
   const homeKey = normalizeTeamName(home) || home;
@@ -110,8 +126,16 @@ export function updateRatings(home: string, away: string, homeGoals: number, awa
   let homeRating: EloRating = ratings.get(homeKey) || defaultRating();
   let awayRating: EloRating = ratings.get(awayKey) || defaultRating();
 
-  const homeR = homeRating.rating + HOME_ADVANTAGE;
-  const eHome = expectedScore(homeR, awayRating.rating);
+  // P1.5: Apply time decay to pre-match rating — old ratings fade to mean
+  const now = Date.now();
+  const homeDaysAgo = Math.max(0, (now - (homeRating.lastUpdated || now)) / 86_400_000);
+  const awayDaysAgo = Math.max(0, (now - (awayRating.lastUpdated || now)) / 86_400_000);
+  const decayFn = getDecayFn();
+  const homeR_pre = decayFn(homeRating.rating, homeDaysAgo, INITIAL_RATING);
+  const awayR_pre = decayFn(awayRating.rating, awayDaysAgo, INITIAL_RATING);
+
+  const homeR = homeR_pre + HOME_ADVANTAGE;
+  const eHome = expectedScore(homeR, awayR_pre);
   const eAway = 1 - eHome;
 
   let sHome: number, sAway: number;
@@ -126,15 +150,15 @@ export function updateRatings(home: string, away: string, homeGoals: number, awa
   const homeResult: ('W' | 'D' | 'L') = sHome === 1 ? 'W' : sHome === 0.5 ? 'D' : 'L';
   const awayResult: ('W' | 'D' | 'L') = sAway === 1 ? 'W' : sAway === 0.5 ? 'D' : 'L';
   homeRating = {
-    rating: Math.round(homeRating.rating + kHome * (sHome - eHome)),
+    rating: Math.round(homeR_pre + kHome * (sHome - eHome)),
     matchesPlayed: homeRating.matchesPlayed + 1,
-    lastUpdated: Date.now(),
+    lastUpdated: now,
     recentResults: [homeResult, ...homeRating.recentResults].slice(0, 10) as ('W' | 'D' | 'L')[],
   };
   awayRating = {
-    rating: Math.round(awayRating.rating + kAway * (sAway - eAway)),
+    rating: Math.round(awayR_pre + kAway * (sAway - eAway)),
     matchesPlayed: awayRating.matchesPlayed + 1,
-    lastUpdated: Date.now(),
+    lastUpdated: now,
     recentResults: [awayResult, ...awayRating.recentResults].slice(0, 10) as ('W' | 'D' | 'L')[],
   };
 
@@ -192,6 +216,24 @@ export function getFormIndex(team: string): number {
     else if (r === 'D') score += 1;
   }
   return score / Math.min(5, results.length) / 2;
+}
+
+// P1.2: Exponential weighted form index — recent matches count more.
+// β=0.85 → ~2-week half-life. Replaces flat summation.
+export function getFormIndexEma(team: string, beta: number = 0.85): number {
+  const rating = getRating(team);
+  if (!rating || rating.recentResults.length === 0) return 0.5;
+  // recentResults is most-recent-first; reverse for chronological.
+  const chrono = [...rating.recentResults].reverse();
+  let weighted = 0;
+  let totalWeight = 0;
+  for (let i = 0; i < chrono.length; i++) {
+    const w = Math.pow(beta, chrono.length - 1 - i);
+    const v = chrono[i] === 'W' ? 1 : chrono[i] === 'D' ? 0.5 : 0;
+    weighted += v * w;
+    totalWeight += w;
+  }
+  return totalWeight > 0 ? weighted / totalWeight : 0.5;
 }
 
 export function eloGoalAdjustment(home: string, away: string, currentMinute: number = 0): { homeAdjust: number; awayAdjust: number } {

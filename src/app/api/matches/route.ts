@@ -20,6 +20,17 @@ import { applyCalibration } from "@/lib/calibration";
 import { extractFeatures, featuresToArray, pushFeatureSample } from "@/lib/featureEngineering";
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
+import {
+  ensureMatch,
+  addSnapshot,
+  getHistory,
+  getSnapshots,
+  isHydrated,
+  markHydrated,
+  isHalftime,
+  pruneStale,
+} from "@/lib/pressureHistory";
+import type { PressureSnapshot } from "@/lib/advancedAnalytics";
 import { logError } from '@/lib/devLog';
 
 export const dynamic = "force-dynamic";
@@ -33,47 +44,14 @@ type RawMatch = Record<string, unknown> & {
   [key: string]: unknown;
 };
 
-interface PressureSnapshot {
-  minute: string;
-  timestamp: number;
-  homePressure: number;
-  awayPressure: number;
-  stats: MatchStats;
-  homeGoals: number;
-  awayGoals: number;
-}
-
-interface MatchPressureHistory {
-  homeTeam: string;
-  awayTeam: string;
-  league: string;
-  country: string;
-  snapshots: PressureSnapshot[];
-}
-
-const globalForHistory = globalThis as unknown as {
-  pressureHistory: Map<number, MatchPressureHistory> | undefined;
-};
-if (!globalForHistory.pressureHistory) {
-  globalForHistory.pressureHistory = new Map();
-}
-const pressureHistory = globalForHistory.pressureHistory;
-
-// Cap history size to avoid unbounded growth across long sessions.
-// Each match is bounded to 540 snapshots; the Map itself is bounded
-// implicitly by the number of distinct matches live at once.
-const HALFTIME_STATUSES = new Set([3, 28]);
-
 const emptyResponse = () => NextResponse.json({
   matches: [], byLeague: {}, version: 0, count: 0, pressureData: {}, goalRadarData: {},
 });
 
 // ── DB hydration: load past snapshots when server (re)starts mid-match ─
-const HYDRATED_MATCHES = new Set<number>();
-
-async function hydrateFromDB(matchCode: number, history: MatchPressureHistory) {
-  if (HYDRATED_MATCHES.has(matchCode)) return;
-  HYDRATED_MATCHES.add(matchCode);
+async function hydrateFromDB(matchCode: number, history: { snapshots: PressureSnapshot[] }) {
+  if (isHydrated(matchCode)) return;
+  markHydrated(matchCode);
   try {
     const rows = await db.matchSnapshot.findMany({
       where: { matchCode },
@@ -98,33 +76,34 @@ async function hydrateFromDB(matchCode: number, history: MatchPressureHistory) {
 
 function updatePressureHistory(match: ParsedMatch) {
   if (!match.hasStats) return;
-  if (HALFTIME_STATUSES.has(match.status)) return;
+  if (isHalftime(match.status)) return;
 
-  let history = pressureHistory.get(match.code);
-  if (!history) {
-    history = {
-      homeTeam: match.home,
-      awayTeam: match.away,
-      league: match.league,
-      country: match.country,
-      snapshots: [],
-    };
-    // Hydrate from DB on first access — fills missing snapshots from before server start
+  const history = ensureMatch(match.code, {
+    homeTeam: match.home,
+    awayTeam: match.away,
+    league: match.league,
+    country: match.country,
+  });
+  // Hydrate from DB on first access — fills missing snapshots from before server start
+  if (!isHydrated(match.code)) {
     hydrateFromDB(match.code, history);
-    pressureHistory.set(match.code, history);
+    markHydrated(match.code);
   }
 
   const pressure = calculatePressure(match.stats);
-  const now = Date.now();
   const last = history.snapshots[history.snapshots.length - 1];
+  const now = Date.now();
   if (last && now - last.timestamp < 3000) return;
 
-  history.snapshots.push({
-    minute: match.minute, timestamp: now,
-    homePressure: pressure.home, awayPressure: pressure.away,
-    stats: { ...match.stats },
-    homeGoals: match.homeGoals, awayGoals: match.awayGoals,
-  });
+  addSnapshot(
+    match.code,
+    match.minute,
+    pressure.home,
+    pressure.away,
+    match.stats,
+    match.homeGoals,
+    match.awayGoals,
+  );
 
   // Persist to DB using upsert — same (matchCode, minute) can be polled multiple times
   const minuteNum = parseInt(match.minute.replace(/[^0-9]/g, ''), 10) || 0;
@@ -147,10 +126,6 @@ function updatePressureHistory(match: ParsedMatch) {
       statsJson: JSON.stringify(match.stats),
     },
   }).catch((e) => { logError('route', 'matchSnapshot upsert error:', e); });
-
-  if (history.snapshots.length > 540) {
-    history.snapshots = history.snapshots.slice(-540);
-  }
 }
 
 export async function GET(request: Request) {
@@ -198,7 +173,7 @@ export async function GET(request: Request) {
     const parsed = parseMatch(m as Parameters<typeof parseMatch>[0]);
     updatePressureHistory(parsed);
 
-    const hist = pressureHistory.get(parsed.code);
+    const hist = getSnapshots(parsed.code);
     let goalRadar: GoalProbability | undefined;
 
     if (parsed.isLive && parsed.hasStats) {
@@ -222,7 +197,7 @@ export async function GET(request: Request) {
         parsed.stats,
         parsed.minute,
         parsed.isLive,
-        hist?.snapshots,
+        hist.length > 0 ? hist : undefined,
         parsed.homeGoals,
         parsed.awayGoals,
         parsed.home,
@@ -251,13 +226,13 @@ export async function GET(request: Request) {
               awayGoals: parsed.awayGoals,
               homeTeam: parsed.home,
               awayTeam: parsed.away,
-              pressureHistory: hist?.snapshots?.map((s) => ({
+              pressureHistory: hist.length > 0 ? hist.map((s: PressureSnapshot) => ({
                 homePressure: s.homePressure,
                 awayPressure: s.awayPressure,
                 stats: s.stats,
                 homeGoals: s.homeGoals,
                 awayGoals: s.awayGoals,
-              })),
+              })) : undefined,
               skipXtGrid: true,
             });
             const fa = featuresToArray(features);
@@ -275,7 +250,7 @@ export async function GET(request: Request) {
               } catch (e) { logError('route', e); /* try next */ }
             }
           } catch {
-            // features not available — log without them
+            // features not available — log without featuresJson
           }
           // P0.3: Unified calibration path — route through isotonic/sigmoid
           // regardless of source. ML raw championP no longer bypasses calibration.
@@ -323,8 +298,8 @@ export async function GET(request: Request) {
   for (const m of matches) {
     if (!byLeague[m.league]) byLeague[m.league] = [];
     byLeague[m.league].push(m);
-    const hist = pressureHistory.get(m.code);
-    if (hist?.snapshots.length) pressureData[m.code] = hist.snapshots;
+    const snapshots = getSnapshots(m.code);
+    if (snapshots.length > 0) pressureData[m.code] = snapshots;
     if (m.goalRadar) goalRadarData[m.code] = m.goalRadar;
   }
 
@@ -333,6 +308,9 @@ export async function GET(request: Request) {
     const teamNames = matches.flatMap((m) => [m.home, m.away]).filter(Boolean);
     void autoFetchMissingRatings(teamNames).catch((e) => { logError('route', e); });
   }
+
+  // Prune stale entries from in-memory pressure history (older than 4h)
+  pruneStale(4 * 60 * 60 * 1000);
 
   // Resolve FotMob logo URLs from TeamMapping for each team
   const teamLogos: Record<string, string> = {};

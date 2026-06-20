@@ -78,7 +78,7 @@ services:
       SIGNAL_RESET: "0"
       IMPORT_FOTMOB_TEAMS: "${IMPORT_FOTMOB_TEAMS:-0}"
     volumes:
-      - golradar_ml_data:/app/web/data
+      - golradar_ml_data:/app/data
     networks:
       - golradar-net
     healthcheck:

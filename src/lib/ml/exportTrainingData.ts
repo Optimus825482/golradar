@@ -27,7 +27,12 @@ import { db } from '../db';
 import { extractFeatures, featuresToArray, type MatchFeatures } from '../featureEngineering';
 import type { FeatureExtractionInput } from '../featureEngineering';
 
-export const TRAINING_DIR = join(process.cwd(), 'data', 'ml-training');
+// Use the Docker volume mount path (/app/data/ml-training) so the file is
+// visible to the ml-trainer sidecar which mounts the same volume at /data.
+// Falls back to cwd-relative path for local development.
+export const TRAINING_DIR = process.env.NODE_ENV === 'production'
+  ? '/app/data/ml-training'
+  : join(process.cwd(), 'data', 'ml-training');
 
 export type TrainingHorizon = 5 | 10 | 15;
 

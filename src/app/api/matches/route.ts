@@ -23,6 +23,15 @@ import { logError } from '@/lib/devLog';
 
 export const dynamic = "force-dynamic";
 
+// Minimal raw match shape — Nesine returns ~20+ fields; parseMatch
+// handles full mapping. Treat as opaque here.
+type RawMatch = Record<string, unknown> & {
+  S?: number;
+  C?: number;
+  WI?: unknown;
+  [key: string]: unknown;
+};
+
 interface PressureSnapshot {
   minute: string;
   timestamp: number;
@@ -49,32 +58,9 @@ if (!globalForHistory.pressureHistory) {
 }
 const pressureHistory = globalForHistory.pressureHistory;
 
-// Eviction: cap at 500 matches, remove stale entries (>6h old)
-const MAX_HISTORY_ENTRIES = 500;
-const HISTORY_TTL_MS = 6 * 60 * 60 * 1000;
-function evictStaleHistory() {
-  if (pressureHistory.size <= MAX_HISTORY_ENTRIES) return;
-  const now = Date.now();
-  for (const [code, hist] of pressureHistory) {
-    const lastSnap = hist.snapshots[hist.snapshots.length - 1];
-    if (lastSnap && now - lastSnap.timestamp > HISTORY_TTL_MS) {
-      pressureHistory.delete(code);
-    }
-  }
-  // If still over limit, remove oldest entries
-  if (pressureHistory.size > MAX_HISTORY_ENTRIES) {
-    const entries = [...pressureHistory.entries()];
-    entries.sort((a, b) => {
-      const aTime = a[1].snapshots[a[1].snapshots.length - 1]?.timestamp ?? 0;
-      const bTime = b[1].snapshots[b[1].snapshots.length - 1]?.timestamp ?? 0;
-      return aTime - bTime;
-    });
-    const toRemove = entries.slice(0, pressureHistory.size - MAX_HISTORY_ENTRIES);
-    for (const [code] of toRemove) pressureHistory.delete(code);
-  }
-}
-evictStaleHistory();
-
+// Cap history size to avoid unbounded growth across long sessions.
+// Each match is bounded to 540 snapshots; the Map itself is bounded
+// implicitly by the number of distinct matches live at once.
 const HALFTIME_STATUSES = new Set([3, 28]);
 
 const emptyResponse = () => NextResponse.json({
@@ -174,7 +160,7 @@ export async function GET(request: Request) {
   // Failure is silent — route continues with non-enriched goalRadar.
   void hydrateFotMobIdCache().catch((e) => { logError('route', e); });
 
-  let resp;
+  let resp: Response;
   try {
     resp = await fetch(`${LIVESCORE_API}?sportType=1&v=${version}`, {
       headers: HEADERS,
@@ -187,7 +173,7 @@ export async function GET(request: Request) {
   if (!resp.ok) return emptyResponse();
 
   const text = await resp.text();
-  let data;
+  let data: { sc?: number; v?: number; d?: unknown[] } | null = null;
   try {
     data = JSON.parse(text);
   } catch {
@@ -195,24 +181,8 @@ export async function GET(request: Request) {
   }
   if (!data || data.sc !== 200) return emptyResponse();
 
-  const rawMatches = data.d || [];
+  const rawMatches: RawMatch[] = (data.d as RawMatch[]) || [];
   const matches: (ParsedMatch & { goalRadar?: GoalProbability })[] = [];
-
-  // Fan out FotMob cache lookups for live matches in parallel.
-  // Padded to a 200ms deadline so a slow/missing cache never blocks
-  // the response — failures degrade gracefully to non-enriched output.
-  const fotmobPromises = new Map<
-    number,
-    Promise<import("@/lib/fotmob").FotMobMatchDetails | null>
-  >();
-  for (const m of rawMatches) {
-    const status = m.S || 0;
-    if (!ACTIVE_STATUSES.has(status)) continue;
-    const code = m.C || 0;
-    if (fotmobPromises.has(code)) continue;
-    // Defer to parse-time so we know the resolved matchDate/fotmobId
-    // after the team-mapping cache hydrates.
-  }
 
   for (const m of rawMatches) {
     const status = m.S || 0;
@@ -222,9 +192,9 @@ export async function GET(request: Request) {
 
     // Sadece Nesine'de canlı bahis oynanabilen maçları göster
     // WI (Win/Draw/Win odds) dolu olan maçlarda canlı bahis açıktır
-    if (ACTIVE_STATUSES.has(status) && m.WI == null) continue;
+    if (ACTIVE_STATUSES.has(status) && (m as { WI?: unknown }).WI == null) continue;
 
-    const parsed = parseMatch(m);
+    const parsed = parseMatch(m as Parameters<typeof parseMatch>[0]);
     updatePressureHistory(parsed);
 
     const hist = pressureHistory.get(parsed.code);

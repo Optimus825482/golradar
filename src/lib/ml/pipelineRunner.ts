@@ -16,7 +16,12 @@ import { startTraining, pollJob } from './mlClient';
 import { registerArtifact, listArtifacts } from './modelRouter';
 import { logError, logInfo } from '../devLog';
 
-const FEATURE_DIR = join(process.cwd(), 'data', 'ml-training');
+// Use the Docker volume mount path (/app/data/ml-training) so the file is
+// visible to the ml-trainer sidecar which mounts the same volume at /data.
+// Falls back to cwd-relative path for local development.
+const FEATURE_DIR = process.env.NODE_ENV === 'production'
+  ? '/app/data/ml-training'
+  : join(process.cwd(), 'data', 'ml-training');
 
 export type PipelineModel = 'gbdt' | 'xgb' | 'inplay';
 export type PipelineStatus = 'pending' | 'extracting' | 'training' | 'comparing' | 'done' | 'failed';
@@ -91,19 +96,32 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
       take: maxRows,
     });
 
-    await updatePipelineProgress(runId, 'extracting', 15, `${logs.length} kayıt bulundu, feature'lar çıkarılıyor...`);
+    // Filter to rows that have a resolved label (goalScored is set after match ends)
+    const labeledLogs = logs.filter(l => l.goalScored !== null);
+    if (labeledLogs.length === 0) {
+      throw new Error('No labeled data available — goalScored is null for all rows. Run pipeline after matches finalize.');
+    }
 
-    // Extract features in batches
-    const allFeatures: number[][] = [];
+    await updatePipelineProgress(runId, 'extracting', 15, `${labeledLogs.length}/${logs.length} etiketli kayıt bulundu, feature\'lar çıkarılıyor...`);
+
+    // Extract features + labels in batches
+    // Each row: { features: number[], label: 0|1 }
+    const allRows: { features: number[]; label: number }[] = [];
     const batchSize = 500;
-    for (let i = 0; i < logs.length; i += batchSize) {
-      const batch = logs.slice(i, i + batchSize);
+    for (let i = 0; i < labeledLogs.length; i += batchSize) {
+      const batch = labeledLogs.slice(i, i + batchSize);
       for (const log of batch) {
         try {
-          // Build feature extraction input from PredictionLog fields
+          // Use persisted featuresJson when available (avoids re-extraction drift)
+          if (log.featuresJson) {
+            const parsed = JSON.parse(log.featuresJson) as number[];
+            allRows.push({ features: parsed, label: log.goalScored! ? 1 : 0 });
+            continue;
+          }
+          // Fall back to on-the-fly extraction
           const input = {
             stats: {
-              possession: { home: 50, away: 50 }, // default values
+              possession: { home: 50, away: 50 },
               dangerous_attacks: { home: log.homeScore || 0, away: log.awayScore || 0 },
             },
             homeTeam: log.homeTeam,
@@ -112,21 +130,28 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
             isLive: true,
           };
           const features = await extractFeatures(input as any);
-          allFeatures.push(featuresToArray(features));
+          allRows.push({ features: featuresToArray(features), label: log.goalScored! ? 1 : 0 });
         } catch {
           // Skip rows that can't be parsed
         }
       }
-      const pct = 15 + Math.round(((i + batchSize) / logs.length) * 20);
-      await updatePipelineProgress(runId, 'extracting', Math.min(pct, 35), `${Math.min(i + batchSize, logs.length)}/${logs.length} feature çıkarıldı...`);
+      const pct = 15 + Math.round(((i + batchSize) / labeledLogs.length) * 20);
+      await updatePipelineProgress(runId, 'extracting', Math.min(pct, 35), `${Math.min(i + batchSize, labeledLogs.length)}/${labeledLogs.length} feature çıkarıldı...`);
     }
 
-    const featureCount = allFeatures.length > 0 ? allFeatures[0].length : 47;
+    if (allRows.length === 0) {
+      throw new Error('Feature extraction produced zero valid rows.');
+    }
 
-    // Serialize features to file
+    const featureCount = allRows[0].features.length;
+    const positives = allRows.filter(r => r.label === 1).length;
+    const negatives = allRows.length - positives;
+
+    // Serialize to JSONL — each line is {"features": [...], "label": 0|1}
+    // as expected by the Python trainer sidecar
     await mkdir(FEATURE_DIR, { recursive: true });
     const featureFile = join(FEATURE_DIR, `features-${modelName}-${horizonMin}min-${Date.now()}.jsonl`);
-    const lines = allFeatures.map(f => JSON.stringify(f)).join('\n');
+    const lines = allRows.map(r => JSON.stringify(r)).join('\n');
     await writeFile(featureFile, lines, 'utf-8');
     const sha256 = createHash('sha256').update(lines).digest('hex');
 
@@ -134,7 +159,7 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
     const fsRow = await db.featureSet.create({
       data: {
         horizonMin,
-        rowCount: allFeatures.length,
+        rowCount: allRows.length,
         featureCount,
         sha256,
         path: featureFile,
@@ -147,10 +172,10 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
 
     await db.pipelineRun.update({
       where: { id: runId },
-      data: { featureSetId: fsRow.id, featureSetRowCount: allFeatures.length },
+      data: { featureSetId: fsRow.id, featureSetRowCount: allRows.length },
     });
 
-    await updatePipelineProgress(runId, 'extracting', 35, `${allFeatures.length} feature hazır (${featureCount} özellik)`);
+    await updatePipelineProgress(runId, 'extracting', 35, `${allRows.length} feature hazır (${featureCount} özellik, ${positives} pozitif, ${negatives} negatif)`);
 
     // ══════════════════════════════════════════════════════════════
     // STEP 2: Training (35-75%)
@@ -214,7 +239,7 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
       metrics: completed.metrics,
       sha256: String(completed.metrics?.sha256 ?? ''),
       bytes: completed.metrics?.artifactBytes ?? null,
-      notes: `Pipeline run ${runId} (horizon=${horizonMin}min, rows=${allFeatures.length})`,
+      notes: `Pipeline run ${runId} (horizon=${horizonMin}min, rows=${allRows.length})`,
     });
 
     await updatePipelineProgress(runId, 'comparing', 80, 'Model kaydedildi, karşılaştırılıyor...');
@@ -269,7 +294,7 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
         newLogLoss,
         newAccuracy,
         newCalibrationError: newCalErr,
-        newTrainRows: allFeatures.length,
+        newTrainRows: allRows.length,
         brierDelta,
         isBetter,
         isPromoted: isBetter,

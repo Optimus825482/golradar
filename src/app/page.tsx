@@ -3,9 +3,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  Tabs, TabsList, TabsTrigger,
-} from '@/components/ui/tabs'
-import {
   Drawer,
   DrawerContent,
   DrawerHeader,
@@ -18,6 +15,7 @@ import {
   calculateGoalProbability,
   type GoalProbability,
   type MatchStats as NesineMatchStats,
+  FINISHED_STATUSES,
 } from '@/lib/nesine'
 import type {
   FotMobMatchDetails,
@@ -27,21 +25,17 @@ import {
   calculateThreatIndex,
   calculateMomentumBars,
   calculateXgFlow,
-  estimateXgFromShots,
   generateSyntheticSnapshots,
 } from '@/lib/advancedAnalytics'
 import { playGoalSound } from '@/lib/playGoalSound'
-import SignalStatsPanel from '@/components/SignalStatsPanel'
-import BacktestPanel from '@/components/BacktestPanel'
 import SignalHistoryPanel from '@/components/SignalHistoryPanel'
 
 import { Badge } from '@/components/ui/badge'
-import type { Match, MatchStats, PressureSnapshot, GoalNotification, BottomTab } from '@/components/match/types'
-import { statKeys, HALFTIME_STATUSES } from '@/components/match/types'
-import { calculatePressure, ensureVisible, catmullRomPath, loadFavorites, saveFavorites } from '@/components/match/utils'
-import { CountryFlag, MatchStatusBadge, GoalRadarIcon, StatBar } from '@/components/match/shared-components'
+import type { Match, PressureSnapshot, GoalNotification, BottomTab } from '@/components/match/types'
+import { HALFTIME_STATUSES } from '@/components/match/types'
+import { calculatePressure, loadFavorites, saveFavorites } from '@/components/match/utils'
+import { CountryFlag, MatchStatusBadge } from '@/components/match/shared-components'
 import { MatchCard } from '@/components/match/MatchCard'
-import { FinishedMatchCard } from '@/components/match/FinishedMatchCard'
 import { MatchDetailContent } from '@/components/match/MatchDetailContent'
 import type { MatchDetailContentProps } from '@/components/match/MatchDetailContent'
 import { FinishedMatchesView } from '@/components/match/FinishedMatchesView'
@@ -74,7 +68,6 @@ export default function OptimusGolRadariPage() {
   const [sortBy, setSortBy] = useState<'league' | 'time'>('league')
   const [statsHalf, setStatsHalf] = useState<'full' | '1h' | '2h'>('full')
   const [allPressureData, setAllPressureData] = useState<Record<number, PressureSnapshot[]>>({})
-  const [teamLogos, setTeamLogos] = useState<Record<string, string>>({})
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const retryCountRef = useRef(0)
   const MAX_RETRIES = 5
@@ -128,12 +121,14 @@ export default function OptimusGolRadariPage() {
   const [favoritesLoaded, setFavoritesLoaded] = useState(false)
   useEffect(() => {
     setFavorites(loadFavorites())
-    const now = new Date()
-    const istanbulOffset = 3 * 60
-    const localOffset = now.getTimezoneOffset()
-    const istanbulMs = now.getTime() + (istanbulOffset + localOffset) * 60000
-    const istanbulDate = new Date(istanbulMs)
-    setFinishedDate(istanbulDate.toISOString().slice(0, 10))
+    // Istanbul date — use Intl for DST-safe TZ conversion
+    const istanbulDateStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Istanbul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date())
+    setFinishedDate(istanbulDateStr)
     setFavoritesLoaded(true)
   }, [])
 
@@ -151,10 +146,16 @@ export default function OptimusGolRadariPage() {
   // Refs to break stale closure cycles
   const selectedMatchRef = useRef<Match | null>(null)
   const matchesRef = useRef<Match[]>([])
+  const mountedRef = useRef(true)
+  const abortRef = useRef<AbortController | null>(null)
 
   // Keep refs in sync with state
   useEffect(() => { selectedMatchRef.current = selectedMatch }, [selectedMatch])
   useEffect(() => { matchesRef.current = matches }, [matches])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false; abortRef.current?.abort() }
+  }, [])
 
   // Stable fetchMatches — no state deps to prevent interval reset loop
   const fetchMatches = useCallback(async () => {
@@ -167,7 +168,6 @@ export default function OptimusGolRadariPage() {
 
       setMatches(newMatches)
       setAllPressureData(newPressureData)
-      setTeamLogos(data.teamLogos || {})
       setLastUpdate(new Date())
       setError(null)
       retryCountRef.current = 0
@@ -214,9 +214,9 @@ export default function OptimusGolRadariPage() {
         }
       }
       setIsLoading(false)
-      if (retryCountRef.current <= MAX_RETRIES + 3) {
+      if (retryCountRef.current <= MAX_RETRIES + 3 && mountedRef.current) {
         const delay = Math.min(3000 * Math.pow(2, Math.min(retryCountRef.current - 1, 5)), 120000)
-        setTimeout(() => fetchMatches(), delay)
+        setTimeout(() => { if (mountedRef.current) fetchMatches() }, delay)
       }
     }
   }, []) // Stable: no state deps, uses refs for latest values
@@ -465,8 +465,7 @@ export default function OptimusGolRadariPage() {
       }
 
       // When match ends, finalize all pending signals for this match
-      const MATCH_ENDED = [3, 28, 30, 40, 50, 60, 70, 80, 90, 100]
-      if (MATCH_ENDED.includes(m.status) && prev.status !== m.status) {
+      if (FINISHED_STATUSES.has(m.status) && !FINISHED_STATUSES.has(prev.status)) {
         fetch(`/api/goal-signals?action=finalize&matchCode=${m.code}&homeScore=${m.homeGoals}&awayScore=${m.awayGoals}`)
           .catch((e) => { logError('page', e); })
       }
@@ -491,6 +490,7 @@ export default function OptimusGolRadariPage() {
         return next
       })
     }, 2000)
+    interval.unref?.()
     return () => clearInterval(interval)
   }, [])
 
@@ -525,7 +525,7 @@ export default function OptimusGolRadariPage() {
       if (!prob || !prob.side) continue
       const m = matches.find(x => x.code === code)
       if (!m) continue
-      const signalKey = `${code}:${prob.side}:${m.minute}`
+      const signalKey = `${code}:${prob.side}:${parseGoalMinute(m.minute)}`
       if (posted.has(signalKey)) continue
       posted.add(signalKey)
       fetch('/api/goal-signals', {
@@ -543,7 +543,8 @@ export default function OptimusGolRadariPage() {
     }
     // Keep set from growing unbounded — cap at 500 entries
     if (posted.size > 500) {
-      const arr = [...posted]
+      // True FIFO: keep first inserted by recreating with stable insertion order
+      const arr = Array.from(posted)
       postedSignalsRef.current = new Set(arr.slice(arr.length - 300))
     }
   }, [goalProbabilities, matches])

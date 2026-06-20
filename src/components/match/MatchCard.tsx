@@ -3,7 +3,7 @@
 import type { GoalProbability } from '@/lib/nesine'
 import type { Match } from './types'
 import { calculatePressure } from './utils'
-import { CountryFlag, GoalRadarIcon } from './shared-components'
+import { CountryFlag, GoalRadarIcon, RedCardIndicator } from './shared-components'
 
 export function MatchCard({ match, onClick, showLeague, goalProb, isSelected, isFavorite, onToggleFavorite, hasGoalFlash }: {
   match: Match
@@ -66,6 +66,7 @@ export function MatchCard({ match, onClick, showLeague, goalProb, isSelected, is
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 max-w-[35%]">
               <span className="text-[13px] text-gray-800 truncate font-medium">{match.home}</span>
+              <RedCardIndicator count={match.homeRedCards} />
               {isRadarAlert && goalProb?.side && (goalProb.side === 'home' || goalProb.side === 'both') && (
                 <GoalRadarIcon level={goalProb.level} />
               )}
@@ -85,6 +86,7 @@ export function MatchCard({ match, onClick, showLeague, goalProb, isSelected, is
                 <GoalRadarIcon level={goalProb.level} />
               )}
               <span className="text-[13px] text-gray-800 truncate text-right font-medium">{match.away}</span>
+              <RedCardIndicator count={match.awayRedCards} />
             </div>
           </div>
 

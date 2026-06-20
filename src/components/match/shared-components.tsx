@@ -70,6 +70,20 @@ export function GoalRadarIcon({ level }: { level: GoalProbability['level'] }) {
   )
 }
 
+// ── Red Card Indicator ──
+
+export function RedCardIndicator({ count }: { count: number }) {
+  if (!count || count <= 0) return null
+  return (
+    <span className="inline-flex items-center gap-0.5 ml-0.5">
+      {Array.from({ length: Math.min(count, 3) }).map((_, i) => (
+        <span key={i} className="inline-block w-2.5 h-3.5 rounded-[2px] bg-red-600 shadow-sm" title={`${count} kırmızı kart`} />
+      ))}
+      {count > 3 && <span className="text-[9px] font-bold text-red-600">+{count - 3}</span>}
+    </span>
+  )
+}
+
 // ── Stat Bar Component ──
 
 export function StatBar({ label, home, away, suffix = '', isPossession = false }: {

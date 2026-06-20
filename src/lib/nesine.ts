@@ -107,6 +107,8 @@ export interface ParsedMatch {
   awayAbbrev: string | null;
   fotmobId: number | null;   // Cross-source match — see TeamMapping
   matchDate: string;         // YYYY-MM-DD (local) — used as FotMob cache key
+  homeRedCards: number;
+  awayRedCards: number;
 }
 
 function parseStats(seArray: any[]): _MatchStats {
@@ -343,6 +345,8 @@ export function parseMatch(m: any): ParsedMatch {
     awayAbbrev: m.ATA || null,
     fotmobId,
     matchDate: normalizedDate,
+    homeRedCards: stats.red_cards?.home ?? 0,
+    awayRedCards: stats.red_cards?.away ?? 0,
   };
 }
 

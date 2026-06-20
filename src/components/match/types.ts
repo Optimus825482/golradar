@@ -48,6 +48,8 @@ export interface Match {
   homeLogoUrl: string | null;
   awayLogoUrl: string | null;
   goalRadar?: GoalProbability;
+  homeRedCards: number;
+  awayRedCards: number;
 }
 
 export interface GoalNotification {

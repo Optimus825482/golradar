@@ -7,7 +7,7 @@ import type { MomentumBarDataPoint, xGFlowPoint, ThreatIndex } from '@/lib/advan
 import type { Match, MatchStats } from './types'
 import { statKeys } from './types'
 import { calculatePressure } from './utils'
-import { CountryFlag, MatchStatusBadge, StatBar } from './shared-components'
+import { CountryFlag, MatchStatusBadge, StatBar, RedCardIndicator } from './shared-components'
 import { MomentumChart } from '@/components/charts/MomentumChart'
 import { StatsLineChart } from '@/components/charts/StatsLineChart'
 import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomentumChart'
@@ -84,7 +84,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
             >
               {match.homeAbbrev || match.homeTr?.substring(0, 3).toUpperCase()}
             </div>
-            <p className="text-sm font-bold text-gray-900 truncate">{match.home}</p>
+            <p className="text-sm font-bold text-gray-900 truncate flex items-center justify-center gap-1">{match.home}<RedCardIndicator count={match.homeRedCards} /></p>
             <p className="text-[10px] text-gray-400">Ev Sahibi</p>
           </div>
 
@@ -101,7 +101,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
             >
               {match.awayAbbrev || match.awayTr?.substring(0, 3).toUpperCase()}
             </div>
-            <p className="text-sm font-bold text-gray-900 truncate">{match.away}</p>
+            <p className="text-sm font-bold text-gray-900 truncate flex items-center justify-center gap-1">{match.away}<RedCardIndicator count={match.awayRedCards} /></p>
             <p className="text-[10px] text-gray-400">Deplasman</p>
           </div>
         </div>

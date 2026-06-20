@@ -14,9 +14,30 @@ const NAV_ITEMS = [
   {
     key: "ml",
     href: "/admin/ml",
-    label: "ML & Modeller",
+    label: "ML Modelleri",
     icon: "🤖",
-    description: "Model artifactları, eğitim, performans",
+    description: "Artifactlar, champions, performans",
+  },
+  {
+    key: "ml-train",
+    href: "/admin/ml/train",
+    label: "ML Eğitimi",
+    icon: "🚀",
+    description: "Manuel eğitim + pipeline",
+  },
+  {
+    key: "ml-backtest",
+    href: "/admin/ml/backtest",
+    label: "ML Backtest",
+    icon: "🔬",
+    description: "Model backtest + A/B karşılaştırma",
+  },
+  {
+    key: "ml-monitoring",
+    href: "/admin/ml/monitoring",
+    label: "Başarı Monitoring",
+    icon: "📈",
+    description: "Brier trend, drift, shadow takibi",
   },
   {
     key: "calibration",

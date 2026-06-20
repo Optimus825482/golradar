@@ -347,6 +347,14 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                 homeColor={match.homeColor || '#f97316'}
                 awayColor={match.awayColor || '#3b82f6'}
                 title="Tehlikeli Hücum"
+                goalEvents={fotmobData?.events
+                  ?.filter(e => e.type === 'Goal')
+                  .map(e => ({
+                    isHome: e.isHome,
+                    minute: typeof e.time === 'number'
+                      ? e.time
+                      : parseInt(String(e.time || '0').replace(/[^0-9]/g, ''), 10) || 0,
+                  })) ?? null}
               />
             </ErrorBoundary>
           </>

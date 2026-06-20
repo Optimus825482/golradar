@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, memo, useState } from 'react'
+import { useEffect, useMemo, useRef, memo, useState, useCallback } from 'react'
+import { catmullRomPath } from '@/components/match/utils'
 
 interface DADataPoint {
   minute: number
@@ -20,20 +21,29 @@ interface DangerousAttacksChartProps {
   awayColor?: string
   title?: string
   height?: number
+  goalEvents?: Array<{ isHome?: boolean; minute: number }> | null
+  homeShotsTotal?: number
+  awayShotsTotal?: number
+  homeShotsOnTarget?: number
+  awayShotsOnTarget?: number
+  xgHome?: number
+  xgAway?: number
 }
 
 const HOME_COLOR = '#f97316'
 const AWAY_COLOR = '#3b82f6'
-const MAX_Y_PADDING = 1.15
 
 /**
- * Professional stacked-area dangerous-attacks chart with:
- * - Cumulative area fills (home = orange, away = blue) with gradient
- * - Goal-event markers (circle + vertical line)
- * - Responsive width via ResizeObserver
- * - Mobile: 220px height, Desktop: 280px
- * - Tooltip on hover/focus showing minute + counts
- * - Zero external dep (pure SVG)
+ * Professional dual-line dangerous-attacks chart.
+ * - Dual Catmull-Rom smoothed lines (home orange, away blue)
+ * - Gradient fills between each line and baseline
+ * - Halftime shaded band
+ * - Goal event markers (vertical line + ⚽)
+ * - Hover tooltip
+ * - Responsive — mobile 220px, desktop 280px
+ * - Zero external dep (pure SVG + catmullRomPath)
+ *   awayTeam: string
+type t: smooth dual-line (not stacked area)
  */
 export const DangerousAttacksChart = memo(function DangerousAttacksChart({
   data,
@@ -43,11 +53,11 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
   awayColor = AWAY_COLOR,
   title = 'Tehlikeli Hücum',
   height,
+  goalEvents,
 }: DangerousAttacksChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(640)
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
-  // Unique ID prefix to avoid gradient ID collisions if multiple instances
   const uid = useRef(`da${Math.random().toString(36).slice(2, 9)}`).current
 
   // Sort + clamp minute
@@ -61,23 +71,24 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
       .sort((a, b) => a.minute - b.minute)
   }, [data])
 
-  // Cumulative sums for stacked area
+  // Cumulative sums + goal marker merge
   const cumulative = useMemo(() => {
     let h = 0, a = 0
+    const goals = goalEvents ?? []
     return series.map(d => {
-      h += d.homeDangerousAttacks || 0
-      a += d.awayDangerousAttacks || 0
-      return { ...d, cumHome: h, cumAway: a }
+      h += (d.homeDangerousAttacks || 0)
+      a += (d.awayDangerousAttacks || 0)
+      // Fuzzy-match goal events within ±1 minute
+      const goal = goals.find(g => Math.abs(g.minute - d.minute) <= 1)
+      return { ...d, cumHome: h, cumAway: a, goalEvent: goal ?? undefined }
     })
-  }, [series])
+  }, [series, goalEvents])
 
   // Bounds
   const maxVal = useMemo(() => {
     if (cumulative.length === 0) return 10
-    const peak = Math.max(
-      ...cumulative.map(d => d.cumHome + d.cumAway),
-    )
-    return Math.max(10, Math.ceil(peak * MAX_Y_PADDING))
+    const peak = Math.max(...cumulative.map(d => d.cumHome + d.cumAway))
+    return Math.max(10, Math.ceil(peak * 1.15))
   }, [cumulative])
 
   const minMinute = 0
@@ -99,7 +110,6 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
     return () => ro.disconnect()
   }, [])
 
-  // Responsive height: smaller on mobile
   const chartHeight = height ?? (width < 480 ? 220 : 280)
 
   if (series.length === 0) {
@@ -118,39 +128,38 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
             </span>
           </div>
         </div>
-        <div className="h-[160px] flex items-center justify-center text-gray-400 text-xs">
-          Veri bekleniyor…
-        </div>
+        <div className="h-[160px] flex items-center justify-center text-gray-400 text-xs">Veri bekleniyor…</div>
       </div>
     )
   }
 
-  // Scales
   const padding = { top: 16, right: 16, bottom: 28, left: 36 }
   const plotW = width - padding.left - padding.right
   const plotH = chartHeight - padding.top - padding.bottom
 
   const xScale = (m: number) =>
     padding.left + ((m - minMinute) / Math.max(1, maxMinute - minMinute)) * plotW
-
   const yScale = (v: number) =>
     padding.top + plotH - (v / maxVal) * plotH
 
-  // Path builders (top line and bottom line for stacked area)
-  const homeLinePath = cumulative
-    .map((d, i) => `${i === 0 ? 'M' : 'L'} ${xScale(d.minute)} ${yScale(d.cumHome)}`)
-    .join(' ')
+  // Points for Catmull-Rom
+  const homePoints: [number, number][] = cumulative.map(d => [xScale(d.minute), yScale(d.cumHome)])
+  const awayPoints: [number, number][] = cumulative.map(d => [xScale(d.minute), yScale(d.cumAway)])
 
-  const homeBaseline = `${xScale(cumulative[cumulative.length - 1].minute)} ${yScale(0)}`
-  const homeStart = `${xScale(cumulative[0].minute)} ${yScale(0)}`
-  const homeAreaPath = `${homeLinePath} L ${homeBaseline} L ${homeStart} Z`
+  const homePath = catmullRomPath(homePoints)
+  const awayPath = catmullRomPath(awayPoints)
 
-  // Combined line (sum of both teams)
-  const combinedLinePath = cumulative
-    .map((d, i) => `${i === 0 ? 'M' : 'L'} ${xScale(d.minute)} ${yScale(d.cumHome + d.cumAway)}`)
-    .join(' ')
+  // Area paths: line → baseline → close
+  const zy = yScale(0)
+  const homeFirst = homePoints[0]; const homeLast = homePoints[homePoints.length - 1]
+  const awayFirst = awayPoints[0]; const awayLast = awayPoints[awayPoints.length - 1]
+  const homeAreaPath = homePath
+    + ` L ${homeLast[0].toFixed(2)} ${zy.toFixed(2)}`
+    + ` L ${homeFirst[0].toFixed(2)} ${zy.toFixed(2)} Z`
+  const awayAreaPath = awayPath
+    + ` L ${awayLast[0].toFixed(2)} ${zy.toFixed(2)}`
+    + ` L ${awayFirst[0].toFixed(2)} ${zy.toFixed(2)} Z`
 
-  // Y-axis ticks
   const yTicks = useMemo(() => {
     const step = maxVal <= 20 ? 5 : maxVal <= 60 ? 10 : 15
     const ticks: number[] = []
@@ -158,7 +167,6 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
     return ticks
   }, [maxVal])
 
-  // X-axis ticks (every 15 min)
   const xTicks = useMemo(() => {
     const ticks: number[] = []
     for (let m = 0; m <= maxMinute; m += 15) ticks.push(m)
@@ -168,15 +176,12 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
 
   const total = cumulative[cumulative.length - 1]
 
-  // Compute last-5-minutes DA delta correctly (not raw snapshot value)
   const daLast5Home = useMemo(() => {
     if (cumulative.length < 2) return 0
     const nowMin = cumulative[cumulative.length - 1].minute
     const fiveMinAgo = nowMin - 5
     let prevCum = 0
-    for (const d of cumulative) {
-      if (d.minute <= fiveMinAgo) prevCum = d.cumHome
-    }
+    for (const d of cumulative) { if (d.minute <= fiveMinAgo) prevCum = d.cumHome }
     return total.cumHome - prevCum
   }, [cumulative, total])
   const daLast5Away = useMemo(() => {
@@ -184,13 +189,27 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
     const nowMin = cumulative[cumulative.length - 1].minute
     const fiveMinAgo = nowMin - 5
     let prevCum = 0
-    for (const d of cumulative) {
-      if (d.minute <= fiveMinAgo) prevCum = d.cumAway
-    }
+    for (const d of cumulative) { if (d.minute <= fiveMinAgo) prevCum = d.cumAway }
     return total.cumAway - prevCum
   }, [cumulative, total])
 
   const hovered = hoverIdx != null ? cumulative[hoverIdx] : null
+
+  // Mouse move handler
+  const onMove = useCallback((e: React.MouseEvent<SVGSVGElement> | React.TouchEvent<SVGSVGElement>) => {
+    if (!containerRef.current || cumulative.length === 0) return
+    const rect = containerRef.current.getBoundingClientRect()
+    const clientX = 'touches' in e ? (e as React.TouchEvent<SVGSVGElement>).touches[0].clientX : (e as React.MouseEvent<SVGSVGElement>).clientX
+    const relX = clientX - rect.left
+    let nearest = 0; let bestDist = Infinity
+    for (let i = 0; i < cumulative.length; i++) {
+      const d = Math.abs(xScale(cumulative[i].minute) - relX)
+      if (d < bestDist) { bestDist = d; nearest = i }
+    }
+    setHoverIdx(nearest)
+  }, [cumulative, width])
+
+  const onLeave = useCallback(() => setHoverIdx(null), [])
 
   return (
     <div ref={containerRef} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -232,7 +251,8 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
             height={chartHeight}
             viewBox={`0 0 ${width} ${chartHeight}`}
             className="select-none"
-            onMouseLeave={() => setHoverIdx(null)}
+            onMouseMove={onMove}
+          onMouseLeave={onLeave}
           >
             <defs>
               <linearGradient id={`${uid}-home`} x1="0" y1="0" x2="0" y2="1">
@@ -286,48 +306,31 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
               </g>
             ))}
 
-            {/* Away area (stacked behind home) */}
-            <path
-              d={combinedLinePath}
-              fill={`url(#${uid}-away)`}
-              stroke={awayColor}
-              strokeWidth={1}
-              strokeLinejoin="round"
-              opacity={0.6}
-            />
+            {/* Away area (behind home) */}
+            <path d={awayAreaPath} fill={`url(#${uid}-away)`} stroke="none" />
 
             {/* Home area */}
+            <path d={homeAreaPath} fill={`url(#${uid}-home)`} stroke="none" />
+
+            {/* Away smooth line */}
             <path
-              d={homeAreaPath}
-              fill={`url(#${uid}-home)`}
-              stroke={homeColor}
-              strokeWidth={1.5}
+              d={awayPath}
+              fill="none"
+              stroke={awayColor}
+              strokeWidth={2.5}
+              strokeLinecap="round"
               strokeLinejoin="round"
+              strokeDasharray="5,3"
             />
 
-            {/* Away only area fill (cumHome to cumHome+cumAway) */}
+            {/* Home smooth line */}
             <path
-              d={cumulative
-                .map((d, i) => `${i === 0 ? 'M' : 'L'} ${xScale(d.minute)} ${yScale(d.cumHome + d.cumAway)}`)
-                .join(' ') +
-                ' L ' + xScale(cumulative[cumulative.length - 1].minute) + ' ' + yScale(cumulative[cumulative.length - 1].cumHome) +
-                ' ' + [...cumulative].reverse().map((d) => `L ${xScale(d.minute)} ${yScale(d.cumHome)}`).join(' ') +
-                ' Z'
-              }
+              d={homePath}
               fill="none"
-              stroke={awayColor}
-              strokeWidth={0}
-              opacity={0}
-            />
-
-            {/* Away combined top line (total) */}
-            <path
-              d={combinedLinePath}
-              fill="none"
-              stroke={awayColor}
-              strokeWidth={1.5}
-              strokeDasharray="4,3"
-              opacity={0.5}
+              stroke={homeColor}
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
             />
 
             {/* Goal markers */}
@@ -369,7 +372,7 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
               )
             })}
 
-            {/* Hover overlay (vertical line + dot) */}
+            {/* Hover overlay */}
             {hovered && (
               <g pointerEvents="none">
                 <line
@@ -377,9 +380,10 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
                   x2={xScale(hovered.minute)}
                   y1={padding.top}
                   y2={chartHeight - padding.bottom}
-                  stroke="#64748b"
+                  stroke="#0f172a"
                   strokeWidth={1}
-                  strokeDasharray="2,2"
+                  strokeDasharray="3,3"
+                  opacity={0.5}
                 />
                 <circle
                   cx={xScale(hovered.minute)}
@@ -391,7 +395,7 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
                 />
                 <circle
                   cx={xScale(hovered.minute)}
-                  cy={yScale(hovered.cumHome + hovered.cumAway)}
+                  cy={yScale(hovered.cumAway)}
                   r={4}
                   fill={awayColor}
                   stroke="white"
@@ -400,7 +404,7 @@ export const DangerousAttacksChart = memo(function DangerousAttacksChart({
               </g>
             )}
 
-            {/* Hover hit zones (one per data point) */}
+            {/* Hover hit zones */}
             {cumulative.map((d, i) => {
               const x = xScale(d.minute)
               const cellW = plotW / Math.max(1, cumulative.length)

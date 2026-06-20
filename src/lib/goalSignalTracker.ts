@@ -255,6 +255,14 @@ export async function checkAndRecordSignal(
   if (goalProbability.score < SIGNAL_THRESHOLD) return null;
   if (!goalProbability.side || goalProbability.side === "both") return null;
 
+  // ── Excluded minute zones ─────────────────────────────────────
+  // Skip signals in unreliable time windows:
+  //   0-2 min:    match context still forming
+  //   43-45 min:  pre-halftime tactical uncertainty
+  //   89-120 min: extra-time swings
+  const sigMin = parseMinute(minute);
+  if (sigMin <= 2 || (sigMin >= 43 && sigMin <= 45) || sigMin >= 89) return null;
+
   const signalSide = goalProbability.side as "home" | "away";
 
   // ── Cooldown check: Aynı match+side için son 3 dk içinde sinyal oluşturuldu mu? ──

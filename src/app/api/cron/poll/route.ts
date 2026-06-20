@@ -236,9 +236,15 @@ async function processMatch(
     away,
   );
 
-  // Signal recording — threshold-agnostic, every live match gets evaluated
+  // Signal recording — exclude unreliable minute zones:
+  //   0-2 min:    match context still forming
+  //   43-45 min:  pre-halftime tactical uncertainty
+  //   89-120 min: extra-time swings
+  const sigMin = parseInt(minute.replace(/[^0-9]/g, ""), 10) || 0;
+  const inExcludedZone = sigMin <= 2 || (sigMin >= 43 && sigMin <= 45) || sigMin >= 89;
+
   let signalsCreated = 0;
-  if (prob && prob.score >= 60 && prob.side && prob.side !== "both") {
+  if (prob && prob.score >= 60 && prob.side && prob.side !== "both" && !inExcludedZone) {
     try {
       const result = await checkAndRecordSignal(
         matchCode,

@@ -314,7 +314,7 @@ async function runCronTick(): Promise<{
   // Fetch live matches from Nesine
   let resp: Response;
   try {
-    resp = await fetch(`${LIVESCORE_API}?sportType=1`, {
+    resp = await fetch(`${LIVESCORE_API}?sportType=1&v=0`, {
       headers: HEADERS,
       cache: "no-store",
       signal: AbortSignal.timeout(8000),

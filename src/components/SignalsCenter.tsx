@@ -67,21 +67,30 @@ const sideBadge = (s: GoalSignalRecord) => {
   const isHome = s.signalSide === "home";
   const baseLabel = isHome ? "Ev" : "Dep";
 
-  // Goal happened: green if correct, red if wrong
+  // Goal happened: green if correct, red if wrong, neutral if not yet computed
   if (s.goalHappened === true) {
-    const correct = s.correctPrediction === true;
-    return (
-      <span
-        className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
-          correct
-            ? "bg-emerald-100 text-emerald-700 border-emerald-300"
-            : "bg-red-100 text-red-700 border-red-300"
-        }`}
-        title={correct ? "Doğru yön" : "Yanlış yön"}
-      >
-        {correct ? "✓" : "✗"} {baseLabel}
-      </span>
-    );
+    if (s.correctPrediction === true) {
+      return (
+        <span
+          className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-emerald-100 text-emerald-700 border-emerald-300"
+          title="Doğru yön"
+        >
+          ✓ {baseLabel}
+        </span>
+      );
+    }
+    if (s.correctPrediction === false) {
+      return (
+        <span
+          className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-red-100 text-red-700 border-red-300"
+          title="Yanlış yön"
+        >
+          ✗ {baseLabel}
+        </span>
+      );
+    }
+    // correctPrediction null — eski kayıt veya maç bitti ama calculation eksik
+    // turuncu/mavi nötr badge göster
   }
 
   // Pending: orange/blue (no result yet)
@@ -251,9 +260,7 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
   const success = signals.filter((s) => s.goalHappened === true).length;
   const failed = signals.filter((s) => s.goalHappened === false).length;
   const pending = signals.filter((s) => s.goalHappened === null).length;
-  const correct = signals.filter((s) => s.correctPrediction === true).length;
   const resolved = success + failed;
-  const accuracyRate = resolved > 0 ? correct / resolved : 0;
   const goalRate = resolved > 0 ? success / resolved : 0;
 
   const gp = stats?.goalPrimary;
@@ -730,7 +737,6 @@ function CalibrationChart({ signals }: { signals: GoalSignalRecord[] }) {
     });
   }, [signals]);
 
-  const maxY = 1;
   const W = 600,
     H = 220,
     padL = 36,
@@ -896,20 +902,16 @@ function SideAccuracyChart({ signals }: { signals: GoalSignalRecord[] }) {
       <div className="grid grid-cols-2 gap-3">
         <SideBar
           label="Ev Sahibi"
-          side="home"
           total={homeSignals.length}
           goals={homeGoals}
-          correct={homeCorrect}
           goalRate={homeRate}
           directionRate={homeDirRate}
           color="#f97316"
         />
         <SideBar
           label="Deplasman"
-          side="away"
           total={awaySignals.length}
           goals={awayGoals}
-          correct={awayCorrect}
           goalRate={awayRate}
           directionRate={awayDirRate}
           color="#3b82f6"
@@ -921,24 +923,19 @@ function SideAccuracyChart({ signals }: { signals: GoalSignalRecord[] }) {
 
 function SideBar({
   label,
-  side,
   total,
   goals,
-  correct,
   goalRate,
   directionRate,
   color,
 }: {
   label: string;
-  side: "home" | "away";
   total: number;
   goals: number;
-  correct: number;
   goalRate: number;
   directionRate: number;
   color: string;
 }) {
-  const wrong = total - goals;
   const goalPct = (goalRate * 100).toFixed(0);
   return (
     <div className="rounded-lg p-3 border" style={{ borderColor: `${color}40`, background: `${color}08` }}>

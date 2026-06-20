@@ -1276,13 +1276,22 @@ export function calculateGoalProbability(
   }
 
   const SIGNAL_5MIN_THRESHOLD = 0.25;
-  if (goalProbability5min < SIGNAL_5MIN_THRESHOLD && level !== "critical") {
+  const MIN_PROB_FOR_SIGNAL = 0.20;
+
+  // Trend-adjusted threshold: if momentum is rising, accept signals
+  // with slightly lower 5-min prob (0.20 vs 0.25). Preserves "warning"
+  // signals at score 55-69 with rising momentum — these historically
+  // precede the actual goal by 2-4 minutes.
+  const isMomentumRising = homeFactors.length + awayFactors.length >= 3;
+  const effectiveThreshold = isMomentumRising ? MIN_PROB_FOR_SIGNAL : SIGNAL_5MIN_THRESHOLD;
+
+  if (goalProbability5min < effectiveThreshold && level !== "critical") {
     level = "low";
     side = null;
-    if (finalScore < 75) {
-      finalScore = Math.min(finalScore, RADAR_THRESHOLD - 1);
-      finalHomeScore = Math.min(finalHomeScore, RADAR_THRESHOLD - 1);
-      finalAwayScore = Math.min(finalAwayScore, RADAR_THRESHOLD - 1);
+    if (finalScore < 60) {
+      finalScore = Math.min(finalScore, 59);
+      finalHomeScore = Math.min(finalHomeScore, 59);
+      finalAwayScore = Math.min(finalAwayScore, 59);
     }
   }
 

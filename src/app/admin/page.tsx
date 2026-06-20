@@ -232,6 +232,13 @@ export default function AdminPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Auto-revalidate every 30s (lightweight, doesn't block UI)
+  useEffect(() => {
+    if (!token) return;
+    const i = setInterval(() => { load(); }, 30000);
+    return () => clearInterval(i);
+  }, [token, load]);
+
   if (!token) return <LoginScreen onLogin={(t, m) => { setToken(t); setMustChange(m); }} />;
   if (mustChange) return <PasswordChangeScreen token={token} onDone={() => setMustChange(false)} />;
 

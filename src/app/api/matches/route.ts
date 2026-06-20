@@ -192,8 +192,16 @@ export async function GET(request: Request) {
       continue;
 
     // Sadece Nesine'de canlı bahis oynanabilen maçları göster
-    // WI (Win/Draw/Win odds) dolu olan maçlarda canlı bahis açıktır
-    if (ACTIVE_STATUSES.has(status) && (m as { WI?: unknown }).WI == null) continue;
+    // WI (Win/Draw/Win odds) nested object shape: { 1: 1.5, X: 3.2, 2: 2.8 }.
+    // Nesine sometimes returns WI as null, sometimes as {}, sometimes absent.
+    // Strict `== null` dropped too many valid matches — use loose check.
+    if (ACTIVE_STATUSES.has(status)) {
+      const wiRaw = (m as Record<string, unknown>)["WI"];
+      const hasBetting = wiRaw != null
+        && typeof wiRaw === "object"
+        && Object.keys(wiRaw as Record<string, unknown>).length > 0;
+      if (!hasBetting) continue;
+    }
 
     const parsed = parseMatch(m as Parameters<typeof parseMatch>[0]);
     updatePressureHistory(parsed);

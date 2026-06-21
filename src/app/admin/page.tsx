@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import Link from 'next/link';
 
 // ── Auth API Helper ──────────────────────────────────────────────
@@ -22,136 +22,6 @@ function asPct(v: number | null | undefined, decimals = 1): string {
 }
 function asFixed(v: number | null | undefined, d = 3): string {
   return v == null ? '-' : v.toFixed(d);
-}
-
-// ── Login Screen ──────────────────────────────────────────────────
-function LoginScreen({ onLogin }: { onLogin: (token: string, mustChange: boolean) => void }) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      const res = await fetch('/api/admin/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'login', username, password }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        sessionStorage.setItem('admin_token', data.token);
-        onLogin(data.token, data.mustChange ?? false);
-      } else {
-        setError(data.reason || 'Giris basarisiz');
-      }
-    } catch {
-      setError('Baglanti hatasi');
-    } finally { setLoading(false); }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-emerald-50">
-      <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-2xl shadow-xl p-8 w-full max-w-sm">
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-2xl font-black">
-            GR
-          </div>
-          <h1 className="text-xl font-bold text-gray-800">Gol Radarı · Admin</h1>
-          <p className="text-xs text-gray-400 mt-1">Yönetim paneline erişmek için giriş yapın</p>
-        </div>
-        <div className="mb-3">
-          <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Kullanıcı Adı</label>
-          <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="admin"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-colors" autoFocus />
-        </div>
-        <div className="mb-4">
-          <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Şifre</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-colors" />
-        </div>
-        {error && <p className="text-red-500 text-xs mb-3">{error}</p>}
-        <button type="submit" disabled={loading}
-          className="w-full py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-semibold rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all disabled:opacity-50">
-          {loading ? 'Giriş yapılıyor...' : 'Giriş Yap'}
-        </button>
-      </form>
-    </div>
-  );
-}
-
-// ── Password Change Screen ────────────────────────────────────────
-function PasswordChangeScreen({ token, onDone }: { token: string; onDone: () => void }) {
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    if (newPassword.length < 6) {
-      setError('Yeni şifre en az 6 karakter olmalı');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setError('Yeni şifreler eşleşmiyor');
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch('/api/admin/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'change-password', password: currentPassword, newPassword }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        sessionStorage.setItem('admin_token', data.token);
-        onDone();
-      } else {
-        setError(data.reason || 'Şifre değiştirilemedi');
-      }
-    } catch {
-      setError('Bağlantı hatası');
-    } finally { setLoading(false); }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-emerald-50">
-      <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-2xl shadow-xl p-8 w-full max-w-sm">
-        <div className="text-center mb-6">
-          <div className="text-3xl mb-2">🔐</div>
-          <h1 className="text-xl font-bold text-gray-800">Şifre Değiştir</h1>
-          <p className="text-xs text-gray-400 mt-1">İlk giriş için şifrenizi güncelleyin</p>
-        </div>
-        <div className="mb-3">
-          <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Mevcut Şifre</label>
-          <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none" autoFocus />
-        </div>
-        <div className="mb-3">
-          <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Yeni Şifre</label>
-          <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="En az 6 karakter"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none" />
-        </div>
-        <div className="mb-4">
-          <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Yeni Şifre (Tekrar)</label>
-          <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none" />
-        </div>
-        {error && <p className="text-red-500 text-xs mb-3">{error}</p>}
-        <button type="submit" disabled={loading}
-          className="w-full py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-semibold rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all disabled:opacity-50">
-          {loading ? 'Değiştiriliyor...' : 'Şifreyi Güncelle'}
-        </button>
-      </form>
-    </div>
-  );
 }
 
 // ── Reusable UI ───────────────────────────────────────────────────
@@ -202,20 +72,14 @@ function Spinner() {
 }
 
 // ── Main Admin Page (with sidebar from layout) ────────────────────
+// Auth now lives at /admin/login (server-guarded by middleware). This page
+// assumes a valid session is present; if the token is missing the API calls
+// will 401 and render empty state.
 export default function AdminPage() {
-  const [token, setToken] = useState<string | null>(null);
-  const [mustChange, setMustChange] = useState(false);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const t = sessionStorage.getItem('admin_token');
-    if (t) setToken(t);
-  }, []);
-
-  const load = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
+  const loadData = async () => {
     try {
       const [mlRes, signalRes, dailyRes] = await Promise.all([
         authFetch('/api/admin/ml/status'),
@@ -226,21 +90,18 @@ export default function AdminPage() {
       const signals = signalRes.ok ? await signalRes.json() : null;
       const daily = dailyRes.ok ? await dailyRes.json() : null;
       setData({ ml, signals, daily });
-    } catch { setData(null); }
-    setLoading(false);
-  }, [token]);
+    } catch { /* skip */ }
+  };
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    (async () => { await loadData(); setLoading(false); })();
+  }, []);
 
   // Auto-revalidate every 30s (lightweight, doesn't block UI)
   useEffect(() => {
-    if (!token) return;
-    const i = setInterval(() => { load(); }, 30000);
+    const i = setInterval(loadData, 30000);
     return () => clearInterval(i);
-  }, [token, load]);
-
-  if (!token) return <LoginScreen onLogin={(t, m) => { setToken(t); setMustChange(m); }} />;
-  if (mustChange) return <PasswordChangeScreen token={token} onDone={() => setMustChange(false)} />;
+  }, []);
 
   if (loading && !data) return (
     <div className="flex flex-col items-center justify-center py-20">
@@ -261,7 +122,7 @@ export default function AdminPage() {
             Son güncelleme: {data ? new Date().toLocaleString('tr-TR') : '-'}
           </p>
         </div>
-        <button onClick={load} disabled={loading}
+        <button onClick={async () => { setLoading(true); await loadData(); setLoading(false); }} disabled={loading}
           className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold transition-colors disabled:opacity-50">
           {loading ? 'Yenileniyor...' : '🔄 Yenile'}
         </button>

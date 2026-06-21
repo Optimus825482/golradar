@@ -334,6 +334,22 @@ export async function getXgbModelCached(path: string): Promise<XgbModel> {
     cached.hits++;
     return cached.model;
   }
+  // Fast-path: if the artifact does not exist on disk, surface a
+  // clear error so callers (modelRouter.ts → matches route) can fall
+  // back to the in-process GBDT instead of repeatedly throwing
+  // ENOENT and flooding the route error log.
+  if (typeof window === 'undefined') {
+    try {
+      const _fsp = await import(/* turbopackIgnore: true */ 'node:fs/promises');
+      await _fsp.access(path);
+    } catch {
+      throw new Error(
+        `XGBoost artifact missing on disk: ${path}. ` +
+        `Run POST /api/admin/ml/train (with name=xgb|gbdt|inplay) ` +
+        `or set ML_TRAINER_URL to enable the trainer sidecar.`,
+      );
+    }
+  }
   const { model } = await loadXgbModel(path);
   evictIfFull();
   modelCache.set(path, { model, loadedAt: Date.now(), hits: 0 });

@@ -32,6 +32,7 @@ export const POST = adminRoute(async (request: Request) => {
     minMatches?: number;
     notes?: string;
     promote?: boolean;
+    source?: 'scoremer' | 'goaloo';
   } = {};
   try {
     body = (await request.json()) as typeof body;
@@ -44,6 +45,7 @@ export const POST = adminRoute(async (request: Request) => {
     ? new Date(body.startDate)
     : new Date(end.getTime() - 365 * 86_400_000);
   const minMatches = body.minMatches ?? 5;
+  const source = body.source ?? 'goaloo';
 
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return NextResponse.json({ error: 'invalid-date' }, { status: 400 });
@@ -53,7 +55,7 @@ export const POST = adminRoute(async (request: Request) => {
   }
 
   try {
-    const backfill = await backfillTeamHistory(start, end);
+    const backfill = await backfillTeamHistory(start, end, source);
     const fit = await fitAndRegisterTeamStrength({
       minMatches,
       notes: body.notes,

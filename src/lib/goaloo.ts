@@ -10,8 +10,8 @@
 //   - SoccerAjax?type=4&id={matchId}     → Live odds movements
 //   - gettextlivedetail?scheduleId={id}  → Match events (goals, cards, subs)
 
-import { execFile } from 'child_process';
 import { devLog, devWarn, devError } from './devLog';
+// child_process loaded lazily via require() in goalooFetch / findPythonPath / goalooFetchSeasonJson
 import { scrapeUrl } from './scraper';
 import { logError } from '@/lib/devLog';
 
@@ -113,6 +113,7 @@ export interface GoalooTeamStats {
 // ── Fetch helper (curl-based to bypass anti-bot) ──────────────
 
 async function goalooFetch(url: string): Promise<string | null> {
+  const execFile = typeof window === 'undefined' ? require('child_process').execFile : null;
   // Step 1: Try Python bridge (curl_cffi — bypasses Cloudflare)
   const bridgeResult = await scrapeUrl(url, { type: 'json', referer: 'https://www.goaloo.com/', timeout: 15000 });
   if (bridgeResult.ok && bridgeResult.data) {
@@ -144,12 +145,12 @@ async function goalooFetch(url: string): Promise<string | null> {
 
 // Direct fetch for football.goaloo.com JSON (handles BOM via Python)
 let _pythonPath: string | undefined;
-function findPythonPath(): string | null {
+async function findPythonPath(): Promise<string | null> {
   if (_pythonPath !== undefined) return _pythonPath || null;
+  const execFileSync = typeof window === 'undefined' ? require('child_process').execFileSync : null;
   const candidates = [process.env.PYTHON_PATH, "C:\\Python313\\python.exe", "python3", "python"].filter(Boolean) as string[];
   for (const py of candidates) {
     try {
-      const { execFileSync } = require('child_process') as typeof import('child_process');
       const r = execFileSync(py!, ["--version"], { timeout: 3000, encoding: 'utf-8' });
       if (r.includes("Python")) { _pythonPath = py; return py; }
     } catch { continue; }
@@ -159,14 +160,14 @@ function findPythonPath(): string | null {
 }
 
 async function goalooFetchSeasonJson(url: string): Promise<string | null> {
-  const python = findPythonPath();
+  const python = await findPythonPath();
   if (!python) {
     devError('[Goaloo] No Python found for season JSON');
     return null;
   }
   try {
-    const { execFile } = require('child_process') as typeof import('child_process');
-    const { join } = require('path') as typeof import('path');
+    const execFile = typeof window === 'undefined' ? require('child_process').execFile : null;
+    const { join } = await import('path');
     const script = join(process.cwd(), 'scripts', '_goaloo_fetch.py');
     return await new Promise<string | null>((resolve) => {
       execFile(python!, [script, url], {

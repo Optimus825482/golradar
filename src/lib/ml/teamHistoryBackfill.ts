@@ -18,6 +18,9 @@ import {
 import { registerArtifact, loadTeamStrengthChampion } from './modelRouter';
 import { getScoremerMatchesForDateRange, filterScoremerMatchesByStatus } from '../scoremer';
 import { predictMatch } from './teamStrengthKalman';
+// goaloo.ts is server-only (uses child_process / node:fs). Dynamic
+// import here prevents Turbopack from tracing it into the client
+// bundle via the teamHistoryBackfill -> ensemble -> page chain.
 
 export interface BackfillResult {
   matchesScraped: number;
@@ -61,15 +64,24 @@ interface ScoremerMatchLite {
 export async function backfillTeamHistory(
   startDate: Date,
   endDate: Date,
-  source: 'scoremer' = 'scoremer',
+  source: 'scoremer' | 'goaloo' = 'goaloo',
 ): Promise<{
   scraped: number;
   inserted: number;
   skippedDuplicate: number;
 }> {
+  if (source === 'goaloo') {
+    return backfillFromGoaloo(startDate, endDate);
+  }
+  return backfillFromScoremer(startDate, endDate);
+}
+
+async function backfillFromScoremer(
+  startDate: Date,
+  endDate: Date,
+): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {
   const raw = await getScoremerMatchesForDateRange(startDate, endDate);
   const finished = filterScoremerMatchesByStatus(raw, 'finished');
-
   let scraped = 0;
   let inserted = 0;
   let skippedDuplicate = 0;
@@ -82,12 +94,6 @@ export async function backfillTeamHistory(
     if (m.homeScore == null || m.awayScore == null) continue;
     if (Number.isNaN(m.homeScore) || Number.isNaN(m.awayScore)) continue;
 
-    // Extract date — Scoremer's `time` field is "MM/DD/YY HH:MM" or
-    // "DD.MM.YYYY". The date is in the row's surrounding HTML
-    // (parent table). Since we only get a `time` string from the
-    // parser, we fall back to a "best guess" from startDate..endDate.
-    // For now, accept the m.time as authoritative and let the
-    // caller bound the date range.
     const dateStr = parseScoremerTimeToDate(m.time, startDate, endDate);
     if (!dateStr) continue;
 
@@ -107,7 +113,7 @@ export async function backfillTeamHistory(
           homeGoals: m.homeScore,
           awayGoals: m.awayScore,
           league: m.league || null,
-          source,
+          source: 'scoremer',
         },
         update: {
           homeGoals: m.homeScore,
@@ -116,19 +122,80 @@ export async function backfillTeamHistory(
           fetchedAt: new Date(),
         },
       });
-      // Upsert returns the row but we don't know if it was an
-      // insert or update without a flag. Heuristic: if fetchedAt
-      // is within the last second, it was just created.
-      if (Date.now() - result.fetchedAt.getTime() < 2_000) {
-        inserted += 1;
-      } else {
-        skippedDuplicate += 1;
-      }
+      if (Date.now() - result.fetchedAt.getTime() < 2_000) inserted += 1;
+      else skippedDuplicate += 1;
     } catch {
       skippedDuplicate += 1;
     }
   }
+  return { scraped, inserted, skippedDuplicate };
+}
 
+async function backfillFromGoaloo(
+  startDate: Date,
+  endDate: Date,
+): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {
+  // Dynamic import — goaloo.ts uses child_process and is server-only.
+  const { fetchGoalooMatchesByDate } = await import('../goaloo');
+  let scraped = 0;
+  let inserted = 0;
+  let skippedDuplicate = 0;
+  const MAX_DAYS_BUDGET = 365; // cap to stay within Next.js route timeout
+  const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / 86_400_000);
+  const daysToFetch = Math.min(totalDays, MAX_DAYS_BUDGET);
+
+  for (let d = 0; d < daysToFetch; d++) {
+    const day = new Date(startDate.getTime() + d * 86_400_000);
+    const dateStr = day.toISOString().slice(0, 10);
+
+    const matches = await fetchGoalooMatchesByDate(dateStr);
+    const finished = matches.filter((m: { state: number; homeScore: number; awayScore: number }) => m.state === -1);
+
+    for (const m of finished) {
+      scraped += 1;
+      const home = normalize(m.homeTeam);
+      const away = normalize(m.awayTeam);
+      if (!home || !away) continue;
+      if (m.homeScore == null || m.awayScore == null) continue;
+      if (m.homeScore < 0 || m.awayScore < 0) continue; // placeholder for live games
+
+      try {
+        const result = await db.teamHistoryMatch.upsert({
+          where: {
+            matchDate_homeTeam_awayTeam: {
+              matchDate: dateStr,
+              homeTeam: home,
+              awayTeam: away,
+            },
+          },
+          create: {
+            matchDate: dateStr,
+            homeTeam: home,
+            awayTeam: away,
+            homeGoals: m.homeScore,
+            awayGoals: m.awayScore,
+            league: m.leagueName || m.leagueShortName || null,
+            source: 'goaloo',
+          },
+          update: {
+            homeGoals: m.homeScore,
+            awayGoals: m.awayScore,
+            league: m.leagueName || m.leagueShortName || null,
+            fetchedAt: new Date(),
+          },
+        });
+        if (Date.now() - result.fetchedAt.getTime() < 2_000) inserted += 1;
+        else skippedDuplicate += 1;
+      } catch {
+        skippedDuplicate += 1;
+      }
+    }
+
+    // Sequential 300ms delay between days to avoid Goaloo anti-bot bans
+    if (d < daysToFetch - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
   return { scraped, inserted, skippedDuplicate };
 }
 

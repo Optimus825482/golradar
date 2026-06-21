@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 function authFetch(path: string, init?: RequestInit) {
   const token = sessionStorage.getItem('admin_token');
@@ -67,6 +67,9 @@ export default function AdminSignalsBacktestPage() {
     }
     setLoading(false);
   };
+
+  // Auto-run backtest on mount so historical results render by default.
+  useEffect(() => { run(); }, []);
 
   return (
     <div className="space-y-5">

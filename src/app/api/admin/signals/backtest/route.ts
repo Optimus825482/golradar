@@ -20,7 +20,19 @@ export const dynamic = "force-dynamic";
 
 export const POST = adminRoute(async (request: Request) => {
   try {
-    const body = await request.json();
+    // Parse body defensively — empty/invalid body should not 500.
+    let body: { mode?: unknown; days?: unknown } = {};
+    const text = await request.text();
+    if (text.trim().length > 0) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        return NextResponse.json(
+          { ok: false, error: "invalid JSON body" },
+          { status: 400 },
+        );
+      }
+    }
     const mode = body.mode === "replay" ? "replay" : "bucket";
     const days = Math.min(180, Math.max(1, parseInt(String(body.days ?? "30"), 10) || 30));
 

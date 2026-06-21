@@ -107,7 +107,7 @@ function PasswordChangeScreen({ token, onDone }: { token: string; onDone: () => 
       const res = await fetch('/api/admin/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'changePassword', currentPassword, newPassword }),
+        body: JSON.stringify({ action: 'change-password', password: currentPassword, newPassword }),
       });
       const data = await res.json();
       if (data.ok) {

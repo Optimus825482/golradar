@@ -61,3 +61,5 @@ nul
 NUL
 Nul
 testsprite_tests\tmp\config.json
+*.pyc
+__pycache__/

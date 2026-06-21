@@ -13,6 +13,8 @@ import { estimateXgFromShots as estimateXgShared } from './estimateXg';
 import { predictFromElo, getFormIndexEma, getRating } from './eloRating';
 import { getTimeBasedGoalMultiplier } from './dixonColes';
 import { logError } from '@/lib/devLog';
+import { loadLatestTeamStrength } from './ml/teamHistoryBackfill';
+import { predictMatch } from './ml/teamStrengthKalman';
 
 // ── Feature Vector Definition ──────────────────────────────────────
 
@@ -107,6 +109,12 @@ export interface MatchFeatures {
   fixture_congestion_home: number;   // Days since last match, normalized [0,1] (0=fresh)
   fixture_congestion_away: number;
   rest_advantage: number;            // (home_rest - away_rest) / 7, [-1, +1]
+
+  // ── W4: Team-strength Kalman (4) ──
+  team_alpha_home: number;           // Home attack strength (log-xG), clamped [-3, +3]
+  team_beta_home: number;            // Home defense weakness (log-xG), clamped [-3, +3]
+  team_alpha_away: number;           // Away attack strength (log-xG), clamped [-3, +3]
+  team_beta_away: number;            // Away defense weakness (log-xG), clamped [-3, +3]
 }
 
 // ── Feature extraction function ────────────────────────────────────
@@ -345,6 +353,32 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
   // Rest advantage: positive = home had more rest (home advantage)
   const restAdvantage = Math.max(-1, Math.min(1, (homeRestDays - awayRestDays) / 7));
 
+  // ── W4: Team-strength Kalman features ──
+  // Pulled from the champion team-strength artifact. Falls back to 0
+  // when no champion exists yet (cold start) or teams are unrated
+  // (fewer than minMatches appearances). The 0 fallback is safe: GBDT
+  // trees trained without this signal treat the new features as
+  // uninformative; once a team-strength fit registers and artifacts
+  // retrain, the signal flows end-to-end.
+  let teamAlphaHome = 0;
+  let teamBetaHome = 0;
+  let teamAlphaAway = 0;
+  let teamBetaAway = 0;
+  if (homeTeam && awayTeam) {
+    try {
+      const tsModel = await loadLatestTeamStrength();
+      if (tsModel.nTeams > 0) {
+        const pred = predictMatch(tsModel, homeTeam, awayTeam);
+        teamAlphaHome = pred.alphaHome;
+        teamBetaHome = pred.betaHome;
+        teamAlphaAway = pred.alphaAway;
+        teamBetaAway = pred.betaAway;
+      }
+    } catch (e) {
+      logError('featureEngineering', e);
+    }
+  }
+
   // ── xG advanced features ──
   const xgRateHome = xgHome / elapsed15;
   const xgRateAway = xgAway / elapsed15;
@@ -544,6 +578,12 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     fixture_congestion_home: fixtureCongestionHome,
     fixture_congestion_away: fixtureCongestionAway,
     rest_advantage: restAdvantage,
+
+    // W4: Team-strength Kalman
+    team_alpha_home: teamAlphaHome,
+    team_beta_home: teamBetaHome,
+    team_alpha_away: teamAlphaAway,
+    team_beta_away: teamBetaAway,
   };
 }
 
@@ -625,6 +665,8 @@ export const FEATURE_NAMES: (keyof MatchFeatures)[] = [
   'ppda_home', 'ppda_away',
   // P1.6: Context
   'fixture_congestion_home', 'fixture_congestion_away', 'rest_advantage',
+  // W4: Team-strength Kalman
+  'team_alpha_home', 'team_beta_home', 'team_alpha_away', 'team_beta_away',
 ];
 
 // ── Concurrency limiter ───────────────────────────────────────────

@@ -14,6 +14,7 @@
 //   }
 
 import { NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 import {
   backfillTeamHistory,
   fitAndRegisterTeamStrength,
@@ -83,4 +84,34 @@ export const POST = adminRoute(async (request: Request) => {
       { status: 500 },
     );
   }
+});
+
+// ── GET: latest champion + 5 recent artifacts ───────────────────
+// Satisfies the ELO admin page which fetches GET on this endpoint.
+export const GET = adminRoute(async () => {
+  const champion = await db.modelArtifact.findFirst({
+    where: { name: 'team-strength', isChampion: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  const recent = await db.modelArtifact.findMany({
+    where: { name: 'team-strength' },
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+  });
+  return NextResponse.json({
+    ok: true,
+    champion: champion
+      ? {
+          version: champion.version,
+          metrics: JSON.parse(champion.metricsJson || '{}'),
+          createdAt: champion.createdAt,
+        }
+      : null,
+    recent: recent.map((a) => ({
+      version: a.version,
+      isChampion: a.isChampion,
+      metrics: JSON.parse(a.metricsJson || '{}'),
+      createdAt: a.createdAt,
+    })),
+  });
 });

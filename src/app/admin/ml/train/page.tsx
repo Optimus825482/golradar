@@ -59,6 +59,16 @@ export default function AdminMLTrainPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // ── W4: Takım Gücü (Kalman) form state ──
+  const [tsStartDate, setTsStartDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 365);
+    return d.toISOString().slice(0, 10);
+  });
+  const [tsEndDate, setTsEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [tsMinMatches, setTsMinMatches] = useState(5);
+  const [tsPromote, setTsPromote] = useState(true);
+  const [tsLoading, setTsLoading] = useState(false);
+
   const load = useCallback(async () => {
     try {
       const [dsRes, runsRes] = await Promise.all([
@@ -133,6 +143,41 @@ export default function AdminMLTrainPage() {
       setError('Bağlantı hatası');
     }
     setPipelineLoading(false);
+  };
+
+  // ── W4: Takım Gücü fit handler ──
+  const startTeamStrengthFit = async () => {
+    setTsLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await authFetch('/api/admin/ml/team-strength-fit', {
+        method: 'POST',
+        body: JSON.stringify({
+          startDate: tsStartDate,
+          endDate: tsEndDate,
+          minMatches: tsMinMatches,
+          promote: tsPromote,
+          notes: `manual from /admin/ml/train @ ${new Date().toISOString()}`,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        const teams = data.fit.teamsInModel;
+        const matches = data.fit.nMatchesFitted;
+        if (matches === 0) {
+          setError("Scoremer'den hiç maç bulunamadı. Tarih aralığını kontrol edin.");
+        } else {
+          setSuccess(`✓ ${teams} takım, ${matches} maç ile Kalman fit tamamlandı${data.promoted ? ' → ⭐ Champion' : ''}`);
+          load();
+        }
+      } else {
+        setError(data.error || data.message || 'Fit başarısız');
+      }
+    } catch {
+      setError('Bağlantı hatası');
+    }
+    setTsLoading(false);
   };
 
   const activeRuns = runs.filter(r => ['pending', 'extracting', 'training', 'comparing'].includes(r.status));
@@ -222,6 +267,47 @@ export default function AdminMLTrainPage() {
             {pipelineLoading ? '⏳ Pipeline çalışıyor...' : '🔄 Full Pipeline (Train + Compare + Promote)'}
           </button>
         </div>
+      </div>
+
+      {/* W4: Takım Gücü (Kalman) */}
+      <div className="bg-white rounded-xl border border-amber-200 shadow-sm p-5">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-1.5 h-7 rounded-full bg-gradient-to-b from-amber-400 to-orange-500" />
+          <div>
+            <div className="text-sm font-bold text-gray-800">🏋️ Takım Gücü (Kalman Filter)</div>
+            <div className="text-[11px] text-gray-500">Scoremer'dan maç geçmişi → Kalman fit → opsiyonel champion promote</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-600 mb-1 uppercase">Başlangıç</label>
+            <input type="date" value={tsStartDate} onChange={e => setTsStartDate(e.target.value)}
+              className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm font-mono focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-600 mb-1 uppercase">Bitiş</label>
+            <input type="date" value={tsEndDate} onChange={e => setTsEndDate(e.target.value)}
+              className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm font-mono focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-600 mb-1 uppercase">Min Maç</label>
+            <input type="number" min={1} max={50} value={tsMinMatches} onChange={e => setTsMinMatches(Number(e.target.value))}
+              className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm font-mono focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none" />
+          </div>
+          <div className="flex items-end pb-1">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={tsPromote} onChange={e => setTsPromote(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-amber-500 focus:ring-amber-300" />
+              <span className="text-[11px] font-semibold text-gray-700">Otomatik Champion</span>
+            </label>
+          </div>
+        </div>
+
+        <button onClick={startTeamStrengthFit} disabled={tsLoading}
+          className="w-full px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white text-sm font-bold rounded-lg hover:from-amber-600 hover:to-orange-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+          {tsLoading ? '⏳ Scoremer backfill + Kalman fit çalışıyor...' : '🏋️ Backfill + Fit + Promote'}
+        </button>
       </div>
 
       {/* Aktif run'lar */}

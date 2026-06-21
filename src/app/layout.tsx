@@ -23,6 +23,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ?? "https://radar.erkanerdem.online",
+  ),
   title: "Optimus Gol Radarı - Canlı Maç Takip",
   description: "Optimus Gol Radarı ile canlı futbol maçlarını gerçek zamanlı baskı grafiği ile takip edin",
   keywords: ["Optimus", "Gol Radarı", "Canlı", "Futbol", "Baskı Grafiği", "Maç Takip", "xG", "xT"],

@@ -47,6 +47,7 @@ interface BacktestResponse {
 export default function AdminSignalsBacktestPage() {
   const [mode, setMode] = useState<'replay' | 'bucket'>('bucket');
   const [days, setDays] = useState(30);
+  const [horizonMin, setHorizonMin] = useState<number | null>(null);
   const [result, setResult] = useState<BacktestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,7 @@ export default function AdminSignalsBacktestPage() {
     try {
       const res = await authFetch('/api/admin/signals/backtest', {
         method: 'POST',
-        body: JSON.stringify({ mode, days }),
+        body: JSON.stringify({ mode, days, horizonMin }),
       });
       const data = await res.json();
       if (data.ok) setResult(data);
@@ -118,6 +119,27 @@ export default function AdminSignalsBacktestPage() {
                       days === d ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-600'
                     }`}>
                     {d}g
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+                Sinyal Ufku
+              </label>
+              <div className="flex gap-1">
+                <button type="button" onClick={() => setHorizonMin(null)}
+                  className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg border ${
+                    horizonMin === null ? 'border-purple-400 bg-purple-50 text-purple-700' : 'border-gray-200 text-gray-500'
+                  }`}>
+                  Tümü
+                </button>
+                {[5, 10, 15, 30, 60].map(h => (
+                  <button key={h} type="button" onClick={() => setHorizonMin(h)}
+                    className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg border ${
+                      horizonMin === h ? 'border-purple-400 bg-purple-50 text-purple-700' : 'border-gray-200 text-gray-500'
+                    }`}>
+                    {h}dk
                   </button>
                 ))}
               </div>

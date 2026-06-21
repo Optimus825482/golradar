@@ -1,0 +1,17 @@
+{
+  "status": "init",
+  "scope": "codebase",
+  "type": "frontend",
+  "localEndpoint": "http://localhost:3028/",
+  "serverPort": 23323,
+  "executionArgs": {
+    "projectName": "golradar2",
+    "projectPath": "D:\\golradar2",
+    "testIds": [],
+    "additionalInstruction": "Auth: POST /api/admin/auth with admin/admin123, expect {ok:true, token, mustChange:true}. Then Bearer token to /admin. Cover /admin, /admin/ml, /admin/ml/train, /admin/ml/monitoring, /admin/ml/backtest, /admin/signals, /admin/signals/backtest, /admin/elo, /admin/calibration, /admin/algorithm.",
+    "serverMode": "production",
+    "envs": {
+      "API_KEY": "sk-user-SfEVZqXMSa5Ax5bpHp1MXfjzLSIKmhWbFnHBFG5-Pn2EIZv0lCPkEArOCOJuLkLCtdJdH3O2syfABcStfEbuOOurm61oFnFbTqV8EZOGkS_SABhrW1n6AIHrMB-mxQs-WNM"
+    }
+  }
+}

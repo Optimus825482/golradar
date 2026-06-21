@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 
 // ── Login Form ──────────────────────────────────────────────────
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') ?? '/admin';
 
@@ -26,14 +25,14 @@ function LoginForm() {
       });
       const data = await res.json();
       if (data.ok) {
-        // Set cookie so middleware guard passes on redirect.
+        // Set cookie + token. Full reload ensures server-side layout
+        // re-evaluates cookies() and renders AdminSidebar correctly.
         document.cookie = `admin_token=${data.token}; path=/; max-age=86400; SameSite=Lax`;
         sessionStorage.setItem('admin_token', data.token);
-        // If server forces password change, route to dedicated page.
         if (data.mustChange) {
-          router.replace('/admin/change-password');
+          window.location.href = '/admin/change-password';
         } else {
-          router.replace(nextPath);
+          window.location.href = nextPath;
         }
       } else {
         setError(data.reason ?? 'Giriş başarısız');

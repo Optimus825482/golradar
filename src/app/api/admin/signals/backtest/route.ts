@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 export const POST = adminRoute(async (request: Request) => {
   try {
     // Parse body defensively — empty/invalid body should not 500.
-    let body: { mode?: unknown; days?: unknown } = {};
+    let body: { mode?: unknown; days?: unknown; horizonMin?: unknown } = {};
     const text = await request.text();
     if (text.trim().length > 0) {
       try {
@@ -35,11 +35,19 @@ export const POST = adminRoute(async (request: Request) => {
     }
     const mode = body.mode === "replay" ? "replay" : "bucket";
     const days = Math.min(180, Math.max(1, parseInt(String(body.days ?? "30"), 10) || 30));
+    // horizonMin: signal reach window (5/10/15/30/60 min). null = no filter.
+    // Filters by minutesToGoal — only rows whose goal happened within horizon
+    // count as "matched" signal.
+    const horizonRaw = body.horizonMin;
+    const horizonMin =
+      horizonRaw == null || horizonRaw === ""
+        ? null
+        : Math.min(120, Math.max(1, parseInt(String(horizonRaw), 10) || 0)) || null;
 
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     // 1. Fetch resolved PredictionLog rows (labeled, time-bounded)
-    const rows = await db.predictionLog.findMany({
+    let rows = await db.predictionLog.findMany({
       where: {
         createdAt: { gte: since },
         goalScored: { not: null },
@@ -48,13 +56,25 @@ export const POST = adminRoute(async (request: Request) => {
       take: 20000,
     });
 
+    // Apply horizon filter (client-side; Prisma can't compute minutesToGoal
+    // server-side without a derived column).
+    if (horizonMin != null) {
+      rows = rows.filter(
+        (r) => r.minutesToGoal == null || r.minutesToGoal <= horizonMin,
+      );
+    }
+
     if (rows.length === 0) {
       return NextResponse.json({
         ok: true,
         mode,
         days,
+        horizonMin,
         totalRows: 0,
-        message: "Bu periyotta etiketlenmiş tahmin yok",
+        message:
+          horizonMin != null
+            ? `Bu periyotta ${horizonMin}dk horizon'da etiketlenmiş tahmin yok`
+            : "Bu periyotta etiketlenmiş tahmin yok",
       });
     }
 
@@ -96,6 +116,7 @@ export const POST = adminRoute(async (request: Request) => {
         ok: true,
         mode,
         days,
+        horizonMin: horizonMin ?? null,
         totalRows: rows.length,
         overallBrier: totalBrier,
         buckets: stats,
@@ -127,6 +148,7 @@ export const POST = adminRoute(async (request: Request) => {
       ok: true,
       mode,
       days,
+      horizonMin: horizonMin ?? null,
       totalRows: rows.length,
       replay: {
         wouldFireCount: wouldFire,

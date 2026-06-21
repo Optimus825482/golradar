@@ -29,7 +29,12 @@ function LoginForm() {
         // Set cookie so middleware guard passes on redirect.
         document.cookie = `admin_token=${data.token}; path=/; max-age=86400; SameSite=Lax`;
         sessionStorage.setItem('admin_token', data.token);
-        router.replace(nextPath);
+        // If server forces password change, route to dedicated page.
+        if (data.mustChange) {
+          router.replace('/admin/change-password');
+        } else {
+          router.replace(nextPath);
+        }
       } else {
         setError(data.reason ?? 'Giriş başarısız');
       }

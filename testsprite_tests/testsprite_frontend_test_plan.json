@@ -1,0 +1,664 @@
+[
+  {
+    "id": "TC001",
+    "title": "Admin login grants access to the dashboard",
+    "description": "This test verifies that a valid admin login lets the user access the protected admin dashboard.",
+    "category": "Admin Login",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the authenticated admin dashboard is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Admin first login requires a password change",
+    "description": "This test verifies that a first-time admin login with a forced password change routes the user into the password-change flow before dashboard access.",
+    "category": "Admin Login",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the password-change flow is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC003",
+    "title": "ML training page shows status and starts a training run",
+    "description": "This test verifies that an authenticated admin can review the current training status and trigger a training run from the training page.",
+    "category": "ML Training Pipeline",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item for the ML training page"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the training status to load"
+      },
+      {
+        "type": "action",
+        "description": "Click the control to trigger a training run"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the training status is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a training submission confirmation is visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC004",
+    "title": "ML training page reflects an updated training state after submission",
+    "description": "This test verifies that triggering training from the ML training page updates the visible training state after the request is submitted.",
+    "category": "ML Training Pipeline",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item for the ML training page"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the training status to load"
+      },
+      {
+        "type": "action",
+        "description": "Click the control to trigger a training run"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the page to refresh the training state"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated training status is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC005",
+    "title": "Admin dashboard navigation opens the signals backtest page",
+    "description": "This test verifies that an authenticated user can move from the dashboard to the signals backtest page through the internal navigation.",
+    "category": "Admin Dashboard Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item for the signals backtest page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the signals backtest page is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "View the default signals backtest results",
+    "description": "An authenticated admin can open the signals backtest page and see historical performance results by default.",
+    "category": "Signals Backtest",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the signals backtest page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify historical backtest results are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the backtest table is visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Admin dashboard navigation opens the ML overview page",
+    "description": "This test verifies that an authenticated user can move from the dashboard to the ML overview page through the internal navigation.",
+    "category": "Admin Dashboard Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item for the ML overview page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the ML overview page is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC008",
+    "title": "Filter signals backtest results by date",
+    "description": "An authenticated admin can narrow signals backtest results by choosing a different date range and see the table update.",
+    "category": "Signals Backtest",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the signals backtest page"
+      },
+      {
+        "type": "action",
+        "description": "Select a different date range in the backtest filters"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify refreshed backtest results are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the displayed results reflect the selected date range"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC009",
+    "title": "Filter signals backtest results by horizon",
+    "description": "An authenticated admin can narrow signals backtest results by selecting a different horizon and see the table update.",
+    "category": "Signals Backtest",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the signals backtest page"
+      },
+      {
+        "type": "action",
+        "description": "Select a different horizon in the backtest filters"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify refreshed backtest results are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the displayed results reflect the selected horizon"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC010",
+    "title": "Update both signals backtest filters in one session",
+    "description": "An authenticated admin can change both date and horizon filters on the signals backtest page and see the results refresh to match the combined criteria.",
+    "category": "Signals Backtest",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the signals backtest page"
+      },
+      {
+        "type": "action",
+        "description": "Select a different date range in the backtest filters"
+      },
+      {
+        "type": "action",
+        "description": "Select a different horizon in the backtest filters"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify refreshed backtest results are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the displayed results reflect the selected filters"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC011",
+    "title": "Admin dashboard navigation opens the algorithm page",
+    "description": "This test verifies that an authenticated user can move from the dashboard to the algorithm page through the internal navigation.",
+    "category": "Admin Dashboard Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item for the algorithm page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the algorithm page is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC012",
+    "title": "Admin dashboard navigation opens the calibration page",
+    "description": "This test verifies that an authenticated user can move from the dashboard to the calibration page through the internal navigation.",
+    "category": "Admin Dashboard Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item for the calibration page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the calibration page is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC013",
+    "title": "Admin dashboard navigation opens the Elo page",
+    "description": "This test verifies that an authenticated user can move from the dashboard to the Elo page through the internal navigation.",
+    "category": "Admin Dashboard Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item for the Elo page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the Elo page is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC014",
+    "title": "Keep signals backtest results usable after changing filters repeatedly",
+    "description": "An authenticated admin can change backtest filters more than once and still see a usable results table after the final selection.",
+    "category": "Signals Backtest",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the signals backtest page"
+      },
+      {
+        "type": "action",
+        "description": "Select a different date range in the backtest filters"
+      },
+      {
+        "type": "action",
+        "description": "Select another valid date range in the backtest filters"
+      },
+      {
+        "type": "action",
+        "description": "Select a different horizon in the backtest filters"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify backtest results are still displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the table remains populated after filter changes"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC015",
+    "title": "Stay on the signals backtest page while switching filters",
+    "description": "An authenticated admin can switch between filter options on the signals backtest page without losing access to the results view.",
+    "category": "Signals Backtest",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the signals backtest page"
+      },
+      {
+        "type": "action",
+        "description": "Select a different horizon in the backtest filters"
+      },
+      {
+        "type": "action",
+        "description": "Select a different date range in the backtest filters"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify updated backtest results are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the results table remains visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC016",
+    "title": "Invalid admin login shows a failure message",
+    "description": "This test verifies that incorrect credentials are rejected and the user sees a login failure state.",
+    "category": "Admin Login",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with fake-admin"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with fake-password"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a login failure message is visible"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC017",
+    "title": "Unauthenticated access to the admin area is blocked",
+    "description": "This test verifies that opening a protected admin route without a session does not expose admin content and sends the user to sign in.",
+    "category": "Admin Login",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/ml"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the login screen is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify admin content is not visible"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC018",
+    "title": "See an empty state when no signals backtest data matches the filters",
+    "description": "An authenticated admin who applies a restrictive backtest filter sees an empty state instead of broken results when no rows match.",
+    "category": "Signals Backtest",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the form"
+      },
+      {
+        "type": "action",
+        "description": "Click the link to open the signals backtest page"
+      },
+      {
+        "type": "action",
+        "description": "Select a date range with no matching historical results"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an empty state message is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify no backtest rows are displayed"
+      }
+    ],
+    "priority": "Low"
+  }
+]

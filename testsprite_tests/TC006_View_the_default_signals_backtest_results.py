@@ -46,8 +46,8 @@ async def run_test():
         await table.wait_for(state="visible", timeout=10000)
 
         # Assertions
-        expect(table).to_be_visible()
-        expect(table.locator("tbody tr")).to_have_count(10)  # 10 buckets in bucket mode
+        await expect(table).to_be_visible()
+        await expect(table.locator("tbody tr")).to_have_count(10)  # 10 buckets in bucket mode
 
     finally:
         if context:

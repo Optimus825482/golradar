@@ -42,7 +42,7 @@ async def run_test():
         await page.wait_for_load_state("domcontentloaded", timeout=5000)
         table = page.locator("table")
         await table.wait_for(state="visible", timeout=10000)
-        expect(table).to_be_visible()
+        await expect(table).to_be_visible()
 
         # Switch to Replay mode
         await page.get_by_role("button", name="Replay", exact=False).click()
@@ -55,7 +55,7 @@ async def run_test():
         await table.wait_for(state="visible", timeout=10000)
 
         # Final assertion: table still populated
-        expect(table.locator("tbody tr")).to_have_count(10)
+        await expect(table.locator("tbody tr")).to_have_count(10)
 
     finally:
         if context:

@@ -34,9 +34,9 @@ async def run_test():
         await expect(sidebar).not_to_be_visible(timeout=3000)
 
         # Verify login form elements are present
-        expect(page.get_by_placeholder("admin")).to_be_visible()
-        expect(page.get_by_placeholder("••••••")).to_be_visible()
-        expect(page.get_by_role("button", name="Giriş Yap")).to_be_visible()
+        await expect(page.get_by_placeholder("admin")).to_be_visible()
+        await expect(page.get_by_placeholder("••••••")).to_be_visible()
+        await expect(page.get_by_role("button", name="Giriş Yap")).to_be_visible()
 
     finally:
         if context:

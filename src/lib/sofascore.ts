@@ -5,8 +5,8 @@
 // The bridge is called via child_process.execFile and returns JSON.
 // Falls back gracefully if Python / datafc is unavailable.
 
-import { execFile } from "child_process";
 import { devLog, devWarn, devError } from "./devLog";
+// child_process loaded lazily via await import() inside function bodies
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -116,10 +116,10 @@ function resolvePython(): string | null {
   return _pythonPath;
 }
 
-function getBridgeScriptPath(): string | null {
+async function getBridgeScriptPath(): Promise<string | null> {
   try {
-    const path = require("path");
-    return path.join(process.cwd(), "scripts", "sofascore-bridge.py");
+    const { join } = await import("path");
+    return join(process.cwd(), "scripts", "sofascore-bridge.py");
   } catch {
     return null;
   }
@@ -131,15 +131,15 @@ interface BridgeResult {
   error?: string;
 }
 
-function runBridge(args: string[], timeoutMs = 30000): Promise<BridgeResult> {
-  return new Promise((resolve) => {
-    const python = resolvePython();
-    const script = getBridgeScriptPath();
-    if (!python || !script) {
-      resolve({ ok: false, error: "Python or bridge script not found" });
-      return;
-    }
+async function runBridge(args: string[], timeoutMs = 30000): Promise<BridgeResult> {
+  const { execFile } = await import("child_process");
+  const python = resolvePython();
+  const script = await getBridgeScriptPath();
+  if (!python || !script) {
+    return { ok: false, error: "Python or bridge script not found" };
+  }
 
+  return new Promise((resolve) => {
     execFile(
       python,
       [script, ...args],

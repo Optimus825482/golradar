@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
   },
   // Keep Node built-ins out of client bundles; Turbopack resolves them
   // via import traces so listing them here prevents NFT over-collection.
-  serverExternalPackages: ["fs", "fs/promises", "path", "node:fs", "node:fs/promises", "node:path"],
+  serverExternalPackages: ["fs", "fs/promises", "path", "child_process", "node:fs", "node:fs/promises", "node:path", "node:child_process"],
 };
 
 export default nextConfig;

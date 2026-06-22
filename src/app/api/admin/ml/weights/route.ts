@@ -11,9 +11,28 @@ export const dynamic = 'force-dynamic';
 
 export const GET = adminRoute(async () => {
   const weights = await computeModelWeights();
+
+  // Compute per-model deltaBrier: shadow - champion. Negative =
+  // shadow wins (better Brier). Champions get delta=0 by definition.
+  // Frontend uses this to surface "Promote" only when shadow
+  // demonstrably beats the current champion.
+  const championBrierByName = new Map<string, number>();
+  for (const w of weights) {
+    if (w.isChampion && w.brierScore != null) {
+      championBrierByName.set(w.name, w.brierScore);
+    }
+  }
+  const enriched = weights.map((w) => ({
+    ...w,
+    deltaBrier:
+      w.isChampion || w.brierScore == null
+        ? null
+        : w.brierScore - (championBrierByName.get(w.name) ?? w.brierScore),
+  }));
+
   return NextResponse.json({
     ok: true,
-    weights,
+    weights: enriched,
     tiers: {
       excellent: 'brier < 0.18 → weight 1.0',
       good: '0.18 ≤ brier < 0.25 → 0.75',

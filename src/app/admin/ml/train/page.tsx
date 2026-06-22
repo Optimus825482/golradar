@@ -71,7 +71,7 @@ export default function AdminMLTrainPage() {
     return d.toISOString().slice(0, 10);
   });
   const [tsEndDate, setTsEndDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [tsMinMatches, setTsMinMatches] = useState(5);
+  const [tsMinMatches, setTsMinMatches] = useState(3);
   const [tsPromote, setTsPromote] = useState(true);
   const [tsLoading, setTsLoading] = useState(false);
   const [tsCheck, setTsCheck] = useState<{

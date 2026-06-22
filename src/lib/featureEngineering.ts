@@ -13,7 +13,9 @@ import { estimateXgFromShots as estimateXgShared } from './estimateXg';
 import { predictFromElo, getFormIndexEma, getRating } from './eloRating';
 import { getTimeBasedGoalMultiplier } from './dixonColes';
 import { logError } from '@/lib/devLog';
-import { loadLatestTeamStrength } from './ml/teamHistoryBackfill';
+// teamHistoryBackfill pulls in sofascore.ts (uses child_process via
+// Python bridge) — keep it out of the client bundle by deferring
+// the import to call time.
 import { predictMatch } from './ml/teamStrengthKalman';
 
 // ── Feature Vector Definition ──────────────────────────────────────
@@ -366,6 +368,7 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
   let teamBetaAway = 0;
   if (homeTeam && awayTeam) {
     try {
+      const { loadLatestTeamStrength } = await import('./ml/teamHistoryBackfill');
       const tsModel = await loadLatestTeamStrength();
       if (tsModel.nTeams > 0) {
         const pred = predictMatch(tsModel, homeTeam, awayTeam);

@@ -11,7 +11,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { fmtDate, fmtNum } from '@/lib/safeFormat';
+import { fmtNum } from '@/lib/safeFormat';
 
 interface ImportResult {
   ok: boolean;
@@ -257,7 +257,7 @@ export default function AdminDataImportPage() {
             />
             <Stat
               label="Başlangıç"
-              value={fmtDate(result.dateRange.startDate, 'tr-TR').split(' ')[0] || result.dateRange.startDate}
+              value={result.dateRange.startDate}
               color="#10b981"
             />
             <Stat

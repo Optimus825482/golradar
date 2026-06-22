@@ -24,7 +24,9 @@ import {
 import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
 import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
 import { estimateXgFromShots } from './estimateXg';
-import { loadLatestTeamStrength } from './ml/teamHistoryBackfill';
+// teamHistoryBackfill pulls in sofascore.ts (uses child_process via
+// Python bridge) — keep it out of the client bundle by deferring
+// the import to call time.
 import { loadXgbChampion } from "./ml/modelRouter";
 import { predictXgb, type XgbModel } from "./ml/xgbLoader";
 import { logError } from '@/lib/devLog';
@@ -381,6 +383,7 @@ export async function predictEnsemble(
   let teamStrengthAwayWin = 0;
   try {
     if (homeTeam && awayTeam) {
+      const { loadLatestTeamStrength } = await import('./ml/teamHistoryBackfill');
       const tsModel: TeamStrengthModel = await loadLatestTeamStrength();
       const tsPred = predictKalmanMatch(tsModel, homeTeam, awayTeam);
       // Convert 1X2 to a goal-imminent probability: the larger of

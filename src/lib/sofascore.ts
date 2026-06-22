@@ -1,3 +1,4 @@
+import "server-only";
 // ── Sofascore API Client ──────────────────────────────────────────
 // Bridges to the datafc Python library via sofascore-bridge.py.
 // Provides match lists, detailed stats, incidents, momentum, shots.

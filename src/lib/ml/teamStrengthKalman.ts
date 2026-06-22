@@ -39,6 +39,12 @@ export interface ScoredMatch {
   awayTeam: string;
   homeGoals: number;
   awayGoals: number;
+  /** Optional expected-goals (continuous, from FotMob shotmap).
+   * When present, used as Kalman observation instead of raw goals —
+   * more stable since xG captures shot quality missed by goals-only
+   * fits (e.g. 3 xG on 1 goal = unlucky, not weak). */
+  homeXG?: number;
+  awayXG?: number;
 }
 
 export interface KalmanConfig {
@@ -163,29 +169,37 @@ export function fitBatch(
     //    The Karling score-function residual handles the link from
     //    observed goals on the response scale back to log-space.
 
-    // 3) Update α_home (obs = m.homeGoals)
+    // 3) Observation: xG if available (continuous, more stable),
+    //    raw goals otherwise. xG captures shot quality missed by
+    //    goals-only fits (e.g. 3 xG on 1 goal = unlucky, not weak).
+    const obsHomeAtt = (m.homeXG ?? 0) > 0 ? m.homeXG! : m.homeGoals;
+    const obsHomeDef = (m.awayXG ?? 0) > 0 ? m.awayXG! : m.awayGoals;
+    const obsAwayAtt = (m.awayXG ?? 0) > 0 ? m.awayXG! : m.awayGoals;
+    const obsAwayDef = (m.homeXG ?? 0) > 0 ? m.homeXG! : m.homeGoals;
+
+    // 4) Update α_home (obs = home xG or goals)
     const updateHome = kalmanUpdate(
-      home.alpha, home.varAlpha, m.homeGoals, config,
+      home.alpha, home.varAlpha, obsHomeAtt, config,
     );
     home.alpha = updateHome.mean;
     home.varAlpha = updateHome.variance;
 
-    // 4) Update β_home (home's defense observed via away goals)
+    // 5) Update β_home (home's defense observed via away xG or goals)
     const updateHomeDef = kalmanUpdate(
-      home.beta, home.varBeta, m.awayGoals, config,
+      home.beta, home.varBeta, obsHomeDef, config,
     );
     home.beta = updateHomeDef.mean;
     home.varBeta = updateHomeDef.variance;
 
-    // 5) Update α_away, β_away symmetrically
+    // 6) Update α_away, β_away symmetrically
     const updateAway = kalmanUpdate(
-      away.alpha, away.varAlpha, m.awayGoals, config,
+      away.alpha, away.varAlpha, obsAwayAtt, config,
     );
     away.alpha = updateAway.mean;
     away.varAlpha = updateAway.variance;
 
     const updateAwayDef = kalmanUpdate(
-      away.beta, away.varBeta, m.homeGoals, config,
+      away.beta, away.varBeta, obsAwayDef, config,
     );
     away.beta = updateAwayDef.mean;
     away.varBeta = updateAwayDef.variance;

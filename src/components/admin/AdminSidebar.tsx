@@ -26,6 +26,13 @@ const NAV_ITEMS = [
     description: "Manuel eğitim + pipeline",
   },
   {
+    key: "ml-data-import",
+    href: "/admin/ml/data-import",
+    label: "Veri İçe Aktar",
+    icon: "📥",
+    description: "Geçmiş maçları Fotmob/Sofascore'dan çek",
+  },
+  {
     key: "ml-backtest",
     href: "/admin/ml/backtest",
     label: "ML Backtest",

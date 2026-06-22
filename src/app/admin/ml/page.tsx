@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { fmtDate, fmtNum } from '@/lib/safeFormat';
 
 function authFetch(path: string, init?: RequestInit) {
   const token = sessionStorage.getItem('admin_token');
@@ -120,7 +121,7 @@ export default function AdminMLPage() {
                 <span>Export: <b>{status.scheduler.exportRunning ? 'Aktif' : 'Pasif'}</b></span>
                 <span>InPlay: <b>{status.scheduler.inplayRunning ? 'Aktif' : 'Pasif'}</b></span>
                 {status.scheduler.lastExportAt && (
-                  <span>Son: <b>{new Date(status.scheduler.lastExportAt).toLocaleString('tr-TR')}</b></span>
+                  <span>Son: <b>{fmtDate(status.scheduler.lastExportAt)}</b></span>
                 )}
               </div>
             )}
@@ -261,7 +262,7 @@ export default function AdminMLPage() {
                 <MetricTile label="Brier" value={(champion.metrics.brier ?? 0).toFixed(4)} color={champion.metrics.brier && champion.metrics.brier < 0.2 ? '#10b981' : '#f59e0b'} />
                 <MetricTile label="LogLoss" value={(champion.metrics.logLoss ?? champion.metrics.log_loss ?? 0).toFixed(4)} color="#5794f2" />
                 <MetricTile label="Accuracy" value={`${((champion.metrics.accuracy ?? 0) * 100).toFixed(1)}%`} color="#9178d9" />
-                <MetricTile label="Train Rows" value={(champion.metrics.trainRows ?? 0).toLocaleString()} color="#f79520" />
+                <MetricTile label="Train Rows" value={fmtNum(champion.metrics.trainRows)} color="#f79520" />
               </div>
             )}
 
@@ -276,7 +277,7 @@ export default function AdminMLPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-gray-500">v{s.version}</span>
                         <span className="text-gray-400">·</span>
-                        <span className="text-gray-600">{new Date(s.createdAt).toLocaleDateString('tr-TR')}</span>
+                        <span className="text-gray-600">{fmtDate(s.createdAt)}</span>
                       </div>
                       <div className="flex items-center gap-3 font-mono">
                         <span>Brier <b className="text-gray-700">{(s.metrics.brier ?? 0).toFixed(4)}</b></span>

@@ -18,6 +18,7 @@ import { db } from '@/lib/db';
 import {
   backfillTeamHistory,
   fitAndRegisterTeamStrength,
+  type BackfillSource,
 } from '@/lib/ml/teamHistoryBackfill';
 import { promoteArtifact } from '@/lib/ml/modelRouter';
 import { adminRoute } from '@/lib/adminRoute';
@@ -32,7 +33,7 @@ export const POST = adminRoute(async (request: Request) => {
     minMatches?: number;
     notes?: string;
     promote?: boolean;
-    source?: 'scoremer' | 'goaloo';
+    source?: BackfillSource;
   } = {};
   try {
     body = (await request.json()) as typeof body;

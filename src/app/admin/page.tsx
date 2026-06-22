@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, type ReactNode } from 'react';
+import { fmtDate } from '@/lib/safeFormat';
 import Link from 'next/link';
 
 // ── Auth API Helper ──────────────────────────────────────────────
@@ -119,7 +120,7 @@ export default function AdminPage() {
         <div>
           <h1 className="text-xl font-black text-gray-800">📊 Genel Bakış</h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Son güncelleme: {data ? new Date().toLocaleString('tr-TR') : '-'}
+            Son güncelleme: {data ? fmtDate(new Date().toISOString()) : '-'}
           </p>
         </div>
         <button onClick={async () => { setLoading(true); await loadData(); setLoading(false); }} disabled={loading}
@@ -182,10 +183,10 @@ export default function AdminPage() {
               <div className="flex items-center gap-1.5"><span className="text-gray-400">Export:</span><StatusDot ok={!!ml.scheduler.exportRunning} /></div>
               <div className="flex items-center gap-1.5"><span className="text-gray-400">InPlay:</span><StatusDot ok={!!ml.scheduler.inplayRunning} /></div>
               <div className="flex items-center gap-1.5"><span className="text-gray-400">Son Export:</span>
-                <span className="font-mono text-gray-600">{ml.scheduler.lastExportAt ? new Date(ml.scheduler.lastExportAt).toLocaleString('tr-TR') : '-'}</span>
+                <span className="font-mono text-gray-600">{ml.scheduler.lastExportAt ? fmtDate(ml.scheduler.lastExportAt) : '-'}</span>
               </div>
               <div className="flex items-center gap-1.5"><span className="text-gray-400">Cron:</span>
-                <span className="font-mono text-gray-600">{ml.scheduler.lastCronAt ? new Date(ml.scheduler.lastCronAt).toLocaleString('tr-TR') : '-'}</span>
+                <span className="font-mono text-gray-600">{ml.scheduler.lastCronAt ? fmtDate(ml.scheduler.lastCronAt) : '-'}</span>
               </div>
             </div>
           )}

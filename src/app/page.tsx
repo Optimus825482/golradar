@@ -34,6 +34,7 @@ import { tierConfig } from '@/lib/tier'
 import { useMatchList } from '@/hooks/useMatchList'
 import { useFinishedMatches } from '@/hooks/useFinishedMatches'
 import { useDailyMetrics } from '@/hooks/useDailyMetrics'
+import { useGoalDetection } from '@/hooks/useGoalDetection'
 
 import { Badge } from '@/components/ui/badge'
 import type { Match, PressureSnapshot, GoalNotification, BottomTab } from '@/components/match/types'
@@ -99,9 +100,9 @@ export default function OptimusGolRadariPage() {
   const {
     goalFlashMap,
     goalNotifications,
+    prevGoalsMap: prevGoals,
     addGoalNotification,
     clearGoalNotification,
-    dismissFlash,
   } = useGoalDetection()
 
   // NetScores integration (replaces FotMob)
@@ -455,7 +456,6 @@ export default function OptimusGolRadariPage() {
 
   // Goal Detection: report goals to signal tracker + UI notifications
   useEffect(() => {
-    const prevGoals = prevGoalsRef.current
     const now = Date.now()
 
     for (const m of matches) {
@@ -466,8 +466,6 @@ export default function OptimusGolRadariPage() {
       const awayScored = m.awayGoals > prev.away
 
       if (homeScored || awayScored) {
-        setGoalFlashMap(p => ({ ...p, [m.code]: now }))
-
         // Report each goal side independently via API
         if (homeScored) {
           fetch('/api/goal-signals', {
@@ -498,9 +496,9 @@ export default function OptimusGolRadariPage() {
             scoringTeam: homeScored ? 'home' : 'away',
             league: m.league, minute: m.minute, timestamp: now,
           }
-          setGoalNotifications(p => [...p, notification])
+          addGoalNotification(notification)
           setTimeout(() => {
-            setGoalNotifications(p => p.filter(n => n.id !== notification.id))
+            clearGoalNotification(notification.id)
           }, 8000)
         }
       }
@@ -512,28 +510,7 @@ export default function OptimusGolRadariPage() {
       }
     }
 
-    const newPrev: Record<number, { home: number; away: number; status: number }> = {}
-    for (const m of matches) {
-      newPrev[m.code] = { home: m.homeGoals, away: m.awayGoals, status: m.status }
-    }
-    prevGoalsRef.current = newPrev
   }, [matches, favorites])
-
-  // Clean up old goal flashes
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = Date.now()
-      setGoalFlashMap(prev => {
-        const next: Record<number, number> = {}
-        for (const [code, ts] of Object.entries(prev)) {
-          if (now - ts < GOAL_FLASH_DURATION) next[Number(code)] = ts
-        }
-        return next
-      })
-    }, 2000)
-    interval.unref?.()
-    return () => clearInterval(interval)
-  }, [])
 
   // Goal probabilities — pure computation only, no side-effects
   const goalProbabilities = useMemo(() => {
@@ -902,7 +879,7 @@ export default function OptimusGolRadariPage() {
           goalProbabilities={goalProbabilities}
           selectedMatch={selectedMatch}
           favorites={favorites}
-          goalFlashMap={goalFlashMap}
+          goalFlashMap={goalFlashMap as unknown as Record<number, number>}
           onSelectMatch={handleSelectMatch}
           onToggleFavorite={toggleFavorite}
         />

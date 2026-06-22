@@ -95,14 +95,14 @@ export default function OptimusGolRadariPage() {
   // Favorites
   const [favorites, setFavorites] = useState<Set<number>>(new Set())
 
-  // Goal notifications
-  const [goalNotifications, setGoalNotifications] = useState<GoalNotification[]>([])
-
-  // Goal flash tracking
-  const [goalFlashMap, setGoalFlashMap] = useState<Record<number, number>>({})
-
-  // Previous goals tracking (with status for match-end detection)
-  const prevGoalsRef = useRef<Record<number, { home: number; away: number; status: number }>>({})
+  // Goal detection (flash + notifications + prevGoals)
+  const {
+    goalFlashMap,
+    goalNotifications,
+    addGoalNotification,
+    clearGoalNotification,
+    dismissFlash,
+  } = useGoalDetection()
 
   // NetScores integration (replaces FotMob)
   const [fotmobData, setFotmobData] = useState<FotMobMatchDetails | null>(null)

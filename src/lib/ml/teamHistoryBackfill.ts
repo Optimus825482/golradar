@@ -18,7 +18,9 @@ import {
 import { registerArtifact, loadTeamStrengthChampion } from './modelRouter';
 import { getScoremerMatchesForDateRange, filterScoremerMatchesByStatus } from '../scoremer';
 import { fetchFotMobMatches } from '../fotmob';
-import { fetchSofascoreMatchesByDate } from '../sofascore';
+// sofascore.ts is server-only (uses child_process). Dynamic
+// import inside backfillFromSofascore prevents Turbopack from
+// tracing it into the client bundle via the admin page chain.
 import { predictMatch } from './teamStrengthKalman';
 // goaloo.ts is server-only (uses child_process / node:fs). Dynamic
 // import here prevents Turbopack from tracing it into the client
@@ -310,6 +312,8 @@ async function backfillFromSofascore(
     dateList.push(day.toISOString().slice(0, 10));
   }
 
+  const { fetchSofascoreMatchesByDate } = await import('../sofascore');
+
   for (let i = 0; i < dateList.length; i += PARALLEL) {
     const chunk = dateList.slice(i, i + PARALLEL);
     const chunkResults = await Promise.all(
@@ -318,7 +322,7 @@ async function backfillFromSofascore(
           const matches = await fetchSofascoreMatchesByDate(dateStr);
           return { dateStr, matches };
         } catch {
-          return { dateStr, matches: [] as Awaited<ReturnType<typeof fetchSofascoreMatchesByDate>> };
+          return { dateStr, matches: [] };
         }
       }),
     );

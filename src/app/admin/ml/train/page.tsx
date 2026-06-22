@@ -162,6 +162,7 @@ export default function AdminMLTrainPage() {
           endDate: tsEndDate,
           minMatches: tsMinMatches,
           promote: tsPromote,
+          skipBackfill: true,
           notes: `manual from /admin/ml/train @ ${new Date().toISOString()}`,
         }),
       });

@@ -9,3 +9,9 @@ export const fmtDate = (v: string | number | null | undefined, locale = 'tr-TR')
   const d = new Date(v);
   return isNaN(d.getTime()) ? '—' : d.toLocaleString(locale);
 };
+
+export const fmtDateOnly = (v: string | number | null | undefined, locale = 'tr-TR'): string => {
+  if (v == null) return '—';
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(locale);
+};

@@ -17,6 +17,8 @@ import {
 } from './teamStrengthKalman';
 import { registerArtifact, loadTeamStrengthChampion } from './modelRouter';
 import { getScoremerMatchesForDateRange, filterScoremerMatchesByStatus } from '../scoremer';
+import { fetchFotMobMatches } from '../fotmob';
+import { fetchSofascoreMatchesByDate } from '../sofascore';
 import { predictMatch } from './teamStrengthKalman';
 // goaloo.ts is server-only (uses child_process / node:fs). Dynamic
 // import here prevents Turbopack from tracing it into the client
@@ -61,19 +63,27 @@ interface ScoremerMatchLite {
  * Pull finished matches in a date range and upsert into
  * TeamHistoryMatch. Source: Scoremer.
  */
+export type BackfillSource = 'scoremer' | 'goaloo' | 'fotmob' | 'sofascore';
+
 export async function backfillTeamHistory(
   startDate: Date,
   endDate: Date,
-  source: 'scoremer' | 'goaloo' = 'goaloo',
+  source: BackfillSource = 'goaloo',
 ): Promise<{
   scraped: number;
   inserted: number;
   skippedDuplicate: number;
 }> {
-  if (source === 'goaloo') {
-    return backfillFromGoaloo(startDate, endDate);
+  switch (source) {
+    case 'goaloo':
+      return backfillFromGoaloo(startDate, endDate);
+    case 'scoremer':
+      return backfillFromScoremer(startDate, endDate);
+    case 'fotmob':
+      return backfillFromFotmob(startDate, endDate);
+    case 'sofascore':
+      return backfillFromSofascore(startDate, endDate);
   }
-  return backfillFromScoremer(startDate, endDate);
 }
 
 async function backfillFromScoremer(
@@ -194,6 +204,174 @@ async function backfillFromGoaloo(
     // Sequential 300ms delay between days to avoid Goaloo anti-bot bans
     if (d < daysToFetch - 1) {
       await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+  return { scraped, inserted, skippedDuplicate };
+}
+
+/**
+ * Pull finished matches from FotMob for the given date range and
+ * upsert into TeamHistoryMatch. Same day-by-day shape as
+ * `backfillFromGoaloo` but FotMob is a public API — 100ms delay is
+ * enough to stay polite. Capped to 365 days to fit Next.js route
+ * budget.
+ */
+async function backfillFromFotmob(
+  startDate: Date,
+  endDate: Date,
+): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {
+  let scraped = 0;
+  let inserted = 0;
+  let skippedDuplicate = 0;
+  const MAX_DAYS_BUDGET = 365;
+  const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / 86_400_000);
+  const daysToFetch = Math.min(totalDays, MAX_DAYS_BUDGET);
+
+  for (let d = 0; d < daysToFetch; d++) {
+    const day = new Date(startDate.getTime() + d * 86_400_000);
+    const dateStr = day.toISOString().slice(0, 10);
+
+    const matches = await fetchFotMobMatches(dateStr);
+    const finished = matches.filter(
+      (m) => m.status.finished && m.home.score != null && m.away.score != null,
+    );
+
+    for (const m of finished) {
+      scraped += 1;
+      const home = normalize(m.home.name);
+      const away = normalize(m.away.name);
+      if (!home || !away) continue;
+      if (m.home.score == null || m.away.score == null) continue;
+      if (m.home.score < 0 || m.away.score < 0) continue;
+
+      const leagueName =
+        m.leagueId != null ? `fotmob-${m.leagueId}` : null;
+
+      try {
+        const result = await db.teamHistoryMatch.upsert({
+          where: {
+            matchDate_homeTeam_awayTeam: {
+              matchDate: dateStr,
+              homeTeam: home,
+              awayTeam: away,
+            },
+          },
+          create: {
+            matchDate: dateStr,
+            homeTeam: home,
+            awayTeam: away,
+            homeGoals: m.home.score,
+            awayGoals: m.away.score,
+            league: leagueName,
+            source: 'fotmob',
+          },
+          update: {
+            homeGoals: m.home.score,
+            awayGoals: m.away.score,
+            league: leagueName,
+            fetchedAt: new Date(),
+          },
+        });
+        if (Date.now() - result.fetchedAt.getTime() < 2_000) inserted += 1;
+        else skippedDuplicate += 1;
+      } catch {
+        skippedDuplicate += 1;
+      }
+    }
+
+    if (d < daysToFetch - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  return { scraped, inserted, skippedDuplicate };
+}
+
+/**
+ * Pull finished matches from Sofascore (via Python bridge) for the
+ * given date range and upsert into TeamHistoryMatch. Sofascore's
+ * bridge is heavier than FotMob (child_process per call) so we
+ * parallelize up to 5 days at a time.
+ */
+async function backfillFromSofascore(
+  startDate: Date,
+  endDate: Date,
+): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {
+  let scraped = 0;
+  let inserted = 0;
+  let skippedDuplicate = 0;
+  const MAX_DAYS_BUDGET = 365;
+  const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / 86_400_000);
+  const daysToFetch = Math.min(totalDays, MAX_DAYS_BUDGET);
+  const PARALLEL = 5;
+
+  const dateList: string[] = [];
+  for (let d = 0; d < daysToFetch; d++) {
+    const day = new Date(startDate.getTime() + d * 86_400_000);
+    dateList.push(day.toISOString().slice(0, 10));
+  }
+
+  for (let i = 0; i < dateList.length; i += PARALLEL) {
+    const chunk = dateList.slice(i, i + PARALLEL);
+    const chunkResults = await Promise.all(
+      chunk.map(async (dateStr) => {
+        try {
+          const matches = await fetchSofascoreMatchesByDate(dateStr);
+          return { dateStr, matches };
+        } catch {
+          return { dateStr, matches: [] as Awaited<ReturnType<typeof fetchSofascoreMatchesByDate>> };
+        }
+      }),
+    );
+
+    for (const { dateStr, matches } of chunkResults) {
+      const finished = matches.filter(
+        (m) =>
+          m.status_type === 'finished' &&
+          m.home_score != null &&
+          m.away_score != null,
+      );
+
+      for (const m of finished) {
+        scraped += 1;
+        const home = normalize(m.home_team);
+        const away = normalize(m.away_team);
+        if (!home || !away) continue;
+        if (m.home_score == null || m.away_score == null) continue;
+        if (m.home_score < 0 || m.away_score < 0) continue;
+
+        const leagueName = m.tournament_name || null;
+
+        try {
+          const result = await db.teamHistoryMatch.upsert({
+            where: {
+              matchDate_homeTeam_awayTeam: {
+                matchDate: dateStr,
+                homeTeam: home,
+                awayTeam: away,
+              },
+            },
+            create: {
+              matchDate: dateStr,
+              homeTeam: home,
+              awayTeam: away,
+              homeGoals: m.home_score,
+              awayGoals: m.away_score,
+              league: leagueName,
+              source: 'sofascore',
+            },
+            update: {
+              homeGoals: m.home_score,
+              awayGoals: m.away_score,
+              league: leagueName,
+              fetchedAt: new Date(),
+            },
+          });
+          if (Date.now() - result.fetchedAt.getTime() < 2_000) inserted += 1;
+          else skippedDuplicate += 1;
+        } catch {
+          skippedDuplicate += 1;
+        }
+      }
     }
   }
   return { scraped, inserted, skippedDuplicate };

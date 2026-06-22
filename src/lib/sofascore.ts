@@ -1,13 +1,16 @@
-import "server-only";
 // ── Sofascore API Client ──────────────────────────────────────────
 // Bridges to the datafc Python library via sofascore-bridge.py.
 // Provides match lists, detailed stats, incidents, momentum, shots.
 //
 // The bridge is called via child_process.execFile and returns JSON.
 // Falls back gracefully if Python / datafc is unavailable.
+//
+// IMPORTANT: child_process is loaded via require() inside runBridge,
+// not `await import()`. Turbopack statically resolves `await import`
+// at build time and fails the bundle. require() defers resolution to
+// runtime, matching the goaloo.ts pattern.
 
 import { devLog, devWarn, devError } from "./devLog";
-// child_process loaded lazily via await import() inside function bodies
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -133,7 +136,17 @@ interface BridgeResult {
 }
 
 async function runBridge(args: string[], timeoutMs = 30000): Promise<BridgeResult> {
-  const { execFile } = await import("child_process");
+  // Use require() instead of `await import("child_process")` — Turbopack
+  // statically resolves `await import` at build time and fails the bundle
+  // (Module not found: Can't resolve 'child_process'). require() defers
+  // resolution to runtime, matching the goaloo.ts pattern.
+  const execFile =
+    typeof window === "undefined"
+      ? require("child_process").execFile
+      : null;
+  if (!execFile) {
+    return { ok: false, error: "child_process unavailable (browser context)" };
+  }
   const python = resolvePython();
   const script = await getBridgeScriptPath();
   if (!python || !script) {

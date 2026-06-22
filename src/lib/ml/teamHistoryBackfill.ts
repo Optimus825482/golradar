@@ -17,7 +17,7 @@ import {
 } from './teamStrengthKalman';
 import { registerArtifact, loadTeamStrengthChampion } from './modelRouter';
 import { getScoremerMatchesForDateRange, filterScoremerMatchesByStatus } from '../scoremer';
-import { fetchFotMobMatches } from '../fotmob';
+import { fetchFotMobMatches, fetchMatchDetails } from '../fotmob';
 // sofascore.ts is server-only (uses child_process). Dynamic
 // import inside backfillFromSofascore prevents Turbopack from
 // tracing it into the client bundle via the admin page chain.
@@ -323,6 +323,27 @@ async function backfillFromGoalooLegacy(
  * enough to stay polite. Capped to 365 days to fit Next.js route
  * budget.
  */
+/**
+ * Sum a match's xG from FotMob shotmap (expectedGoals per shot).
+ * Returns null if no shot data is available or the fetch fails.
+ */
+async function fetchMatchXG(fotmobId: number): Promise<{ homeXG: number; awayXG: number } | null> {
+  try {
+    const details = await fetchMatchDetails(fotmobId);
+    if (!details?.shotmap || details.shotmap.length === 0) return null;
+    let homeXG = 0;
+    let awayXG = 0;
+    for (const shot of details.shotmap) {
+      const xg = shot.expectedGoals || 0;
+      if (shot.teamId === details.homeTeam?.id) homeXG += xg;
+      else if (shot.teamId === details.awayTeam?.id) awayXG += xg;
+    }
+    return { homeXG, awayXG };
+  } catch {
+    return null;
+  }
+}
+
 async function backfillFromFotmob(
   startDate: Date,
   endDate: Date,
@@ -339,12 +360,19 @@ async function backfillFromFotmob(
     const dateStr = day.toISOString().slice(0, 10);
 
     const matches = await fetchFotMobMatches(dateStr);
+    // Batch-fetch xG for all matches on this day in parallel.
+    const xgMap = new Map<number, { homeXG: number; awayXG: number }>();
+    await Promise.all(matches.map(async (m) => {
+      const xg = await fetchMatchXG(m.id);
+      if (xg) xgMap.set(m.id, xg);
+    }));
     const finished = matches.filter(
       (m) => m.status.finished && m.home.score != null && m.away.score != null,
     );
 
     for (const m of finished) {
       scraped += 1;
+      const xg = xgMap.get(m.id);
       const home = normalize(m.home.name);
       const away = normalize(m.away.name);
       if (!home || !away) continue;
@@ -369,12 +397,16 @@ async function backfillFromFotmob(
             awayTeam: away,
             homeGoals: m.home.score,
             awayGoals: m.away.score,
+            homeXG: xg?.homeXG ?? null,
+            awayXG: xg?.awayXG ?? null,
             league: leagueName,
             source: 'fotmob',
           },
           update: {
             homeGoals: m.home.score,
             awayGoals: m.away.score,
+            homeXG: xg?.homeXG ?? null,
+            awayXG: xg?.awayXG ?? null,
             league: leagueName,
             fetchedAt: new Date(),
           },

@@ -15,13 +15,10 @@ function authFetch(path: string, init?: RequestInit) {
 }
 
 interface TrainingDataset {
-  id: string;
-  createdAt: string;
-  horizonMin: number;
-  rowCount: number;
-  brier: number | null;
+  horizon: number;
+  date: string;
   path: string;
-  status: string;
+  sizeBytes: number;
 }
 
 interface PipelineRun {
@@ -33,12 +30,20 @@ interface PipelineRun {
   status: string;
   progressPct: number;
   step: string;
+  errorMsg: string | null;
+  featureSetRowCount: number;
+  newVersion: string | null;
   newBrier: number | null;
+  newLogLoss: number | null;
   newAccuracy: number | null;
+  newCalibrationError: number | null;
+  newTrainRows: number | null;
+  brierDelta: number | null;
   isBetter: boolean | null;
   isPromoted: boolean | null;
-  brierDelta: number | null;
+  oldChampionVersion: string | null;
   oldChampionBrier: number | null;
+  oldChampionAcc: number | null;
 }
 
 const MODEL_OPTIONS = [
@@ -99,14 +104,13 @@ export default function AdminMLTrainPage() {
     setError(null);
     setSuccess(null);
     try {
-      const ds = datasets.find(d => d.id === datasetId);
+      const ds = datasets.find(d => d.path === datasetId);
       const body: any = {
         name: modelName,
         version,
         horizon_min: horizonMin,
       };
       if (ds) {
-        body.dataset_id = ds.id;
         body.dataset_path = ds.path;
       }
       const res = await authFetch('/api/admin/ml/train', { method: 'POST', body: JSON.stringify(body) });
@@ -248,8 +252,8 @@ export default function AdminMLTrainPage() {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none">
                 <option value="">En yeni dataset'i kullan</option>
                 {datasets.map(d => (
-                  <option key={d.id} value={d.id}>
-                    {d.horizonMin}dk · {d.rowCount.toLocaleString()} satır · {new Date(d.createdAt).toLocaleDateString('tr-TR')}
+                  <option key={d.path} value={d.path}>
+                    {d.horizon}dk · {(d.sizeBytes / 1024 / 1024).toFixed(1)} MB · {d.date || '—'}
                   </option>
                 ))}
               </select>

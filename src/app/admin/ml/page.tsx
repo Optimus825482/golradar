@@ -43,6 +43,9 @@ interface ModelWeight {
   weight: number;
   status: 'active' | 'disabled' | 'archived';
   lastUpdated: string | null;
+  /** shadow - champion Brier. Negative = shadow wins. Null for
+   *  champions (no comparison) or when champion Brier is unknown. */
+  deltaBrier: number | null;
 }
 
 export default function AdminMLPage() {
@@ -149,6 +152,7 @@ export default function AdminMLPage() {
                   <th className="text-center py-2 px-2 font-semibold">Sürüm</th>
                   <th className="text-center py-2 px-2 font-semibold">Tip</th>
                   <th className="text-right py-2 px-2 font-semibold">Brier</th>
+                  <th className="text-right py-2 px-2 font-semibold">Δ vs Champion</th>
                   <th className="text-center py-2 px-2 font-semibold">Ağırlık</th>
                   <th className="text-center py-2 px-2 font-semibold">Durum</th>
                   <th className="text-center py-2 px-2 font-semibold">Aksiyon</th>
@@ -174,6 +178,23 @@ export default function AdminMLPage() {
                       }>
                         {w.brierScore?.toFixed(4) ?? '—'}
                       </span>
+                    </td>
+                    <td className="py-2 px-2 text-right text-[10px] font-mono">
+                      {w.isChampion ? (
+                        <span className="text-gray-400">—</span>
+                      ) : w.deltaBrier == null ? (
+                        <span className="text-gray-400">—</span>
+                      ) : (
+                        <span className={
+                          w.deltaBrier < -0.02 ? 'text-emerald-600 font-bold' :
+                          w.deltaBrier > 0.02 ? 'text-red-600 font-bold' :
+                          'text-amber-600'
+                        }>
+                          {w.deltaBrier > 0 ? '+' : ''}{w.deltaBrier.toFixed(4)}
+                          {w.deltaBrier < -0.02 && ' ↓'}
+                          {w.deltaBrier > 0.02 && ' ↑'}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 px-2 text-center">
                       <div className="inline-flex items-center gap-2">

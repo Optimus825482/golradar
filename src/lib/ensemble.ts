@@ -24,6 +24,7 @@ import {
 import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
 import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
 import { computeEnsembleWeights } from './ml/weightTuner';
+import { getChampionBrier } from './ml/modelRouter';
 import { estimateXgFromShots } from './estimateXg';
 // teamHistoryBackfill pulls in sofascore.ts (uses child_process via
 // Python bridge) — keep it out of the client bundle by deferring
@@ -413,9 +414,14 @@ export async function predictEnsemble(
   // ramp 20→30, cap 0.30 after) is now inside computeEnsembleWeights.
   const mlAvailable = mlP > 0;
   const hasHistory = !!(pressureHistory && pressureHistory.length >= 3);
-  const mlBrier = mlAvailable ? 0.1691 : null;
-  const inplayBrier = inPlayP > 0 ? 0.0859 : null;
-  const teamStrengthBrier = teamStrengthP > 0 ? 0.2564 : null;
+  // Read champion Briers dynamically — a freshly promoted model
+  // automatically gets a recalibrated ensemble weight on the next
+  // prediction. weightTuner treats null as the unranked baseline (0.20).
+  const mlBrier = mlAvailable
+    ? (await getChampionBrier('xgb')) ?? (await getChampionBrier('gbdt'))
+    : null;
+  const inplayBrier = inPlayP > 0 ? await getChampionBrier('inplay') : null;
+  const teamStrengthBrier = teamStrengthP > 0 ? await getChampionBrier('team-strength') : null;
   const weights = computeEnsembleWeights({
     inplayBrier,
     mlBrier,

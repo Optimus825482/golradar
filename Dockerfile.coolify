@@ -10,6 +10,10 @@ RUN bun install
 
 COPY prisma ./prisma
 RUN bunx prisma generate
+# Apply schema changes (adds new columns like homeXG/awayXG from
+# Aşama 4.2 v2). --accept-data-loss=false refuses to drop columns
+# with data, so this is safe even if the DB is ahead of the schema.
+RUN bunx prisma db push --accept-data-loss=false
 
 COPY . .
 

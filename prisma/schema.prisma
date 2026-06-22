@@ -352,6 +352,8 @@ model TeamHistoryMatch {
   awayTeam    String
   homeGoals   Int
   awayGoals   Int
+  homeXG      Float?   // expected-goals from FotMob shotmap (xG-aware Kalman fit)
+  awayXG      Float?
   league      String?
   source      String
   fetchedAt   DateTime @default(now())

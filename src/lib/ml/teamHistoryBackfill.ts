@@ -143,11 +143,116 @@ async function backfillFromScoremer(
   return { scraped, inserted, skippedDuplicate };
 }
 
+// Top leagues covered by Goaloo season JSON endpoint.
+// League IDs are Goaloo's internal ball_id. Each adds ~3-5s per
+// season call — keep the list small. IDs verified by inspecting
+// the B[] array of a SoccerAjax type=6 response; adjust if Goaloo
+// renumbers.
+const GOALOO_BACKFILL_LEAGUES = [
+  { id: 1, name: 'Premier League' },
+  { id: 2, name: 'La Liga' },
+  { id: 3, name: 'Bundesliga' },
+  { id: 4, name: 'Serie A' },
+  { id: 5, name: 'Ligue 1' },
+  { id: 75, name: 'Süper Lig' },
+  { id: 7, name: 'Champions League' },
+  { id: 8, name: 'Europa League' },
+];
+
+function getSeasonsForRange(start: Date, end: Date): string[] {
+  // Typical football season: Aug–May. Season 2025-2026 covers Aug 2025 → Jun 2026.
+  const seasons = new Set<string>();
+  for (let y = start.getFullYear() - 1; y <= end.getFullYear(); y++) {
+    seasons.add(`${y}-${y + 1}`);
+  }
+  return [...seasons].sort();
+}
+
 async function backfillFromGoaloo(
   startDate: Date,
   endDate: Date,
 ): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {
   // Dynamic import — goaloo.ts uses child_process and is server-only.
+  // Use fetchGoalooSeasonMatches (entire-season JSON) instead of
+  // fetchGoalooMatchesByDate (SoccerAjax type=6) which is limited to
+  // 7-day results history and returns 0 matches for older dates.
+  const { fetchGoalooSeasonMatches } = await import('../goaloo');
+  let scraped = 0;
+  let inserted = 0;
+  let skippedDuplicate = 0;
+
+  const startStr = startDate.toISOString().slice(0, 10);
+  const endStr = endDate.toISOString().slice(0, 10);
+  const seasons = getSeasonsForRange(startDate, endDate);
+
+  for (const league of GOALOO_BACKFILL_LEAGUES) {
+    for (const season of seasons) {
+      try {
+        const matches = await fetchGoalooSeasonMatches(league.id, season);
+
+        // Client-side date filter — only keep finished matches in range
+        const filtered = matches.filter((m: { state: number; date: string; score: string }) => {
+          if (m.state !== -1) return false;
+          const matchDate = m.date.split(' ')[0];
+          return matchDate >= startStr && matchDate <= endStr;
+        });
+
+        for (const m of filtered) {
+          scraped += 1;
+          const home = normalize(m.homeTeam);
+          const away = normalize(m.awayTeam);
+          if (!home || !away) continue;
+
+          const matchDate = m.date.split(' ')[0];
+          const [homeGoals, awayGoals] = m.score.split('-').map(Number);
+          if (isNaN(homeGoals) || isNaN(awayGoals)) continue;
+
+          try {
+            const result = await db.teamHistoryMatch.upsert({
+              where: {
+                matchDate_homeTeam_awayTeam: {
+                  matchDate,
+                  homeTeam: home,
+                  awayTeam: away,
+                },
+              },
+              create: {
+                matchDate,
+                homeTeam: home,
+                awayTeam: away,
+                homeGoals,
+                awayGoals,
+                league: league.name,
+                source: 'goaloo',
+              },
+              update: {
+                homeGoals,
+                awayGoals,
+                league: league.name,
+                fetchedAt: new Date(),
+              },
+            });
+            if (Date.now() - result.fetchedAt.getTime() < 2_000) inserted += 1;
+            else skippedDuplicate += 1;
+          } catch {
+            skippedDuplicate += 1;
+          }
+        }
+      } catch {
+        // Season not available or parse error — skip silently
+      }
+    }
+  }
+
+  return { scraped, inserted, skippedDuplicate };
+}
+
+async function backfillFromGoalooLegacy(
+  startDate: Date,
+  endDate: Date,
+): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {
+  // Legacy: fetchGoalooMatchesByDate (SoccerAjax type=6) — 7-day limit.
+  // Kept for backward compatibility; new callers should use backfillFromGoaloo.
   const { fetchGoalooMatchesByDate } = await import('../goaloo');
   let scraped = 0;
   let inserted = 0;

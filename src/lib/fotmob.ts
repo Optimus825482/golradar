@@ -233,7 +233,9 @@ import { logError } from '@/lib/devLog';
 // ── Fetch FotMob matches for today ──
 
 export async function fetchFotMobMatches(date?: string): Promise<FotMobMatchDay[]> {
-  const d = date || new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  // Accept either YYYY-MM-DD or YYYYMMDD; the FotMob API requires
+  // the compact form. Normalize here so callers can pass ISO dates.
+  const d = (date ?? new Date().toISOString().slice(0, 10)).replace(/-/g, "");
   const url = `${FOTMOB_BASE}/matches?date=${d}`;
   
   try {

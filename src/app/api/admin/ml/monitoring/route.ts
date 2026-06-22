@@ -35,6 +35,10 @@ export const GET = adminRoute(async (request: Request) => {
     gbdtBrier: r.gbdtBrier,
     xgbBrier: r.xgbBrier,
     inPlayBrier: r.inPlayBrier,
+              // Ensemble Brier is the per-day blended score, pre-aggregated
+              // in the writer. For now we expose the per-model Briers; the
+              // caller can compute a weighted mean client-side if needed.
+              ensembleBrier: r.brierScore,
   }));
 
   // Drift detection: compare last 7d avg Brier vs previous 7d avg

@@ -34,6 +34,7 @@ export const POST = adminRoute(async (request: Request) => {
     notes?: string;
     promote?: boolean;
     source?: BackfillSource;
+    skipBackfill?: boolean;
   } = {};
   try {
     body = (await request.json()) as typeof body;
@@ -56,7 +57,9 @@ export const POST = adminRoute(async (request: Request) => {
   }
 
   try {
-    const backfill = await backfillTeamHistory(start, end, source);
+    const backfill = body.skipBackfill
+      ? { scraped: 0, inserted: 0, skippedDuplicate: 0 }
+      : await backfillTeamHistory(start, end, source);
     const fit = await fitAndRegisterTeamStrength({
       minMatches,
       notes: body.notes,

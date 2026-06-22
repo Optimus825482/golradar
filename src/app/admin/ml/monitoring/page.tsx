@@ -87,6 +87,24 @@ export default function AdminMLMonitoringPage() {
         </div>
       </div>
 
+      {/* Drift Alert Banner — surfaces when recent 7d ensemble Brier
+          is significantly worse than the prior 7d. Uses the drift
+          state the monitoring endpoint already computes (no client
+          recomputation). Trigger threshold mirrors the calibration
+          helper default (10%). */}
+      {drift.direction === 'worse' && (drift.driftPct ?? 0) > 10 && (
+        <div className="bg-red-50 border border-red-300 text-red-800 text-sm rounded-lg px-4 py-3 flex items-center gap-2">
+          <span className="text-lg">⚠️</span>
+          <div>
+            <b>Ensemble Brier drift alarm:</b> son 7 gün, önceki 7 güne göre
+            {' '}
+            {drift.driftPct?.toFixed(1)}% kötüleşti
+            ({drift.recentAvgBrier?.toFixed(4)} → {drift.priorAvgBrier?.toFixed(4)}).
+            Champion modeli gözden geçirin veya yeni bir eğitim çalıştırın.
+          </div>
+        </div>
+      )}
+
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KPICard label="Bugün Brier" value={latest?.brierScore?.toFixed(4) ?? '-'}

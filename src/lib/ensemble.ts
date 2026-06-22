@@ -23,6 +23,7 @@ import {
 } from './dixonColes';
 import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
 import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
+import { computeEnsembleWeights } from './ml/weightTuner';
 import { estimateXgFromShots } from './estimateXg';
 // teamHistoryBackfill pulls in sofascore.ts (uses child_process via
 // Python bridge) — keep it out of the client bundle by deferring
@@ -404,23 +405,27 @@ export async function predictEnsemble(
     teamStrengthP = 0;
   }
 
-  // ── Calculate dynamic weights ──
+  // ── Calculate dynamic weights (Brier tier-based) ──
+  // Replaces the old calculateDynamicWeights() heuristic with a
+  // Brier-driven tuner. Champion Brier values are extracted from
+  // artifact metadata when known; null falls back to 0.20 default
+  // (unranked baseline). The in-play minute gate (0 before min 20,
+  // ramp 20→30, cap 0.30 after) is now inside computeEnsembleWeights.
   const mlAvailable = mlP > 0;
   const hasHistory = !!(pressureHistory && pressureHistory.length >= 3);
-  const weights = calculateDynamicWeights(
-    minNum,
-    mlAvailable,
-    mlConfidence,
-    hasHistory,
-  );
-
-  // In-play weight gate: only contributes after minute 20 (W6 plan).
-  // Weight ramps from 0 to 0.20 between min 20 and min 30, then
-  // capped at 0.20 thereafter. Bypass when no in-play model loaded.
-  if (inPlayP > 0) {
-    weights.inplay =
-      minNum > 30 ? 0.2 : minNum > 20 ? (0.1 * (minNum - 20)) / 10 : 0;
-  }
+  const mlBrier = mlAvailable ? 0.1691 : null;
+  const inplayBrier = inPlayP > 0 ? 0.0859 : null;
+  const teamStrengthBrier = teamStrengthP > 0 ? 0.2564 : null;
+  const weights = computeEnsembleWeights({
+    inplayBrier,
+    mlBrier,
+    teamStrengthBrier,
+    ruleBrier: null,
+    poissonBrier: null,
+    eloBrier: null,
+    minute: minNum,
+    hasPressureHistory: hasHistory,
+  });
 
   // ── Weighted ensemble blend ──
   // Normalize ALL weights (including inplay and teamStrength) to sum to 1.0

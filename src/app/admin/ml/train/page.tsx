@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { fmtNum } from '@/lib/safeFormat';
 
 function authFetch(path: string, init?: RequestInit) {
   const token = sessionStorage.getItem('admin_token');
@@ -73,6 +74,15 @@ export default function AdminMLTrainPage() {
   const [tsMinMatches, setTsMinMatches] = useState(5);
   const [tsPromote, setTsPromote] = useState(true);
   const [tsLoading, setTsLoading] = useState(false);
+  const [tsCheck, setTsCheck] = useState<{
+    ready: boolean;
+    totalMatches: number;
+    perSource: Record<string, number>;
+    teamsWithMinMatches: number;
+    teamsTotal: number;
+    minMatches: number;
+  } | null>(null);
+  const [tsChecking, setTsChecking] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -183,6 +193,28 @@ export default function AdminMLTrainPage() {
       setError('Bağlantı hatası');
     }
     setTsLoading(false);
+  };
+
+  const checkTeamStrengthData = async () => {
+    setTsChecking(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await authFetch(
+        `/api/admin/ml/team-strength-check?minMatches=${tsMinMatches}`,
+      );
+      const data = await res.json();
+      if (data.ok) {
+        setTsCheck(data);
+      } else {
+        setError(data.message || 'Kontrol başarısız');
+        setTsCheck(null);
+      }
+    } catch {
+      setError('Bağlantı hatası');
+      setTsCheck(null);
+    }
+    setTsChecking(false);
   };
 
   const activeRuns = runs.filter(r => ['pending', 'extracting', 'training', 'comparing'].includes(r.status));
@@ -309,9 +341,29 @@ export default function AdminMLTrainPage() {
           </div>
         </div>
 
+        <button onClick={checkTeamStrengthData} disabled={tsChecking}
+          className="w-full mb-2 px-4 py-2 bg-white border border-amber-300 text-amber-700 text-sm font-bold rounded-lg hover:bg-amber-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+          {tsChecking ? '🔄 Kontrol ediliyor…' : '🔍 Veri Kontrolü (önce veritabanını kontrol et)'}
+        </button>
+
+        {tsCheck && (
+          tsCheck.ready ? (
+            <div className="mb-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800">
+              ✓ <b>{fmtNum(tsCheck.totalMatches)}</b> maç, <b>{fmtNum(tsCheck.teamsWithMinMatches)}</b> takım hazır (min {tsCheck.minMatches} maç).
+              {' '}<span className="text-emerald-600">{Object.entries(tsCheck.perSource).map(([k, v]) => `${k}: ${v}`).join(' · ')}</span>
+            </div>
+          ) : (
+            <div className="mb-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[11px] text-red-800">
+              ✗ Yetersiz veri: <b>{fmtNum(tsCheck.totalMatches)}</b> maç, <b>{fmtNum(tsCheck.teamsWithMinMatches)}</b> takım (min {tsCheck.minMatches} maç gerekli).
+              <br />
+              <a href="/admin/ml/data-import" className="font-bold underline">📥 Veri İçe Aktar sayfasına git</a> ve bir kaynaktan (Fotmob/Sofascore/Goaloo/Scoremer) maç geçmişi çek.
+            </div>
+          )
+        )}
+
         <button onClick={startTeamStrengthFit} disabled={tsLoading}
           className="w-full px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white text-sm font-bold rounded-lg hover:from-amber-600 hover:to-orange-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-          {tsLoading ? '⏳ Scoremer backfill + Kalman fit çalışıyor...' : '🏋️ Backfill + Fit + Promote'}
+          {tsLoading ? '⏳ Kalman fit çalışıyor…' : '🏋️ Fit + Promote'}
         </button>
       </div>
 

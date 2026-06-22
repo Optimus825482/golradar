@@ -174,21 +174,6 @@ export async function findRecentPending(
 }
 
 /**
- * Pending signals for a specific match. Used by checkForGoals to find
- * candidates for verification when a goal is observed.
- */
-export async function findPendingForMatch(
-  matchCode: number,
-  signalSide: 'home' | 'away',
-): Promise<GoalSignalRecord[]> {
-  const rows = await db.signal.findMany({
-    where: { matchCode, signalSide, goalHappened: null },
-    orderBy: { signalMinute: 'desc' },
-  });
-  return rows.map(toGoalSignalRecord);
-}
-
-/**
  * All pending signals for a match (both sides). Used by
  * finalizeMatchSignals.
  */

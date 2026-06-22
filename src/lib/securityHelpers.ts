@@ -4,14 +4,52 @@
 
 import { validateSession } from "./auth";
 
-const ALLOWED_HOSTS: Set<string> = new Set([
-  "localhost:3000",
-  "localhost:3001",
-  "localhost:3028",
-  "golradari.com",
-  "www.golradari.com",
-  ...((process.env.ALLOWED_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean)),
-]);
+interface HostRule {
+  /** Exact host match, e.g. "api.example.com". */
+  exact: string;
+  /** If true, accept any subdomain of `exact`. Explicit opt-in only. */
+  allowSubdomains: boolean;
+}
+
+// Hosts the app trusts as same-origin for write requests. A wildcard
+// `*.golradari.com` entry is ONLY created when the rule explicitly
+// opts in via `allowSubdomains: true`. Bare entries do NOT match
+// subdomains — closing the subdomain-takeover CSRF bypass.
+const ALLOWED_HOSTS: HostRule[] = parseAllowedHosts();
+
+function parseAllowedHosts(): HostRule[] {
+  const seeds: Array<[string, boolean]> = [
+    ["localhost:3000", false],
+    ["localhost:3001", false],
+    ["localhost:3028", false],
+    ["golradari.com", false],
+    ["www.golradari.com", false],
+    // Wildcard: opt-in. `*.golradari.com` is accepted but NOT bare
+    // `golradari.com` (already covered above). Opt-in flag prevents
+    // accidental subdomain takeover.
+    ["golradari.com", true],
+  ];
+  const env = process.env.ALLOWED_ORIGINS || "";
+  for (const raw of env.split(",")) {
+    const s = raw.trim();
+    if (!s) continue;
+    if (s.startsWith("*.")) {
+      seeds.push([s.slice(2), true]);
+    } else {
+      seeds.push([s, false]);
+    }
+  }
+  // Dedupe by `exact|allowSubdomains`.
+  const seen = new Set<string>();
+  const out: HostRule[] = [];
+  for (const [exact, allowSubdomains] of seeds) {
+    const key = `${exact}|${allowSubdomains ? "1" : "0"}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ exact, allowSubdomains });
+  }
+  return out;
+}
 
 /**
  * Validate that the request originates from the same application.
@@ -25,9 +63,16 @@ export function isSameOrigin(request: Request): boolean {
   const checkUrl = (url: string) => {
     try {
       const u = new URL(url);
-      if (ALLOWED_HOSTS.has(u.host)) return true;
-      return Array.from(ALLOWED_HOSTS).some(h => u.host.endsWith("." + h));
-    } catch { return false; }
+      // Port-less comparisons: a request for "https://x.com" must NOT
+      // match a rule for "x.com:443". Use full host (with port) always.
+      return ALLOWED_HOSTS.some(rule => {
+        if (u.host === rule.exact) return true;
+        if (rule.allowSubdomains && u.host.endsWith("." + rule.exact)) return true;
+        return false;
+      });
+    } catch {
+      return false;
+    }
   };
   if (origin && checkUrl(origin)) return true;
   if (referer && checkUrl(referer)) return true;

@@ -28,21 +28,16 @@ import {
   findByDate as repoFindByDate,
   findByMatch as repoFindByMatch,
   findRecentPending as repoFindPending,
-  findPendingForMatch as repoFindPendingForMatch,
   findAllPendingForMatch as repoFindAllPending,
   findAllForMatch as repoFindAllForMatch,
-  // findPendingForMatch imported but unused — see TS6133 cleanup
   getAvailableDates as repoGetDates,
   calculateSignalStats as repoCalculateStats,
   updateVerification as repoUpdateVerification,
   updateFinalScore as repoUpdateFinalScore,
 } from "./signalRepository";
 
-// ── Server-only check ─────────────────────────────────────────
-const isServer = typeof window === 'undefined' && typeof process !== 'undefined';
-
 // ── Local date helper ────────────────────────────────────
-const getLocalDateString = (d: Date = new Date()): string => {
+export const getLocalDateString = (d: Date = new Date()): string => {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -50,11 +45,13 @@ const getLocalDateString = (d: Date = new Date()): string => {
 };
 
 // ── Proper minute parser (handles "45+2" → 47) ──────────────
-function parseMinute(minute: string | number): number {
+export function parseMinute(minute: string | number): number {
   if (typeof minute === 'number') return Math.max(0, Math.min(120, minute));
   const plusMatch = minute.match(/^(\d+)\s*\+\s*(\d+)/);
   if (plusMatch) {
-    return parseInt(plusMatch[1], 10) + parseInt(plusMatch[2], 10);
+    // Stoppage time: clamp sum to [0, 120] (matches numeric branch below)
+    const total = parseInt(plusMatch[1], 10) + parseInt(plusMatch[2], 10);
+    return Math.max(0, Math.min(120, total));
   }
   const num = parseInt(minute.replace(/[^0-9]/g, ''), 10);
   return isNaN(num) ? 0 : Math.max(0, Math.min(120, num));
@@ -469,9 +466,15 @@ let expiryInterval: ReturnType<typeof setInterval> | null = null;
 /**
  * Start the background expiry checker. Runs every EXPIRY_CHECK_INTERVAL_MS.
  */
+/**
+ * Start the background expiry checker. Runs every EXPIRY_CHECK_INTERVAL_MS.
+ * Server-only — guarded inline so this module stays safe to import
+ * from any code path without accidentally registering intervals in
+ * the client bundle.
+ */
 export function startExpiryChecker(): void {
   if (expiryInterval) return;
-  if (!isServer) return;
+  if (typeof window !== "undefined") return; // client-side guard
   expiryInterval = setInterval(async () => {
     try {
       const expired = await expireStaleSignals();

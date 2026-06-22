@@ -90,16 +90,31 @@ export async function seedDefaultAdmin(): Promise<void> {
   const existing = await db.user.findUnique({ where: { username: "admin" } });
   if (existing) return;
 
-  const defaultPassword =
-    process.env.ADMIN_DEFAULT_PASSWORD ??
-    (process.env.NODE_ENV === "development" ? "admin123" : null);
+  // No fallback. A known-weak default password in production is a
+  // critical security hole — fail loudly so the orchestrator surfaces
+  // the misconfiguration instead of silently booting with no admin.
+  const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD;
+  const isProd = process.env.NODE_ENV === "production";
 
   if (!defaultPassword) {
+    if (isProd) {
+      throw new Error(
+        "ADMIN_DEFAULT_PASSWORD is required in production. " +
+          "Set it in the container environment before starting.",
+      );
+    }
     logInfo(
       "AUTH",
-      "No admin user exists and ADMIN_DEFAULT_PASSWORD not set. Skipping seed.",
+      "No admin user exists and ADMIN_DEFAULT_PASSWORD not set (dev mode). Skipping seed.",
     );
     return;
+  }
+
+  if (defaultPassword.length < 12) {
+    throw new Error(
+      "ADMIN_DEFAULT_PASSWORD must be at least 12 characters. " +
+        "Generate one with: openssl rand -base64 24",
+    );
   }
 
   const { hash, salt } = hashPassword(defaultPassword);

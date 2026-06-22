@@ -57,6 +57,22 @@ function evictIfFull(): void {
 }
 
 /**
+ * Read the Brier score from the current champion artifact. Returns
+ * null if no champion exists or the metrics JSON is malformed. The
+ * caller is responsible for falling back to a default Brier when
+ * null is returned.
+ */
+export async function getChampionBrier(
+  name: ModelName,
+): Promise<number | null> {
+  const meta = await getChampionPath(name);
+  if (!meta) return null;
+  const brier = meta.metrics.brier;
+  if (typeof brier !== 'number' || !Number.isFinite(brier)) return null;
+  return brier;
+}
+
+/**
  * Resolve the champion path for a given model name from the DB.
  * Returns null if no champion has been promoted yet.
  */

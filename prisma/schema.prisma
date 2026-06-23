@@ -411,3 +411,34 @@ model PipelineRun {
   @@index([createdAt])
   @@index([status])
 }
+
+// ── Gol Radarı: SystemConfig (key-value runtime config) ──────────
+// Faz 2 — runtime-mutable parametreler (CALIBRATION_PARAMS, league profiles, mode ayarları)
+// process-local mutable export yerine burada tutulur. Serverless instance'ları
+// arası tutarlılık için tek kaynak. İzotoni tablo breakpoint'leri büyük olabilir
+// ama Json sütununa sığar; disk'te bırakma kararı Faz 2'de netleşti: DB.
+model SystemConfig {
+  key         String   @id // "calibration.params", "calibration.isotonic", "smartCalibration.mode"
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?  // admin user id / "autoCalibrate"
+}
+
+// ── Gol Radarı: League Profile (lig gol zamanlama kalibrasyonu) ──
+// Faz 2 — smartCalibration LEAGUE_DEFAULTS + EMA güncellemeleri. Önceden
+// dosya tabanlıydı (data/smart-calibration/league-profiles.json). Serverless
+// coherence için DB. Tek-EMA maç < MIN_LEAGUE_SAMPLES iken default'lar korunur
+// (config.ts), matchCount >= MIN_LEAGUE_SAMPLES olunca blend aktif.
+model LeagueProfile {
+  leagueId         Int      @id
+  leagueName       String
+  country          String
+  avgGoalMinute    Float
+  medianGoalMinute Float
+  goalTimeStdDev   Float
+  earlyGoalRate    Float
+  lateGoalRate     Float
+  halftimeGoalRate Float
+  matchCount       Int      @default(0)
+  lastUpdatedAt    DateTime @updatedAt
+}

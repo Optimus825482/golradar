@@ -15,6 +15,7 @@ import { devLog, devWarn, devError } from './devLog';
 // The model is trained offline and loaded at runtime.
 
 import { FEATURE_NAMES, type TrainingRecord } from './featureEngineering';
+import { MIN_REAL_SAMPLES_FOR_PROMOTION } from '@/config';
 
 // ── Decision Tree Node ────────────────────────────────────────────
 
@@ -180,6 +181,7 @@ interface TrainingConfig {
   minSamples: number;       // Min samples per leaf (default: 10)
   featureSampleRatio: number; // Feature subsampling ratio (default: 0.8)
   l2Reg: number;            // L2 regularization (default: 0.1)
+  seed: number;             // Faz 5 — RNG seed for reproducible training
 }
 
 const DEFAULT_CONFIG: TrainingConfig = {
@@ -189,7 +191,22 @@ const DEFAULT_CONFIG: TrainingConfig = {
   minSamples: 10,
   featureSampleRatio: 0.8,
   l2Reg: 0.1,
+  seed: 42,
 };
+
+// ── Faz 5 — Seedable RNG (mulberry32) ────────────────────────────
+// Math.random() yerine deterministik üretici. Aynı seed + aynı veri
+// → aynı ağaçlar (reproducible training).
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 function trainGBDT(
   records: TrainingRecord[],
@@ -201,6 +218,8 @@ function trainGBDT(
 
   const features = records.map(r => r.features);
   const labels = records.map(r => r.label);
+  // Faz 5: deterministic eğitim — seed yoksa cfg'den, yoksa sabit default.
+  const rng = mulberry32(cfg.seed ?? 42);
   const numFeatures = features[0].length;
 
   // Initial prediction = mean of labels
@@ -216,12 +235,12 @@ function trainGBDT(
     // Feature subsampling
     const featureSubset: number[] = [];
     for (let i = 0; i < numFeatures; i++) {
-      if (Math.random() < cfg.featureSampleRatio) {
+      if (rng() < cfg.featureSampleRatio) {
         featureSubset.push(i);
       }
     }
     if (featureSubset.length === 0) {
-      featureSubset.push(Math.floor(Math.random() * numFeatures));
+      featureSubset.push(Math.floor(rng() * numFeatures));
     }
 
     // Build tree on residuals
@@ -415,28 +434,31 @@ function loadTrainingData(): TrainingRecord[] {
 // When we don't have enough real training data, generate synthetic
 // samples based on the known statistical properties of football.
 
-function generateSyntheticTrainingData(numSamples: number = 5000): TrainingRecord[] {
+function generateSyntheticTrainingData(
+  numSamples: number = 5000,
+  rng: () => number = Math.random,
+): TrainingRecord[] {
   const records: TrainingRecord[] = [];
 
   for (let i = 0; i < numSamples; i++) {
-    const minute = Math.floor(Math.random() * 90) + 1;
+    const minute = Math.floor(rng() * 90) + 1;
     const elapsed15 = Math.max(1, minute / 15);
 
     // Simulate match stats with realistic distributions
-    const possHome = 40 + Math.random() * 20; // 40-60%
+    const possHome = 40 + rng() * 20; // 40-60%
     const possAway = 100 - possHome;
 
-    const daHome = Math.floor(Math.random() * 50 * (minute / 90));
-    const daAway = Math.floor(Math.random() * 50 * (minute / 90));
+    const daHome = Math.floor(rng() * 50 * (minute / 90));
+    const daAway = Math.floor(rng() * 50 * (minute / 90));
 
-    const sotHome = Math.floor(Math.random() * 8 * (minute / 90));
-    const sotAway = Math.floor(Math.random() * 8 * (minute / 90));
+    const sotHome = Math.floor(rng() * 8 * (minute / 90));
+    const sotAway = Math.floor(rng() * 8 * (minute / 90));
 
-    const shotsHome = sotHome + Math.floor(Math.random() * 10 * (minute / 90));
-    const shotsAway = sotAway + Math.floor(Math.random() * 10 * (minute / 90));
+    const shotsHome = sotHome + Math.floor(rng() * 10 * (minute / 90));
+    const shotsAway = sotAway + Math.floor(rng() * 10 * (minute / 90));
 
-    const cornersHome = Math.floor(Math.random() * 8 * (minute / 90));
-    const cornersAway = Math.floor(Math.random() * 8 * (minute / 90));
+    const cornersHome = Math.floor(rng() * 8 * (minute / 90));
+    const cornersAway = Math.floor(rng() * 8 * (minute / 90));
 
     const xgHome = sotHome * 0.38 + Math.max(0, shotsHome - sotHome) * 0.05 + cornersHome * 0.04 + daHome * 0.01;
     const xgAway = sotAway * 0.38 + Math.max(0, shotsAway - sotAway) * 0.05 + cornersAway * 0.04 + daAway * 0.01;
@@ -455,20 +477,17 @@ function generateSyntheticTrainingData(numSamples: number = 5000): TrainingRecor
                         (totalCorners > 0 ? (cornersHome / totalCorners) * 0.125 * 100 : 0);
 
     // Goal probability model: based on research-calibrated features
-    // Higher xG, SOT rate, pressure, and late minutes → more likely goal
     const xgRate = (xgHome + xgAway) / elapsed15;
-    const sotRate = (sotHome + sotAway) / elapsed15;
     const timeFactor = minute <= 15 ? 0.70 : minute <= 30 ? 0.88 : minute <= 45 ? 1.05 :
                        minute <= 60 ? 1.00 : minute <= 75 ? 1.12 : 1.30;
     const pressureIntensity = Math.abs(homePressure - 50) / 50;
 
     // Base goal probability per 10-minute window: ~8-15%
-    // Calibrated from literature: ~2.5 goals per match, 90 min
     const baseGoalP = (2.5 / 9) * (10 / 90); // ~3% per minute → ~30% per 10 min
     const adjustedP = baseGoalP * timeFactor * (1 + xgRate * 0.8) * (1 + pressureIntensity * 0.3);
 
     // Label: 1 if goal in next 10 min (probabilistic)
-    const label = Math.random() < Math.min(0.7, adjustedP * 10) ? 1 : 0;
+    const label = rng() < Math.min(0.7, adjustedP * 10) ? 1 : 0;
 
     // Build feature vector
     const features = new Array(FEATURE_NAMES.length).fill(0);
@@ -503,7 +522,7 @@ function generateSyntheticTrainingData(numSamples: number = 5000): TrainingRecor
       matchCode: -1, // synthetic
       minute,
       timestamp: Date.now() - (90 - minute) * 60000,
-      side: Math.random() > 0.5 ? 'home' : 'away',
+      side: rng() > 0.5 ? 'home' : 'away',
     });
   }
 

@@ -378,6 +378,112 @@ export async function updateFinalScore(
   }
 }
 
+// ── Batch writes (Faz 3) ────────────────────────────────────────
+
+/**
+ * Bulk verification update for a single match — collapses N
+ * pending signals' update into one round trip.
+ * Returns the count of rows actually updated.
+ */
+export async function updateVerificationBatch(
+  matchCode: number,
+  fields: {
+    goalHappened: boolean;
+    goalMinute?: number;
+    goalSide?: 'home' | 'away' | null;
+    correctPrediction?: boolean;
+    minutesAfterSignal?: number;
+    goalTimestamp?: number | null;
+  },
+): Promise<number> {
+  try {
+    const result = await db.signal.updateMany({
+      where: { matchCode, goalHappened: null },
+      data: {
+        goalHappened: fields.goalHappened,
+        goalMinute: fields.goalMinute,
+        goalSide: fields.goalSide ?? null,
+        correctPrediction: fields.correctPrediction,
+        minutesAfterSignal: fields.minutesAfterSignal,
+        goalTimestamp:
+          fields.goalTimestamp != null
+            ? new Date(fields.goalTimestamp)
+            : fields.goalTimestamp === null
+              ? null
+              : undefined,
+      },
+    });
+    return result.count;
+  } catch (err) {
+    logError('signalRepository', 'updateVerificationBatch failed:', err);
+    return 0;
+  }
+}
+
+/**
+ * Bulk expire pending signals whose signalTimestamp is older than
+ * `cutoff`. Returns number of expired signals.
+ */
+export async function expirePendingBatch(cutoff: Date): Promise<number> {
+  try {
+    const result = await db.signal.updateMany({
+      where: { goalHappened: null, signalTimestamp: { lt: cutoff } },
+      data: { goalHappened: false },
+    });
+    return result.count;
+  } catch (err) {
+    logError('signalRepository', 'expirePendingBatch failed:', err);
+    return 0;
+  }
+}
+
+/**
+ * Bulk finalize: set final score on ALL signals for a match whose
+ * finalHomeScore is not yet set. Idempotent (skips already-set rows
+ * via the `null` check in where).
+ */
+export async function finalizeMatchBatch(
+  matchCode: number,
+  finalHomeScore: number,
+  finalAwayScore: number,
+): Promise<number> {
+  try {
+    const result = await db.signal.updateMany({
+      where: { matchCode, finalHomeScore: null },
+      data: { finalHomeScore, finalAwayScore },
+    });
+    return result.count;
+  } catch (err) {
+    logError('signalRepository', 'finalizeMatchBatch failed:', err);
+    return 0;
+  }
+}
+
+/**
+ * Bulk expire pending signals for a halftime-eligible window
+ * (signalMinute >= 41) across multiple matches. Used by
+ * expireSignalsForHalftime to avoid N round trips.
+ */
+export async function expireHalftimeBatch(
+  matchCodes: number[],
+): Promise<number> {
+  if (matchCodes.length === 0) return 0;
+  try {
+    const result = await db.signal.updateMany({
+      where: {
+        matchCode: { in: matchCodes },
+        goalHappened: null,
+        signalMinute: { gte: 41 },
+      },
+      data: { goalHappened: false, minutesAfterSignal: 15 },
+    });
+    return result.count;
+  } catch (err) {
+    logError('signalRepository', 'expireHalftimeBatch failed:', err);
+    return 0;
+  }
+}
+
 // ── Error guards ────────────────────────────────────────────────
 
 function isPrismaUniqueViolation(err: unknown): boolean {

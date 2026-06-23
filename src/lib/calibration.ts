@@ -1,20 +1,18 @@
 // ── Probability Calibration & Brier Score Tracking ───────────────
 // Converts raw Goal Radar scores (0-100) to calibrated probabilities.
 // Tracks prediction accuracy using Brier Score, Log Loss, and
-// calibration curves. Persists to JSON files for backtesting.
+// calibration curves.
+//
+// Persistence (Faz 2): SystemConfig tablosu (sigmoid L/k/x0 + isotonic
+// breakpoint'leri) + PredictionLog (istatistik/autoCalibrate kaynağı).
+// Disk'teki data/calibration/records.json + isotonic.json YOK.
 //
 // Reference: Brier, G.W. (1950). "Verification of forecasts expressed
 // in terms of probability." Monthly Weather Review.
 
-interface CalibrationRecord {
-  score: number;           // Raw Goal Radar score (0-100)
-  calibratedP: number;     // Calibrated probability (0-1)
-  goalScored: boolean;     // Whether a goal was actually scored
-  minutesToGoal: number | null; // Minutes from signal to goal (or null)
-  timestamp: number;
-  matchCode: number;
-  side: 'home' | 'away' | 'both';
-}
+import { db } from "./db";
+import { logError } from '@/lib/devLog';
+import { DEFAULT_CALIBRATION_PARAMS } from '@/config';
 
 export interface CalibrationBin {
   scoreRange: [number, number]; // e.g., [30, 40)
@@ -35,30 +33,21 @@ export interface CalibrationStats {
   lastUpdated: number;
 }
 
-function getServerFs(): { fs: any; path: any } | null {
-  if (typeof window !== 'undefined') return null;
-  try {
-    return { fs: require('fs'), path: require('path') };
-  } catch { return null; }
-}
-
-const s = getServerFs();
-const DATA_DIR = s ? s.path.join(process.cwd(), 'data', 'calibration') : '';
-const RECORDS_FILE = s ? s.path.join(DATA_DIR, 'records.json') : '';
+// ── SystemConfig anahtarları ────────────────────────────────────
+const SYSTEM_KEY_PARAMS = 'calibration.params';
+const SYSTEM_KEY_ISOTONIC = 'calibration.isotonic';
 
 // ── Calibration Curve (sigmoid-based) ────────────────────────────
-// Parameters are runtime-mutable — autoCalibrateFromDB() updates them
-// from actual PredictionLog outcomes.
-export const CALIBRATION_PARAMS = {
-  L: 0.95,      // max probability (ceiling) — was 0.80, raised to allow high-confidence signals
-  k: 0.065,     // steepness
-  x0: 65,       // midpoint (score → 50% probability)
+// Runtime-mutable. autoCalibrateFromDB() DB'ye yazdığında in-memory
+// cache de güncellenir. Startup'ta hydrateFromDB() ile DB'den çekilir.
+export const CALIBRATION_PARAMS: { L: number; k: number; x0: number } = {
+  ...DEFAULT_CALIBRATION_PARAMS,
 };
 
 // ── Isotonic regression (PAVA) ───────────────────────────────────
 // Non-parametric monotonic mapping. Outperforms sigmoid for tree-based
 // models when n ≥ 500 validation samples (Niculescu-Mizil 2005).
-// Persists breakpoints to disk; reload on startup.
+// Persisted in SystemConfig (calibration.isotonic) as JSONB.
 interface IsotonicTable {
   /** Sorted x breakpoints in [0,1] */
   x: number[];
@@ -68,20 +57,14 @@ interface IsotonicTable {
   fittedN: number;
 }
 
-const ISOTONIC_FILE = s
-  ? s.path.join(process.cwd(), 'data', 'calibration', 'isotonic.json')
-  : '';
-
 let cachedIsotonic: IsotonicTable | null = null;
 
 function poolAdjacentViolators(xIn: number[], yIn: number[]): { x: number[]; y: number[] } {
-  // Sort by x
   const pairs = xIn.map((x, i) => [x, yIn[i]] as [number, number])
     .sort((a, b) => a[0] - b[0]);
   const xs = pairs.map(p => p[0]);
   const ys: number[] = pairs.map(p => p[1]);
 
-  // Forward PAVA pass: enforce non-decreasing
   const blockMeans: number[] = [];
   const blockSizes: number[] = [];
   let curMean = ys[0];
@@ -100,7 +83,6 @@ function poolAdjacentViolators(xIn: number[], yIn: number[]): { x: number[]; y: 
   blockMeans.push(curMean);
   blockSizes.push(curSize);
 
-  // Map each point to its block mean
   const calibrated = new Array<number>(xs.length);
   let idx = 0;
   for (let b = 0; b < blockMeans.length; b++) {
@@ -108,7 +90,6 @@ function poolAdjacentViolators(xIn: number[], yIn: number[]): { x: number[]; y: 
       calibrated[idx++] = blockMeans[b];
     }
   }
-  // Compress to unique breakpoints
   const outX: number[] = [];
   const outY: number[] = [];
   for (let i = 0; i < xs.length; i++) {
@@ -120,6 +101,48 @@ function poolAdjacentViolators(xIn: number[], yIn: number[]): { x: number[]; y: 
   return { x: outX, y: outY };
 }
 
+// ── SystemConfig hydrate / persist ───────────────────────────────
+/** DB'den calibration params + isotonic'i çekip in-memory cache'i doldurur. */
+export async function hydrateCalibrationFromDB(): Promise<void> {
+  try {
+    const rows = await db.systemConfig.findMany({
+      where: { key: { in: [SYSTEM_KEY_PARAMS, SYSTEM_KEY_ISOTONIC] } },
+    });
+    for (const row of rows) {
+      if (row.key === SYSTEM_KEY_PARAMS) {
+        const v = row.value as { L?: number; k?: number; x0?: number } | null;
+        if (v && typeof v.L === 'number' && typeof v.k === 'number' && typeof v.x0 === 'number') {
+          CALIBRATION_PARAMS.L = v.L;
+          CALIBRATION_PARAMS.k = v.k;
+          CALIBRATION_PARAMS.x0 = v.x0;
+        }
+      } else if (row.key === SYSTEM_KEY_ISOTONIC) {
+        const v = row.value as IsotonicTable | null;
+        if (v && Array.isArray(v.x) && Array.isArray(v.y) && v.x.length === v.y.length) {
+          cachedIsotonic = v;
+        }
+      }
+    }
+  } catch (e) {
+    logError('calibration', 'hydrateFromDB failed:', e);
+  }
+}
+
+async function persistParamsToDB(updatedBy: string): Promise<void> {
+  await db.systemConfig.upsert({
+    where: { key: SYSTEM_KEY_PARAMS },
+    create: {
+      key: SYSTEM_KEY_PARAMS,
+      value: { L: CALIBRATION_PARAMS.L, k: CALIBRATION_PARAMS.k, x0: CALIBRATION_PARAMS.x0 },
+      updatedBy,
+    },
+    update: {
+      value: { L: CALIBRATION_PARAMS.L, k: CALIBRATION_PARAMS.k, x0: CALIBRATION_PARAMS.x0 },
+      updatedBy,
+    },
+  });
+}
+
 export function fitIsotonic(
   rawScores: number[],  // 0-100
   actuals: number[],     // 0 or 1
@@ -129,39 +152,31 @@ export function fitIsotonic(
   const { x, y } = poolAdjacentViolators(xNorm, actuals);
   const table: IsotonicTable = { x, y, fittedAt: Date.now(), fittedN: rawScores.length };
   cachedIsotonic = table;
-  // Persist
-  try {
-    const s2 = getServerFs();
-    if (s2) {
-      ensureDataDir();
-      s2.fs.writeFileSync(ISOTONIC_FILE, JSON.stringify(table));
-    }
-  } catch (e) { logError('calibration', 'isotonic persist failed:', e); }
+  // Persist async — fire-and-forget, hata durumunda in-memory tablo yine geçerli.
+  db.systemConfig
+    .upsert({
+      where: { key: SYSTEM_KEY_ISOTONIC },
+      create: { key: SYSTEM_KEY_ISOTONIC, value: table as unknown as object },
+      update: { value: table as unknown as object },
+    })
+    .catch((e) => logError('calibration', 'isotonic persist failed:', e));
   return table;
 }
 
 function loadIsotonic(): IsotonicTable | null {
-  if (cachedIsotonic) return cachedIsotonic;
-  try {
-    const s2 = getServerFs();
-    if (!s2 || !ISOTONIC_FILE || !s2.fs.existsSync(ISOTONIC_FILE)) return null;
-    cachedIsotonic = JSON.parse(s2.fs.readFileSync(ISOTONIC_FILE, 'utf-8'));
-    return cachedIsotonic;
-  } catch { return null; }
+  return cachedIsotonic;
 }
 
 export function applyIsotonic(rawScore: number): number | null {
   const table = loadIsotonic();
   if (!table || table.x.length === 0) return null;
   const x = Math.max(0, Math.min(1, rawScore / 100));
-  // Binary search for left breakpoint
   let lo = 0, hi = table.x.length - 1;
   while (lo < hi - 1) {
     const mid = (lo + hi) >> 1;
     if (table.x[mid] <= x) lo = mid;
     else hi = mid;
   }
-  // Interpolate between breakpoints (clamp at edges)
   if (x <= table.x[0]) return table.y[0];
   if (x >= table.x[table.x.length - 1]) return table.y[table.y.length - 1];
   const x0 = table.x[lo], x1 = table.x[hi];
@@ -174,17 +189,14 @@ export function clearIsotonicCache(): void {
   cachedIsotonic = null;
 }
 
-import { db } from "./db";
-import { logError } from '@/lib/devLog';
-
-/** Optimize sigmoid params from PredictionLog table, persist to DB. */
+/** Optimize sigmoid params from PredictionLog table, persist to SystemConfig. */
 export async function autoCalibrateFromDB(): Promise<{
   x0: number;
   k: number;
+  L: number;
   brierBefore: number;
   brierAfter: number;
 } | null> {
-  // Load resolved predictions (goalScored not null) from last 90 days
   const logs = await db.predictionLog.findMany({
     where: { goalScored: { not: null } },
     select: { rawScore: true, calibratedP: true, goalScored: true },
@@ -194,31 +206,36 @@ export async function autoCalibrateFromDB(): Promise<{
 
   if (logs.length < 50) return null;
 
-  // Current brier
   const currentBrier =
     logs.reduce(
       (s, r) => s + Math.pow(r.calibratedP - (r.goalScored ? 1 : 0), 2),
       0,
     ) / logs.length;
 
-  // Grid search for best (x0, k). L stays at 0.80 (ceiling)
+  // Faz 2 — L grid search'a dahil edildi. Grid: x0∈[40..85] step 2,
+  // k∈[0.020..0.120] step 0.002, L∈[0.80..0.99] step 0.02.
   let bestX0 = CALIBRATION_PARAMS.x0;
   let bestK = CALIBRATION_PARAMS.k;
+  let bestL = CALIBRATION_PARAMS.L;
   let bestBrier = currentBrier;
 
   for (let x0 = 40; x0 <= 85; x0 += 2) {
     for (let kRaw = 20; kRaw <= 120; kRaw += 2) {
       const k = kRaw / 1000;
-      let sum = 0;
-      for (const r of logs) {
-        const p = CALIBRATION_PARAMS.L / (1 + Math.exp(-k * (r.rawScore - x0)));
-        sum += Math.pow(p - (r.goalScored ? 1 : 0), 2);
-      }
-      const brier = sum / logs.length;
-      if (brier < bestBrier) {
-        bestBrier = brier;
-        bestX0 = x0;
-        bestK = k;
+      for (let lRaw = 80; lRaw <= 99; lRaw += 2) {
+        const L = lRaw / 100;
+        let sum = 0;
+        for (const r of logs) {
+          const p = L / (1 + Math.exp(-k * (r.rawScore - x0)));
+          sum += Math.pow(p - (r.goalScored ? 1 : 0), 2);
+        }
+        const brier = sum / logs.length;
+        if (brier < bestBrier) {
+          bestBrier = brier;
+          bestX0 = x0;
+          bestK = k;
+          bestL = L;
+        }
       }
     }
   }
@@ -227,12 +244,19 @@ export async function autoCalibrateFromDB(): Promise<{
   if (bestBrier < currentBrier * 0.98) {
     CALIBRATION_PARAMS.x0 = bestX0;
     CALIBRATION_PARAMS.k = bestK;
+    CALIBRATION_PARAMS.L = bestL;
+    try {
+      await persistParamsToDB('autoCalibrateFromDB');
+    } catch (e) {
+      logError('calibration', 'persist failed:', e);
+    }
     console.log(
-      `[Calibration] Optimized: x0=${bestX0}, k=${bestK.toFixed(4)}, Brier ${currentBrier.toFixed(4)} → ${bestBrier.toFixed(4)}`,
+      `[Calibration] Optimized: x0=${bestX0}, k=${bestK.toFixed(4)}, L=${bestL.toFixed(2)}, Brier ${currentBrier.toFixed(4)} → ${bestBrier.toFixed(4)}`,
     );
     return {
       x0: bestX0,
       k: bestK,
+      L: bestL,
       brierBefore: currentBrier,
       brierAfter: bestBrier,
     };
@@ -285,7 +309,33 @@ export function computeECE(
   return ece;
 }
 
-function calculateBrierScore(records: CalibrationRecord[]): number {
+// ── İstatistik (PredictionLog tabanlı) ───────────────────────────
+// Eski: records.json (silindi). Artık PredictionLog tek kaynak.
+
+interface StatRecord {
+  score: number;        // rawScore (0-100)
+  calibratedP: number;
+  goalScored: boolean;
+}
+
+async function loadCalibrationRecords(days?: number): Promise<StatRecord[]> {
+  const where: { goalScored: { not: null } } = { goalScored: { not: null } };
+  const logs = await db.predictionLog.findMany({
+    where,
+    select: { rawScore: true, calibratedP: true, goalScored: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: days ? days * 500 : 50000, // yeterli alt küme
+  });
+  return logs
+    .filter((r) => r.goalScored != null)
+    .map((r) => ({
+      score: r.rawScore,
+      calibratedP: r.calibratedP,
+      goalScored: r.goalScored!,
+    }));
+}
+
+function calculateBrierScore(records: StatRecord[]): number {
   if (records.length === 0) return 1.0;
   let sum = 0;
   for (const r of records) {
@@ -295,7 +345,7 @@ function calculateBrierScore(records: CalibrationRecord[]): number {
   return sum / records.length;
 }
 
-function calculateLogLoss(records: CalibrationRecord[]): number {
+function calculateLogLoss(records: StatRecord[]): number {
   if (records.length === 0) return Infinity;
   let sum = 0;
   const eps = 1e-15;
@@ -307,39 +357,15 @@ function calculateLogLoss(records: CalibrationRecord[]): number {
   return -(sum / records.length);
 }
 
-function ensureDataDir(): void {
-  const s2 = getServerFs();
-  if (!s2) return;
-  if (!s2.fs.existsSync(DATA_DIR)) {
-    s2.fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
-
-function loadCalibrationRecords(): CalibrationRecord[] {
-  try {
-    const s2 = getServerFs();
-    if (!s2) return [];
-    ensureDataDir();
-    if (s2.fs.existsSync(RECORDS_FILE)) {
-      return JSON.parse(s2.fs.readFileSync(RECORDS_FILE, 'utf-8'));
-    }
-  } catch (e) { logError('calibration', e); }
-  return [];
-}
-
-export function calculateCalibrationStats(days?: number): CalibrationStats {
-  let records = loadCalibrationRecords();
-  if (days) {
-    const cutoff = Date.now() - days * 86400000;
-    records = records.filter(r => r.timestamp >= cutoff);
-  }
+export async function calculateCalibrationStats(days?: number): Promise<CalibrationStats> {
+  const records = await loadCalibrationRecords(days);
   if (records.length === 0) {
     return {
       totalPredictions: 0, totalGoals: 0, brierScore: 1.0, logLoss: Infinity,
       accuracy: 0, calibrationError: 0, bins: [], lastUpdated: Date.now(),
     };
   }
-  const totalGoals = records.filter(r => r.goalScored).length;
+  const totalGoals = records.filter((r) => r.goalScored).length;
   const brierScore = calculateBrierScore(records);
   const logLoss = calculateLogLoss(records);
   let correct = 0;
@@ -350,9 +376,9 @@ export function calculateCalibrationStats(days?: number): CalibrationStats {
   const bins: CalibrationBin[] = [];
   for (let lo = 0; lo < 90; lo += 10) {
     const hi = lo + 10;
-    const binRecords = records.filter(r => r.score >= lo && r.score < hi);
+    const binRecords = records.filter((r) => r.score >= lo && r.score < hi);
     if (binRecords.length === 0) continue;
-    const goalCount = binRecords.filter(r => r.goalScored).length;
+    const goalCount = binRecords.filter((r) => r.goalScored).length;
     const avgCalP = binRecords.reduce((s, r) => s + r.calibratedP, 0) / binRecords.length;
     bins.push({
       scoreRange: [lo, hi], count: binRecords.length, goalCount,
@@ -373,29 +399,39 @@ export function calculateCalibrationStats(days?: number): CalibrationStats {
   };
 }
 
-export function autoCalibrate(): { x0: number; k: number; brierBefore: number; brierAfter: number } | null {
-  const records = loadCalibrationRecords();
+export async function autoCalibrate(): Promise<{ x0: number; k: number; L: number; brierBefore: number; brierAfter: number } | null> {
+  const records = await loadCalibrationRecords();
   if (records.length < 50) return null;
   const currentBrier = calculateBrierScore(records);
   let bestX0 = CALIBRATION_PARAMS.x0;
   let bestK = CALIBRATION_PARAMS.k;
+  let bestL = CALIBRATION_PARAMS.L;
   let bestBrier = currentBrier;
   for (let x0 = 40; x0 <= 90; x0 += 5) {
     for (let k = 30; k <= 100; k += 5) {
       const kVal = k / 1000;
-      let sum = 0;
-      for (const r of records) {
-        const p = CALIBRATION_PARAMS.L / (1 + Math.exp(-kVal * (r.score - x0)));
-        sum += Math.pow(p - (r.goalScored ? 1 : 0), 2);
+      for (let lRaw = 80; lRaw <= 99; lRaw += 2) {
+        const L = lRaw / 100;
+        let sum = 0;
+        for (const r of records) {
+          const p = L / (1 + Math.exp(-kVal * (r.score - x0)));
+          sum += Math.pow(p - (r.goalScored ? 1 : 0), 2);
+        }
+        const brier = sum / records.length;
+        if (brier < bestBrier) { bestBrier = brier; bestX0 = x0; bestK = kVal; bestL = L; }
       }
-      const brier = sum / records.length;
-      if (brier < bestBrier) { bestBrier = brier; bestX0 = x0; bestK = kVal; }
     }
   }
   if (bestBrier < currentBrier * 0.95) {
     CALIBRATION_PARAMS.x0 = bestX0;
     CALIBRATION_PARAMS.k = bestK;
-    return { x0: bestX0, k: bestK, brierBefore: currentBrier, brierAfter: bestBrier };
+    CALIBRATION_PARAMS.L = bestL;
+    try {
+      await persistParamsToDB('autoCalibrate');
+    } catch (e) {
+      logError('calibration', 'persist failed:', e);
+    }
+    return { x0: bestX0, k: bestK, L: bestL, brierBefore: currentBrier, brierAfter: bestBrier };
   }
   return null;
 }

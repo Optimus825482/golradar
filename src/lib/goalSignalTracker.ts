@@ -44,6 +44,7 @@ import {
   SIGNAL_COOLDOWN_MS,
 } from "@/config";
 import { db } from "./db";
+import { loadExcludedMinutes, isExcludedMinute } from "./excludedMinutes";
 
 // ── Local date helper ────────────────────────────────────
 export const getLocalDateString = (d: Date = new Date()): string => {
@@ -244,12 +245,11 @@ export async function checkAndRecordSignal(
   if (!goalProbability.side || goalProbability.side === "both") return null;
 
   // ── Excluded minute zones ─────────────────────────────────────
-  // Skip signals in unreliable time windows:
-  //   0-2 min:    match context still forming
-  //   43-45 min:  pre-halftime tactical uncertainty
-  //   89-120 min: extra-time swings
+  // Faz 9 — DB backed (excludedMinutes.ts), cache TTL 5dk. Config
+  // default fallback.
   const sigMin = parseMinute(minute);
-  if (sigMin <= 2 || (sigMin >= 43 && sigMin <= 45) || sigMin >= 89) return null;
+  const excludedZones = await loadExcludedMinutes();
+  if (isExcludedMinute(sigMin, excludedZones)) return null;
 
   const signalSide = goalProbability.side as "home" | "away";
 

@@ -13,7 +13,6 @@ import {
 } from './fotmobIntelligence';
 import { getSmartF8Adjustment, calculateOddsF8Compound, calibrateF8, loadCalibrationMode } from './smartCalibration';
 import { inPlayGoalProbability, calculateExpectedGoals, calculateMatchProbabilities, getTimeBasedGoalMultiplier } from './dixonColes';
-import { calibrateScore } from './calibration';
 import { logError } from '@/lib/devLog';
 
 export interface PressureSnapshotLite {
@@ -1113,13 +1112,11 @@ export function calculateGoalProbability(
     );
   } catch (e) { logError('goalRadar', e); /* fallback */ }
 
-  // Probability calibration
-  let calibratedP = 0;
-  try {
-    calibratedP = calibrateScore(clampedScore);
-  } catch {
-    calibratedP = Math.min(0.8, clampedScore / 100);
-  }
+  // Probability calibration — Faz 4: tek kanal.
+  // Eski: calibrateScore ile sigmoid/PAVA çift katman (goalRadar + ensemble). Şimdi
+  // ham score döneriz; tek kalibrasyon route veya ensemble katmanında uygulanır.
+  // Geçici güvenli fallback: score/100 ile [0..0.8] clamp.
+  const calibratedP = Math.min(0.8, clampedScore / 100);
 
   // Time multiplier
   let timeMultiplier = 1.0;

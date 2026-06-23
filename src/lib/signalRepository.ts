@@ -8,6 +8,7 @@
 import type { Signal } from '@prisma/client';
 import { db } from './db';
 import { logError } from './devLog';
+import { SIGNAL_EXPIRY_MINUTES } from '@/config';
 import type {
   GoalSignalRecord,
   SignalAccuracyStats,
@@ -72,7 +73,7 @@ export function toGoalSignalRecord(row: Signal): GoalSignalRecord {
     finalHomeScore: row.finalHomeScore,
     finalAwayScore: row.finalAwayScore,
 
-    escalated: (row as any).escalated ?? false,
+    escalated: row.escalated ?? false,
   };
   return base as GoalSignalRecord & { id: string };
 }
@@ -438,6 +439,30 @@ export async function expirePendingBatch(cutoff: Date): Promise<number> {
 }
 
 /**
+ * Bulk expire pending signals for an explicit list of matchCodes.
+ * Used by goalSignalTracker.cleanupStaleSignals — keeps the
+ * repository as the single write path. Returns number of expired rows.
+ */
+export async function expirePendingBatchForCodes(
+  matchCodes: number[],
+): Promise<number> {
+  if (matchCodes.length === 0) return 0;
+  try {
+    const result = await db.signal.updateMany({
+      where: { matchCode: { in: matchCodes }, goalHappened: null },
+      data: {
+        goalHappened: false,
+        minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
+      },
+    });
+    return result.count;
+  } catch (err) {
+    logError('signalRepository', 'expirePendingBatchForCodes failed:', err);
+    return 0;
+  }
+}
+
+/**
  * Bulk finalize: set final score on ALL signals for a match whose
  * finalHomeScore is not yet set. Idempotent (skips already-set rows
  * via the `null` check in where).
@@ -590,10 +615,10 @@ export async function calculateSignalStats(
   }
 
   const escalationSignals = allSignals.filter(
-    (s) => (s as any).escalated === true,
+    (s) => s.escalated === true,
   ).length;
   const escalationWithGoal = allSignals.filter(
-    (s) => (s as any).escalated === true && s.goalHappened === true,
+    (s) => s.escalated === true && s.goalHappened === true,
   ).length;
 
   const recentSignals = [...allSignals]

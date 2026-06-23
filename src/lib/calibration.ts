@@ -49,11 +49,10 @@ const RECORDS_FILE = s ? s.path.join(DATA_DIR, 'records.json') : '';
 // ── Calibration Curve (sigmoid-based) ────────────────────────────
 // Parameters are runtime-mutable — autoCalibrateFromDB() updates them
 // from actual PredictionLog outcomes.
-export const CALIBRATION_PARAMS = {
-  L: 0.95,      // max probability (ceiling) — was 0.80, raised to allow high-confidence signals
-  k: 0.065,     // steepness
-  x0: 65,       // midpoint (score → 50% probability)
-};
+// ── Calibration Curve (sigmoid-based) ────────────────────────────
+// Parameters are runtime-mutable — autoCalibrateFromDB() updates them
+// from actual PredictionLog outcomes.
+export const CALIBRATION_PARAMS = { ...DEFAULT_CALIBRATION_PARAMS };
 
 // ── Isotonic regression (PAVA) ───────────────────────────────────
 // Non-parametric monotonic mapping. Outperforms sigmoid for tree-based
@@ -176,6 +175,7 @@ export function clearIsotonicCache(): void {
 
 import { db } from "./db";
 import { logError } from '@/lib/devLog';
+import { DEFAULT_CALIBRATION_PARAMS } from '@/config';
 
 /** Optimize sigmoid params from PredictionLog table, persist to DB. */
 export async function autoCalibrateFromDB(): Promise<{

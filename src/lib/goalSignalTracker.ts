@@ -36,6 +36,13 @@ import {
   updateFinalScore as repoUpdateFinalScore,
 } from "./signalRepository";
 
+import {
+  SIGNAL_THRESHOLD,
+  SIGNAL_EXPIRY_MINUTES,
+  EXPIRY_CHECK_INTERVAL_MS,
+  SIGNAL_COOLDOWN_MS,
+} from "@/config";
+
 // ── Local date helper ────────────────────────────────────
 export const getLocalDateString = (d: Date = new Date()): string => {
   const year = d.getFullYear();
@@ -195,11 +202,8 @@ interface ActiveMatchState {
 const activeMatches = new Map<number, ActiveMatchState>();
 
 // ── Constants ──────────────────────────────────────────────────
-
-const SIGNAL_THRESHOLD = 60;
-const SIGNAL_EXPIRY_MINUTES = 15;  // Max minutes to wait for goal before expiring
-const EXPIRY_CHECK_INTERVAL_MS = 30000; // Check every 30s
-const SIGNAL_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes cooldown between signals for same match+side
+// SIGNAL_THRESHOLD / SIGNAL_EXPIRY_MINUTES / EXPIRY_CHECK_INTERVAL_MS /
+// SIGNAL_COOLDOWN_MS config'den import edilir (src/config.ts).
 
 // ════════════════════════════════════════════════════════════════
 // SINYAL YÖNETIMI — Tek giriş noktası

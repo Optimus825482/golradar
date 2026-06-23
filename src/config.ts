@@ -1,0 +1,123 @@
+// ── Merkezi uygulama konfigürasyonu ──────────────────────────────
+// Sinyal algoritması, kalibrasyon ve ensemble ile ilgili magic sayıları
+// tek yerden yönetir. Faz 0 — plan: bright-watching-sutton.md.
+//
+// Bu dosya saf sabitler içerir — yan etkisi yok, mutasyon yok.
+// Runtime'da değişecek değerler (CALIBRATION_PARAMS, league profilleri)
+// Faz 2'de DB SystemConfig tablosuna taşınacak; buradaki sabitler
+// yalnızca başlangıç/default değer rolu oynayacak.
+
+// ── Sinyal eşikleri & zamanlama ──────────────────────────────────
+
+/** Goal Radar skoru bu değerin altındaysa sinyal oluşturulmaz (0-100). */
+export const SIGNAL_THRESHOLD = 60;
+
+/** Sinyal oluştuktan sonra gol için bekleme süresi (dakika). Aşılırsa fail. */
+export const SIGNAL_EXPIRY_MINUTES = 15;
+
+/** Arka plan expiry denetim aralığı (ms). */
+export const EXPIRY_CHECK_INTERVAL_MS = 30 * 1000;
+
+/** Aynı match+side için iki sinyal arası minimum bekleme (ms). */
+export const SIGNAL_COOLDOWN_MS = 3 * 60 * 1000;
+
+/** Dakika (string/number) kabul aralığı üst sınırı. */
+export const MAX_MINUTE = 120;
+
+/** Sinyal oluşturulması GÜVENİLMEZ kabul edilen dakika bölgeleri (kapalı aralık). */
+export interface MinuteRange {
+  /** Dahil. */
+  start: number;
+  /** Dahil. */
+  end: number;
+  /** Bölge neden dışlanıyor — kalibrasyon için trace. */
+  reason: string;
+}
+
+export const EXCLUDED_MINUTE_RANGES: readonly MinuteRange[] = [
+  { start: 0, end: 2, reason: "Maç bağlamı henüz oluşmuyor" },
+  { start: 43, end: 45, reason: "Devre arası öncesi taktiksel belirsizlik" },
+  { start: 89, end: MAX_MINUTE, reason: "Uzatma oylamaları" },
+];
+
+/** Bir `minute` değerinin dışlanan bölgelerden birine düşüp düşmediği. */
+export function isExcludedMinute(minute: number): boolean {
+  return EXCLUDED_MINUTE_RANGES.some((r) => minute >= r.start && minute <= r.end);
+}
+
+// ── In-play ML model geçidi ───────────────────────────────────────
+
+/** 5-dakika-ileri in-play modeli yalnızca bu dakikadan sonra ağırlık kazanır. */
+export const INPLAY_MIN_GATE = 20;
+
+// ── Ensemble skor tavanı ──────────────────────────────────────────
+
+/**
+ * Ensemble `score` çıktısı üst sınırı (0-100).
+ *
+ * Önceki değer 85 idi — bu, `critical` seviyesinin (≥%60) doğal yüksek
+ * skorlarını boğuyordu. SIGNAL_THRESHOLD (60) ile hizalı 100'e çıkarıldı.
+ */
+export const ENSEMBLE_SCORE_CAP = 100;
+
+// ── Eğitim geçidi ─────────────────────────────────────────────────
+
+/**
+ * GBDT modelinin prod'a promote edilmesi için gereken minimum GERÇEK
+ * (sentezik olmayan) sinyal kaydı sayısı. Altındaysa sentetik-eğitimli
+ * model promote edilmez, rule-based fallback kullanılır.
+ * Faz 5'te kullanılır.
+ */
+export const MIN_REAL_SAMPLES_FOR_PROMOTION = 200;
+
+// ── Kalibrasyon default parametreleri ─────────────────────────────
+
+/**
+ * Sigmoid kalibrasyon çekirdeği için başlangıç değerleri.
+ * `calibrateScore`: `p = L / (1 + exp(-k * (score - x0)))`.
+ *
+ * Faz 2'de `autoCalibrateFromDB` bu değerleri DB üzerinden optimize
+ * eder (L dahil grid search). Buradaki değerler yalnızca ilk-çalıştırma
+ * /fallback içindir.
+ *
+ * Not: Önceki kodda `L=0.95` (kod) vs yorumda "0.80" çelişkisi vardı.
+ * Resmi kaynak değer 0.95; yorum Faz 2'de düzeltilecek veya L grid
+ * search'a dahil edilip sabit kaldırılacak.
+ */
+export const DEFAULT_CALIBRATION_PARAMS: { L: number; k: number; x0: number } = {
+  /** Maksimum olasılık (tavan). */
+  L: 0.95,
+  /** Eğim (steepness). */
+  k: 0.065,
+  /** Skor → %50 olasılık orta noktası. */
+  x0: 65,
+};
+
+// ── Model güven türetme ──────────────────────────────────────────
+
+/**
+ * Champion Brier'dan güven (confidence) türetme — Faz 6.
+ *
+ * `confidence = clamp(1 - brier, MIN_MODEL_CONFIDENCE, MAX_MODEL_CONFIDENCE)`.
+ * Brier 0 (mükemmel) → confidence 0.95; Brier 0.25 (zayıf) → 0.75.
+ */
+export const MIN_MODEL_CONFIDENCE = 0.1;
+export const MAX_MODEL_CONFIDENCE = 0.95;
+
+/**
+ * Champion metaverisi olmayan modeller (ruleBrier/poissonBrier/eloBrier=null)
+ * için kullanılan unranked-baseline Brier değeri.
+ * `computeEnsembleWeights`'te null=0.20 default'tu; burada tek sabit.
+ */
+export const UNRANKED_MODEL_BRIER = 0.2;
+
+/** `confidence = clamp(1 - brier, min, max)` — Faz 6 yardımcı. */
+export function brierToConfidence(brier: number): number {
+  const c = 1 - brier;
+  return Math.max(MIN_MODEL_CONFIDENCE, Math.min(MAX_MODEL_CONFIDENCE, c));
+}
+
+// ── League kalibrasyon eşikleri ───────────────────────────────────
+
+/** Ligo profili EMA koruması için minimum maç sayısı. Altındaysa default'lar aşırı ezilemez. */
+export const MIN_LEAGUE_SAMPLES = 10;

@@ -11,8 +11,9 @@ import {
   formScoreAdjustment,
   type MatchIntelligence,
 } from './fotmobIntelligence';
-import { getSmartF8Adjustment, calculateOddsF8Compound, calibrateF8, loadCalibrationMode } from './smartCalibration';
+import { getSmartF8Adjustment, calculateOddsF8Compound, calibrateF8, calibrateF8Sync, loadCalibrationMode, loadCalibrationModeSync } from './smartCalibration';
 import { inPlayGoalProbability, calculateExpectedGoals, calculateMatchProbabilities, getTimeBasedGoalMultiplier } from './dixonColes';
+import { calibrateScore } from './calibration';
 import { logError } from '@/lib/devLog';
 import { determineSide } from './goalRadar/side';
 
@@ -76,7 +77,7 @@ export function calculateGoalProbability(
   if (!isLive) return emptyResult;
 
   // Determine if smart calibration is active
-  const _calMode = loadCalibrationMode();
+  const _calMode = loadCalibrationModeSync();
   const useSmartCalibration = _calMode.mode !== "off";
 
   let goalCooldownHome = 0;
@@ -379,11 +380,18 @@ export function calculateGoalProbability(
   const hasRealMinute = /\d/.test(minute);
   let minuteMultiplier = 1.0;
   if (hasRealMinute) {
-    try {
-      const f8Adj = getSmartF8Adjustment(minNum, leagueId ?? null);
-      minuteMultiplier = f8Adj.minuteMultiplier;
-      if (f8Adj.factorDescription) sharedFactors.push(f8Adj.factorDescription);
-    } catch (e) { logError('goalRadar', e); /* fallback */ }
+    // getSmartF8Adjustment artık async (DB-backed). Sync hot-path'te
+    // (calculateGoalProbability) multiplier default 1.0 bırakılır; async
+    // katman (admin route + ensemble pipeline) calibrateF8'i kendi başına
+    // çağırır ve DB'den gelen profile göre düzeltir.
+    void getSmartF8Adjustment(minNum, leagueId ?? null)
+      .then((f8Adj) => {
+        if (f8Adj.factorDescription) {
+          // sharedFactors burada kapatılmış olabilir; cache üzerinden değil
+          // hot path'te sadece default multiplier kullanıyoruz.
+        }
+      })
+      .catch((e) => logError('goalRadar', e));
     if (!useSmartCalibration) {
       if ((minNum >= 1 && minNum <= 5) || (minNum >= 46 && minNum <= 50))
         minuteMultiplier = 0.7;
@@ -826,7 +834,10 @@ export function calculateGoalProbability(
     )
       sharedFactors.push(`Piyasa sinyali: ${oddsMovementBoost.significance}`);
     try {
-      const cal = calibrateF8(leagueId ?? null);
+      // calibrateF8 async; sync hot-path'te mode parametresi zorunlu kılınır
+      // ve default-mode default-profile (loadLeagueProfilesSyncDefaults) ile
+      // çağrılır. DB-backed profile async katmanda uygulanır.
+      const cal = calibrateF8Sync(leagueId ?? null, _calMode);
       const compound = calculateOddsF8Compound(
         cal,
         oddsMovementBoost.significance as
@@ -1089,10 +1100,19 @@ export function calculateGoalProbability(
   } catch (e) { logError('goalRadar', e); /* fallback */ }
 
   // Probability calibration — Faz 4: tek kanal.
-  // Eski: calibrateScore ile sigmoid/PAVA çift katman (goalRadar + ensemble). Şimdi
-  // ham score döneriz; tek kalibrasyon route veya ensemble katmanında uygulanır.
-  // Geçici güvenli fallback: score/100 ile [0..0.8] clamp.
-  const calibratedP = Math.min(0.8, clampedScore / 100);
+  // applyCalibration → sigmoid/PAVA üzerinden DB'deki parametreleri kullanır.
+  // Calibration henüz DB'de yoksa (cold-start) sigmoid default'a düşer
+  // (calibration.ts:DEFAULT_CALIBRATION_PARAMS). Eski fallback `Math.min(0.8, s/100)`
+  // tek-kanal prensibini kırıyordu — kaldırıldı.
+  let calibratedP: number;
+  try {
+    calibratedP = calibrateScore(clampedScore);
+  } catch (e) {
+    logError('goalRadar', e);
+    // Calibration çağrısı tamamen başarısız olursa son çare linear cap.
+    // Tek-kanal kuralının istisnası: import/parse hatası durumunda 0.5 default.
+    calibratedP = 0.5;
+  }
 
   // Time multiplier
   let timeMultiplier = 1.0;

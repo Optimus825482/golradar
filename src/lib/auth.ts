@@ -4,7 +4,10 @@
 
 import { db } from "./db";
 import crypto from "crypto";
+import { promisify } from "util";
 import { logInfo } from "./devLog";
+
+const pbkdf2 = promisify(crypto.pbkdf2);
 
 const ITERATIONS = 100_000;
 const KEY_LEN = 64;
@@ -14,22 +17,20 @@ const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // ── Password Hashing ──────────────────────────────────────────────
 
-export function hashPassword(password: string): { hash: string; salt: string } {
+export async function hashPassword(password: string): Promise<{ hash: string; salt: string }> {
   const salt = crypto.randomBytes(32).toString("hex");
-  const hash = crypto
-    .pbkdf2Sync(password, salt, ITERATIONS, KEY_LEN, DIGEST)
-    .toString("hex");
+  const buf = await pbkdf2(password, salt, ITERATIONS, KEY_LEN, DIGEST);
+  const hash = buf.toString("hex");
   return { hash, salt };
 }
 
-export function verifyPassword(
+export async function verifyPassword(
   password: string,
   hash: string,
   salt: string,
-): boolean {
-  const computed = crypto
-    .pbkdf2Sync(password, salt, ITERATIONS, KEY_LEN, DIGEST)
-    .toString("hex");
+): Promise<boolean> {
+  const buf = await pbkdf2(password, salt, ITERATIONS, KEY_LEN, DIGEST);
+  const computed = buf.toString("hex");
   // Constant-time compare
   if (computed.length !== hash.length) return false;
   let diff = 0;
@@ -117,7 +118,7 @@ export async function seedDefaultAdmin(): Promise<void> {
     );
   }
 
-  const { hash, salt } = hashPassword(defaultPassword);
+  const { hash, salt } = await hashPassword(defaultPassword);
   await db.user.create({
     data: {
       username: "admin",

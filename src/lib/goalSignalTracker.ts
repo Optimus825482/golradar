@@ -493,14 +493,6 @@ export function startExpiryChecker(): void {
   }, EXPIRY_CHECK_INTERVAL_MS);
 }
 
-function stopExpiryChecker(): void {
-  if (expiryInterval) {
-    clearInterval(expiryInterval);
-    expiryInterval = null;
-  }
-}
-void stopExpiryChecker;
-
 // ════════════════════════════════════════════════════════════════
 // MAÇ BİTİŞİ — FINALIZE
 // ════════════════════════════════════════════════════════════════

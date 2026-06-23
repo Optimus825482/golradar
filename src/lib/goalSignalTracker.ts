@@ -42,6 +42,7 @@ import {
   EXPIRY_CHECK_INTERVAL_MS,
   SIGNAL_COOLDOWN_MS,
 } from "@/config";
+import { db } from "./db";
 
 // ── Local date helper ────────────────────────────────────
 export const getLocalDateString = (d: Date = new Date()): string => {
@@ -191,15 +192,12 @@ export interface SignalAccuracyStats {
   };
 }
 
-// ── Internal state (session-local only) ────────────────────────
-
-interface ActiveMatchState {
-  lastKnownHomeGoals: number;
-  lastKnownAwayGoals: number;
-  lastSignalTimestamps: Map<string, number>; // "home"|"away" → timestamp for cooldown
-}
-
-const activeMatches = new Map<number, ActiveMatchState>();
+// ── Internal state ─────────────────────────────────────────────
+// Faz 2 — cooldown state artık DB-tabanlı (Signal.lastSignalTimestamp
+// üzerinden). Eski in-memory activeMatches Map'i ve ActiveMatchState
+// interface'i kaldırıldı; kullanım noktaları repoFindExisting ile
+// hesaplanıyor. lastKnownHomeGoals/AwayGoals'a gerek kalmadı — gol
+// sayısı zaten Signal.currentHomeGoals / currentAwayGoals'ta DB'de.
 
 // ── Constants ──────────────────────────────────────────────────
 // SIGNAL_THRESHOLD / SIGNAL_EXPIRY_MINUTES / EXPIRY_CHECK_INTERVAL_MS /
@@ -240,19 +238,6 @@ export async function checkAndRecordSignal(
   const minNum = parseMinute(minute);
   const today = getLocalDateString();
 
-  // ── Update activeMatches state (sadece skor tracking) ─────────
-  let state = activeMatches.get(matchCode);
-  if (!state) {
-    state = {
-      lastKnownHomeGoals: currentHomeGoals,
-      lastKnownAwayGoals: currentAwayGoals,
-      lastSignalTimestamps: new Map(),
-    };
-    activeMatches.set(matchCode, state);
-  }
-  state.lastKnownHomeGoals = currentHomeGoals;
-  state.lastKnownAwayGoals = currentAwayGoals;
-
   // ── Signal threshold checks ───────────────────────────────────
   if (goalProbability.score < SIGNAL_THRESHOLD) return null;
   if (!goalProbability.side || goalProbability.side === "both") return null;
@@ -268,20 +253,23 @@ export async function checkAndRecordSignal(
   const signalSide = goalProbability.side as "home" | "away";
 
   // ── Cooldown check: Aynı match+side için son 3 dk içinde sinyal oluşturuldu mu? ──
-  const lastSignalTime = state.lastSignalTimestamps.get(signalSide);
-  if (lastSignalTime && (now - lastSignalTime) < SIGNAL_COOLDOWN_MS) {
-    // Cooldown içinde — sadece last values güncelle (yeni sinyal oluşturma)
-    const existing = await repoFindExisting(matchCode, today, signalSide);
-    if (existing && existing.goalHappened === null) {
-      await repoUpdateLastValues(existing.id!, {
-        lastScore: goalProbability.score,
-        lastCalibratedP: goalProbability.calibratedP,
-        lastPoissonP: goalProbability.poissonP,
-        lastFactors: goalProbability.factors,
-        lastSignalTimestamp: now,
-      });
+  // Faz 2 — DB-tabanlı: önce repoFindExisting ile fetch et, sonra lastSignalTimestamp
+  // üzerinden cooldown kontrolü yap. Aktif pending sinyal varsa updateLastValues.
+  const existingForCooldown = await repoFindExisting(matchCode, today, signalSide);
+  if (existingForCooldown?.lastSignalTimestamp) {
+    const lastMs = existingForCooldown.lastSignalTimestamp;
+    if (now - lastMs < SIGNAL_COOLDOWN_MS) {
+      if (existingForCooldown.goalHappened === null) {
+        await repoUpdateLastValues(existingForCooldown.id!, {
+          lastScore: goalProbability.score,
+          lastCalibratedP: goalProbability.calibratedP,
+          lastPoissonP: goalProbability.poissonP,
+          lastFactors: goalProbability.factors,
+          lastSignalTimestamp: now,
+        });
+      }
+      return null;
     }
-    return null;
   }
 
   // ── Upsert logic ──────────────────────────────────────────────
@@ -343,10 +331,8 @@ export async function checkAndRecordSignal(
   };
 
   const created = await repoCreate(record);
-  if (created) {
-    // Cooldown timestamp'ini güncelle
-    state.lastSignalTimestamps.set(signalSide, now);
-  }
+  // Cooldown artık DB'de: oluşturulan kaydın lastSignalTimestamp'ı bir sonraki
+  // checkAndRecordSignal çağrısında repoFindExisting ile okunur.
   return created;
 }
 
@@ -385,12 +371,6 @@ export async function reportGoal(
     });
   }
 
-  // Update activeMatches state
-  const state = activeMatches.get(matchCode);
-  if (state) {
-    if (goalSide === 'home') state.lastKnownHomeGoals++;
-    else state.lastKnownAwayGoals++;
-  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -457,7 +437,7 @@ export async function checkPendingSignals(): Promise<{
   stillPending: number;
 }> {
   const expired = await expireStaleSignals();
-  const stillPending = activeMatches.size;
+  const stillPending = await db.signal.count({ where: { goalHappened: null } });
   return { total: expired, expired, stillPending };
 }
 
@@ -524,8 +504,6 @@ export async function finalizeMatchSignals(
     if (!id) continue;
     await repoUpdateFinalScore(id, homeScore, awayScore);
   }
-
-  activeMatches.delete(matchCode);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -538,9 +516,17 @@ export async function finalizeMatchSignals(
 export async function cleanupStaleSignals(
   activeMatchCodes: number[],
 ): Promise<void> {
+  // Faz 2 — DB-tabanlı: aktif listede OLMAYAN maçlardaki pending sinyalleri
+  // expire et. Tüm DB matchCode'ları çekmek yerine caller'ın aktif listesini
+  // tamamlayan: distinct matchCode'ları distinct ile çek, filtrele.
   const activeSet = new Set(activeMatchCodes);
-  for (const [code] of activeMatches) {
-    if (activeSet.has(code)) continue;
+  const distinctCodes = await db.signal.findMany({
+    where: { goalHappened: null },
+    select: { matchCode: true },
+    distinct: ['matchCode'],
+  });
+  const staleCodes = distinctCodes.map((r) => r.matchCode).filter((c) => !activeSet.has(c));
+  for (const code of staleCodes) {
     const pending = await repoFindAllPending(code);
     for (const s of pending) {
       const id = s.id ?? (await loadById(code, s.date, s.signalSide));
@@ -550,7 +536,6 @@ export async function cleanupStaleSignals(
         minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
       });
     }
-    activeMatches.delete(code);
   }
 }
 

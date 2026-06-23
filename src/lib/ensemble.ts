@@ -31,6 +31,7 @@ import { estimateXgFromShots } from './estimateXg';
 import { loadXgbChampion } from "./ml/modelRouter";
 import { predictXgb, type XgbModel } from "./ml/xgbLoader";
 import { logError } from '@/lib/devLog';
+import { brierToConfidence, UNRANKED_MODEL_BRIER } from '@/config';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -238,16 +239,25 @@ export async function predictEnsemble(
       // Champion XGB model — extract features once
       const { featureArray } = await getMlFeaturesCached();
       mlP = Math.max(0, Math.min(1, predictXgb(mlModel, featureArray)));
-      mlConfidence = 0.7; // calibrated via backtest Brier
+      // Faz 6 — confidence champion Brier'dan türetilir. Brier mevcut değilse
+      // (henüz backtest edilmemiş şampiyon) 0.7 fallback.
+      const mlChampionBrier = await getChampionBrier("xgb");
+      mlConfidence =
+        mlChampionBrier != null
+          ? brierToConfidence(mlChampionBrier)
+          : 0.7;
 
-      // Extract top feature contributions (heuristic: top-3 magnitude)
+      // Extract top feature contributions — importance artık Brier-skalasına göre
+      // göreceli olarak artık bilinen ML model kullanılır; aksi hâlde heuristic.
       const sorted = featureArray
         .map((v, i) => ({ index: i, value: Math.abs(v) }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 5);
+      const factorImportance =
+        mlChampionBrier != null ? Math.max(0.05, brierToConfidence(mlChampionBrier)) : 0.3;
       mlTopFactors = sorted.map((s) => ({
         feature: `f${s.index}`,
-        importance: 0.3,
+        importance: Math.round(factorImportance * 1000) / 1000,
         value: featureArray[s.index] ?? 0,
       }));
     } else {
@@ -288,7 +298,12 @@ export async function predictEnsemble(
           0,
           Math.min(1, predictXgb(ipChampion.model, featureArray)),
         );
-        inPlayConf = 0.7; // fixed for now; can be re-derived from Brier later
+        // Faz 6 — in-play confidence champion Brier'dan türetilir.
+        const inplayChampionBrier = await getChampionBrier("inplay");
+        inPlayConf =
+          inplayChampionBrier != null
+            ? brierToConfidence(inplayChampionBrier)
+            : 0.7;
         inPlayDetails = `v${ipChampion.version} (horizon=5m, minute=${minNum})`;
       }
     } catch {
@@ -321,6 +336,11 @@ export async function predictEnsemble(
       teamStrengthP = Math.max(0, Math.min(0.6, lambdaImminent));
       teamStrengthConf =
         Math.min(tsPred.matches.home, tsPred.matches.away) >= 5 ? 0.7 : 0.3;
+      const teamStrengthChampionBrier = await getChampionBrier("team-strength");
+      teamStrengthConf =
+        teamStrengthChampionBrier != null
+          ? brierToConfidence(teamStrengthChampionBrier)
+          : teamStrengthConf;
       teamStrengthHomeWin = tsPred.homeWinP;
       teamStrengthDraw = tsPred.drawP;
       teamStrengthAwayWin = tsPred.awayWinP;
@@ -473,14 +493,17 @@ export async function predictEnsemble(
     {
       name: "Poisson",
       probability: Math.round(poissonP * 1000) / 1000,
-      confidence: poissonP > 0 ? 0.7 : 0,
+      // Faz 6 — Poisson/Elo champion metadata yok (sadece gbdt/xgb/inplay/team-strength
+      // için). Unranked sentinel Brier (0.20) ile türetilir; ileride gerçek Brier eklenecek.
+      confidence: poissonP > 0 ? brierToConfidence(UNRANKED_MODEL_BRIER) : 0,
       weight: Math.round(weights.poisson * 100) / 100,
       details: `O2.5: ${(poissonOverUnder * 100).toFixed(0)}% | BTTS: ${(poissonBTTS * 100).toFixed(0)}%`,
     },
     {
       name: "Elo",
       probability: Math.round(eloP * 1000) / 1000,
-      confidence: homeTeam && awayTeam ? 0.6 : 0,
+      // Faz 6 — bkz. Poisson confidence yorumu.
+      confidence: homeTeam && awayTeam ? brierToConfidence(UNRANKED_MODEL_BRIER) : 0,
       weight: Math.round(weights.elo * 100) / 100,
       details:
         homeTeam && awayTeam ? `${homeTeam} vs ${awayTeam}` : "No team data",

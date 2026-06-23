@@ -180,6 +180,7 @@ interface TrainingConfig {
   minSamples: number;       // Min samples per leaf (default: 10)
   featureSampleRatio: number; // Feature subsampling ratio (default: 0.8)
   l2Reg: number;            // L2 regularization (default: 0.1)
+  seed: number;             // Faz 5 — RNG seed for reproducible training
 }
 
 const DEFAULT_CONFIG: TrainingConfig = {
@@ -189,7 +190,22 @@ const DEFAULT_CONFIG: TrainingConfig = {
   minSamples: 10,
   featureSampleRatio: 0.8,
   l2Reg: 0.1,
+  seed: 42,
 };
+
+// ── Faz 5 — Seedable RNG (mulberry32) ────────────────────────────
+// Math.random() yerine deterministik üretici. Aynı seed + aynı veri
+// → aynı ağaçlar (reproducible training).
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 function trainGBDT(
   records: TrainingRecord[],
@@ -201,6 +217,8 @@ function trainGBDT(
 
   const features = records.map(r => r.features);
   const labels = records.map(r => r.label);
+  // Faz 5: deterministic eğitim — seed yoksa cfg'den, yoksa sabit default.
+  const rng = mulberry32(cfg.seed ?? 42);
   const numFeatures = features[0].length;
 
   // Initial prediction = mean of labels

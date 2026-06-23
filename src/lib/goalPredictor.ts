@@ -15,6 +15,7 @@ import { devLog, devWarn, devError } from './devLog';
 // The model is trained offline and loaded at runtime.
 
 import { FEATURE_NAMES, type TrainingRecord } from './featureEngineering';
+import { MIN_REAL_SAMPLES_FOR_PROMOTION } from '@/config';
 
 // ── Decision Tree Node ────────────────────────────────────────────
 
@@ -234,12 +235,12 @@ function trainGBDT(
     // Feature subsampling
     const featureSubset: number[] = [];
     for (let i = 0; i < numFeatures; i++) {
-      if (Math.random() < cfg.featureSampleRatio) {
+      if (rng() < cfg.featureSampleRatio) {
         featureSubset.push(i);
       }
     }
     if (featureSubset.length === 0) {
-      featureSubset.push(Math.floor(Math.random() * numFeatures));
+      featureSubset.push(Math.floor(rng() * numFeatures));
     }
 
     // Build tree on residuals
@@ -433,28 +434,31 @@ function loadTrainingData(): TrainingRecord[] {
 // When we don't have enough real training data, generate synthetic
 // samples based on the known statistical properties of football.
 
-function generateSyntheticTrainingData(numSamples: number = 5000): TrainingRecord[] {
+function generateSyntheticTrainingData(
+  numSamples: number = 5000,
+  rng: () => number = Math.random,
+): TrainingRecord[] {
   const records: TrainingRecord[] = [];
 
   for (let i = 0; i < numSamples; i++) {
-    const minute = Math.floor(Math.random() * 90) + 1;
+    const minute = Math.floor(rng() * 90) + 1;
     const elapsed15 = Math.max(1, minute / 15);
 
     // Simulate match stats with realistic distributions
-    const possHome = 40 + Math.random() * 20; // 40-60%
+    const possHome = 40 + rng() * 20; // 40-60%
     const possAway = 100 - possHome;
 
-    const daHome = Math.floor(Math.random() * 50 * (minute / 90));
-    const daAway = Math.floor(Math.random() * 50 * (minute / 90));
+    const daHome = Math.floor(rng() * 50 * (minute / 90));
+    const daAway = Math.floor(rng() * 50 * (minute / 90));
 
-    const sotHome = Math.floor(Math.random() * 8 * (minute / 90));
-    const sotAway = Math.floor(Math.random() * 8 * (minute / 90));
+    const sotHome = Math.floor(rng() * 8 * (minute / 90));
+    const sotAway = Math.floor(rng() * 8 * (minute / 90));
 
-    const shotsHome = sotHome + Math.floor(Math.random() * 10 * (minute / 90));
-    const shotsAway = sotAway + Math.floor(Math.random() * 10 * (minute / 90));
+    const shotsHome = sotHome + Math.floor(rng() * 10 * (minute / 90));
+    const shotsAway = sotAway + Math.floor(rng() * 10 * (minute / 90));
 
-    const cornersHome = Math.floor(Math.random() * 8 * (minute / 90));
-    const cornersAway = Math.floor(Math.random() * 8 * (minute / 90));
+    const cornersHome = Math.floor(rng() * 8 * (minute / 90));
+    const cornersAway = Math.floor(rng() * 8 * (minute / 90));
 
     const xgHome = sotHome * 0.38 + Math.max(0, shotsHome - sotHome) * 0.05 + cornersHome * 0.04 + daHome * 0.01;
     const xgAway = sotAway * 0.38 + Math.max(0, shotsAway - sotAway) * 0.05 + cornersAway * 0.04 + daAway * 0.01;
@@ -473,20 +477,17 @@ function generateSyntheticTrainingData(numSamples: number = 5000): TrainingRecor
                         (totalCorners > 0 ? (cornersHome / totalCorners) * 0.125 * 100 : 0);
 
     // Goal probability model: based on research-calibrated features
-    // Higher xG, SOT rate, pressure, and late minutes → more likely goal
     const xgRate = (xgHome + xgAway) / elapsed15;
-    const sotRate = (sotHome + sotAway) / elapsed15;
     const timeFactor = minute <= 15 ? 0.70 : minute <= 30 ? 0.88 : minute <= 45 ? 1.05 :
                        minute <= 60 ? 1.00 : minute <= 75 ? 1.12 : 1.30;
     const pressureIntensity = Math.abs(homePressure - 50) / 50;
 
     // Base goal probability per 10-minute window: ~8-15%
-    // Calibrated from literature: ~2.5 goals per match, 90 min
     const baseGoalP = (2.5 / 9) * (10 / 90); // ~3% per minute → ~30% per 10 min
     const adjustedP = baseGoalP * timeFactor * (1 + xgRate * 0.8) * (1 + pressureIntensity * 0.3);
 
     // Label: 1 if goal in next 10 min (probabilistic)
-    const label = Math.random() < Math.min(0.7, adjustedP * 10) ? 1 : 0;
+    const label = rng() < Math.min(0.7, adjustedP * 10) ? 1 : 0;
 
     // Build feature vector
     const features = new Array(FEATURE_NAMES.length).fill(0);
@@ -521,7 +522,7 @@ function generateSyntheticTrainingData(numSamples: number = 5000): TrainingRecor
       matchCode: -1, // synthetic
       minute,
       timestamp: Date.now() - (90 - minute) * 60000,
-      side: Math.random() > 0.5 ? 'home' : 'away',
+      side: rng() > 0.5 ? 'home' : 'away',
     });
   }
 

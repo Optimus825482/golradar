@@ -510,7 +510,12 @@ export function updateLeagueProfile(
   // If we have an existing profile with enough data, blend new data in
   // Otherwise, compute from scratch
   const totalMatchCount = (existing?.matchCount ?? 0) + 1;
-  const alpha = Math.min(0.3, 1 / totalMatchCount); // EMA blending factor
+  // Faz 7 — EMA ilk-maç koruması: totalMatchCount < MIN_LEAGUE_SAMPLES iken
+  // alpha 0.1 ile sınırlı (default profile'ı aşırı ezmeyi önler).
+  const baseAlpha = Math.min(0.3, 1 / totalMatchCount);
+  const alpha = totalMatchCount < MIN_LEAGUE_SAMPLES
+    ? Math.min(baseAlpha, 0.1)
+    : baseAlpha;
 
   const newAvg = goalMinutes.reduce((a, b) => a + b, 0) / goalMinutes.length;
   const newMedian = [...goalMinutes].sort((a, b) => a - b)[Math.floor(goalMinutes.length / 2)];

@@ -20,6 +20,7 @@ import { applyCalibration } from "@/lib/calibration";
 import { extractFeatures, featuresToArray, pushFeatureSample } from "@/lib/featureEngineering";
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
+import { reportGoal } from "@/lib/goalSignalTracker";
 import {
   ensureMatch,
   addSnapshot,
@@ -43,6 +44,11 @@ type RawMatch = Record<string, unknown> & {
   WI?: unknown;
   [key: string]: unknown;
 };
+
+// ── Server-side gol çapraz-kanal: son görülen skor (Faz 3) ──────
+// Her poll'da delta tespiti için modül-scope Map. updateVerificationBatch
+// idempotent olduğundan Map temizliği gerekmez (no-op yapılır).
+const lastSeenGoals = new Map<number, { home: number; away: number }>();
 
 const emptyResponse = () => NextResponse.json({
   matches: [], byLeague: {}, version: 0, count: 0, pressureData: {}, goalRadarData: {},
@@ -172,6 +178,27 @@ export async function GET(request: Request) {
 
     const parsed = parseMatch(m as Parameters<typeof parseMatch>[0]);
     updatePressureHistory(parsed);
+
+    // Faz 3 — server-side gol çapraz-kanal: önceki poll'daki skorla delta varsa
+    // reportGoal çağır. updateVerificationBatch idempotent (where: goalHappened:null),
+    // ikinci raporlama no-op. İdempotency guard gereksiz.
+    if (parsed.homeGoals != null && parsed.awayGoals != null) {
+      const prev = lastSeenGoals.get(parsed.code);
+      if (prev != null) {
+        if (parsed.homeGoals > prev.home) {
+          const goalMin = parseInt(parsed.minute.replace(/[^0-9]/g, ""), 10) || 0;
+          void reportGoal(parsed.code, "home", goalMin).catch((e) => {
+            logError("matches-route", "reportGoal home failed:", e);
+          });
+        } else if (parsed.awayGoals > prev.away) {
+          const goalMin = parseInt(parsed.minute.replace(/[^0-9]/g, ""), 10) || 0;
+          void reportGoal(parsed.code, "away", goalMin).catch((e) => {
+            logError("matches-route", "reportGoal away failed:", e);
+          });
+        }
+      }
+      lastSeenGoals.set(parsed.code, { home: parsed.homeGoals, away: parsed.awayGoals });
+    }
 
     const hist = getSnapshots(parsed.code);
     let goalRadar: GoalProbability | undefined;

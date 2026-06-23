@@ -14,7 +14,6 @@
 
 import { extractFeatures, featuresToArray, type FeatureExtractionInput, type MatchFeatures } from './featureEngineering';
 import { predictGBDT, loadModel, type PredictionResult as MLPrediction } from './goalPredictor';
-import { calibrateScore } from './calibration';
 import {
   calculateExpectedGoals,
   calculateMatchProbabilities,
@@ -120,8 +119,11 @@ export async function predictEnsemble(
   minNum = Math.max(1, Math.min(120, minNum));
 
   // ── Model 1: Rule-based Goal Radar ──
+  // Faz 4 — tek kalibrasyon kanalı: ensemble ham score alır; route
+  // seviyesinde applyCalibration ile kalibre edilir. Burada sigmoid/PAVA
+  // uygulamıyoruz — çift katman riski kalkar.
   const ruleBasedP =
-    ruleBasedScore != null ? calibrateScore(ruleBasedScore) : 0;
+    ruleBasedScore != null ? Math.min(1, ruleBasedScore / 100) : 0;
   const ruleBasedConf =
     ruleBasedScore != null ? Math.min(1, ruleBasedScore / 70) : 0.1;
 

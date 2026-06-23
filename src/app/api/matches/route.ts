@@ -284,7 +284,7 @@ export async function GET(request: Request) {
           const finalCalibratedP =
             championP != null
               ? applyCalibration(championP)
-              : goalRadar.calibratedP;
+              : applyCalibration(goalRadar.score / 100);
           await db.predictionLog
             .create({
               data: {

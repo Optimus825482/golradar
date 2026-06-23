@@ -1035,38 +1035,13 @@ export function calculateGoalProbability(
   }
 
   // Threshold + side determination
-  const RADAR_THRESHOLD = 60,
-    SUSTAINED_THRESHOLD = 55;
-  let side: GoalProbability["side"] = null;
-  const homeNeedsSustained =
-    homeScore >= SUSTAINED_THRESHOLD && homeScore < RADAR_THRESHOLD;
-  const awayNeedsSustained =
-    awayScore >= SUSTAINED_THRESHOLD && awayScore < RADAR_THRESHOLD;
-  const homeSustainedOk = homeNeedsSustained
-    ? pressureHistory &&
-      pressureHistory.length >= 3 &&
-      pressureHistory.slice(-3).filter((s) => s.homePressure > 55).length >= 2
-    : true;
-  const awaySustainedOk = awayNeedsSustained
-    ? pressureHistory &&
-      pressureHistory.length >= 3 &&
-      pressureHistory.slice(-3).filter((s) => s.awayPressure > 55).length >= 2
-    : true;
-  if (homeScore >= 60 && awayScore >= 60) side = "both";
-  else if (homeScore >= 60 || (homeNeedsSustained && homeSustainedOk))
-    side = "home";
-  else if (awayScore >= 60 || (awayNeedsSustained && awaySustainedOk))
-    side = "away";
-  if (
-    side === "home" &&
-    (awayScore >= 60 || (awayNeedsSustained && awaySustainedOk))
-  )
-    side = "both";
-  if (
-    side === "away" &&
-    (homeScore >= 60 || (homeNeedsSustained && homeSustainedOk))
-  )
-    side = "both";
+  // Faz 7 — tek side helper (dosya sonunda). Eski RADAR_THRESHOLD/SUSTAINED_THRESHOLD
+  // const'ları ve 4 unused local kaldırıldı; helper'da sabitler yeniden tanımlı.
+  let side: GoalProbability["side"] = determineSide(
+    homeScore,
+    awayScore,
+    pressureHistory,
+  );
 
   // Levels calibrated to observed goal rates:
   //   score 40-54 → low    (~5% goal rate)
@@ -1341,4 +1316,59 @@ export function calculateGoalProbabilityWithFotMob(
   );
   const intelligence = extractMatchIntelligence(fotmobData);
   return { goalRadar, intelligence };
+}
+
+// ── Faz 7 — determineSide helper ────────────────────────────────────
+// Skor + son 3 dakika pressure spike verisinden side üretir.
+// Tek semantik: score ≥ 60 veya sustained (40-59) + son 3 pressure > 55
+// olan en az 2 snapshot. İki taraf da true → "both".
+const SUSTAINED_THRESHOLD = 40;
+const RADAR_THRESHOLD = 60;
+const SPIKE_THRESHOLD = 55;
+const SPIKE_MIN_COUNT = 2;
+
+export function determineSide(
+  homeScore: number,
+  awayScore: number,
+  pressureHistory?: PressureSnapshotLite[],
+): "home" | "away" | "both" | null {
+  const last3 = pressureHistory?.slice(-3) ?? [];
+  const homeSustained =
+    homeScore >= SUSTAINED_THRESHOLD && homeScore < RADAR_THRESHOLD;
+  const awaySustained =
+    awayScore >= SUSTAINED_THRESHOLD && awayScore < RADAR_THRESHOLD;
+  const homeSpike =
+    last3.filter((s) => s.homePressure > SPIKE_THRESHOLD).length >= SPIKE_MIN_COUNT;
+  const awaySpike =
+    last3.filter((s) => s.awayPressure > SPIKE_THRESHOLD).length >= SPIKE_MIN_COUNT;
+  const homeOn =
+    homeScore >= RADAR_THRESHOLD || (homeSustained && homeSpike);
+  const awayOn =
+    awayScore >= RADAR_THRESHOLD || (awaySustained && awaySpike);
+  if (homeOn && awayOn) return "both";
+  if (homeOn) return "home";
+  if (awayOn) return "away";
+  return null;
+}
+
+// Stats-tabanlı side helper (ensemble için). Heuristik: dangerous_attacks + SoT×2
+// composite pressure, 1.5× ratio → tek taraf, > 3 + > 3 → both.
+export function determineSideByStats(
+  stats: MatchStats,
+): "home" | "away" | "both" | null {
+  const getStat = (key: string, side: "home" | "away"): number => {
+    const s = stats[key];
+    if (!s) return 0;
+    return (side === "home" ? s.home : s.away) ?? 0;
+  };
+  const homePressure =
+    getStat("dangerous_attacks", "home") +
+    getStat("shots_on_target", "home") * 2;
+  const awayPressure =
+    getStat("dangerous_attacks", "away") +
+    getStat("shots_on_target", "away") * 2;
+  if (homePressure > awayPressure * 1.5) return "home";
+  if (awayPressure > homePressure * 1.5) return "away";
+  if (homePressure > 3 && awayPressure > 3) return "both";
+  return null;
 }

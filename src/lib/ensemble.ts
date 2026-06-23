@@ -14,6 +14,7 @@
 
 import { extractFeatures, featuresToArray, type FeatureExtractionInput, type MatchFeatures } from './featureEngineering';
 import { predictGBDT, loadModel, type PredictionResult as MLPrediction } from './goalPredictor';
+import { determineSideByStats } from './goalRadar';
 import {
   calculateExpectedGoals,
   calculateMatchProbabilities,
@@ -454,21 +455,9 @@ export async function predictEnsemble(
   ).name;
 
   // ── Determine side ──
-  let side: "home" | "away" | "both" | null = null;
-  const getStat = (key: string, side: "home" | "away"): number => {
-    const s = stats[key];
-    if (!s) return 0;
-    return (side === "home" ? s.home : s.away) ?? 0;
-  };
-  const homePressure =
-    getStat("dangerous_attacks", "home") +
-    getStat("shots_on_target", "home") * 2;
-  const awayPressure =
-    getStat("dangerous_attacks", "away") +
-    getStat("shots_on_target", "away") * 2;
-  if (homePressure > awayPressure * 1.5) side = "home";
-  else if (awayPressure > homePressure * 1.5) side = "away";
-  else if (homePressure > 3 && awayPressure > 3) side = "both";
+  // Faz 7 — stats-tabanlı helper'a yönlendirildi. score-based determineSide
+  // goalRadar.ts içinde, burada ensemble kendi heuristic'ini kullanır.
+  const side: "home" | "away" | "both" | null = determineSideByStats(stats);
 
   // ── Score (0-100 for compatibility) ──
   const score = Math.round(ensembleP * 100);

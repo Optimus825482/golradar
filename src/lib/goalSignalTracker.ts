@@ -27,14 +27,24 @@ import {
   updateLastValues as repoUpdateLastValues,
   findByDate as repoFindByDate,
   findByMatch as repoFindByMatch,
-  findRecentPending as repoFindPending,
   findAllPendingForMatch as repoFindAllPending,
-  findAllForMatch as repoFindAllForMatch,
   getAvailableDates as repoGetDates,
   calculateSignalStats as repoCalculateStats,
   updateVerification as repoUpdateVerification,
-  updateFinalScore as repoUpdateFinalScore,
+  updateVerificationBatch as repoUpdateVerificationBatch,
+  expirePendingBatch as repoExpirePendingBatch,
+  expireHalftimeBatch as repoExpireHalftimeBatch,
+  finalizeMatchBatch as repoFinalizeMatchBatch,
 } from "./signalRepository";
+
+import {
+  SIGNAL_THRESHOLD,
+  SIGNAL_EXPIRY_MINUTES,
+  EXPIRY_CHECK_INTERVAL_MS,
+  SIGNAL_COOLDOWN_MS,
+} from "@/config";
+import { db } from "./db";
+import { loadExcludedMinutes, isExcludedMinute } from "./excludedMinutes";
 
 // ── Local date helper ────────────────────────────────────
 export const getLocalDateString = (d: Date = new Date()): string => {
@@ -184,22 +194,16 @@ export interface SignalAccuracyStats {
   };
 }
 
-// ── Internal state (session-local only) ────────────────────────
-
-interface ActiveMatchState {
-  lastKnownHomeGoals: number;
-  lastKnownAwayGoals: number;
-  lastSignalTimestamps: Map<string, number>; // "home"|"away" → timestamp for cooldown
-}
-
-const activeMatches = new Map<number, ActiveMatchState>();
+// ── Internal state ─────────────────────────────────────────────
+// Faz 2 — cooldown state artık DB-tabanlı (Signal.lastSignalTimestamp
+// üzerinden). Eski in-memory activeMatches Map'i ve ActiveMatchState
+// interface'i kaldırıldı; kullanım noktaları repoFindExisting ile
+// hesaplanıyor. lastKnownHomeGoals/AwayGoals'a gerek kalmadı — gol
+// sayısı zaten Signal.currentHomeGoals / currentAwayGoals'ta DB'de.
 
 // ── Constants ──────────────────────────────────────────────────
-
-const SIGNAL_THRESHOLD = 60;
-const SIGNAL_EXPIRY_MINUTES = 15;  // Max minutes to wait for goal before expiring
-const EXPIRY_CHECK_INTERVAL_MS = 30000; // Check every 30s
-const SIGNAL_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes cooldown between signals for same match+side
+// SIGNAL_THRESHOLD / SIGNAL_EXPIRY_MINUTES / EXPIRY_CHECK_INTERVAL_MS /
+// SIGNAL_COOLDOWN_MS config'den import edilir (src/config.ts).
 
 // ════════════════════════════════════════════════════════════════
 // SINYAL YÖNETIMI — Tek giriş noktası
@@ -236,48 +240,37 @@ export async function checkAndRecordSignal(
   const minNum = parseMinute(minute);
   const today = getLocalDateString();
 
-  // ── Update activeMatches state (sadece skor tracking) ─────────
-  let state = activeMatches.get(matchCode);
-  if (!state) {
-    state = {
-      lastKnownHomeGoals: currentHomeGoals,
-      lastKnownAwayGoals: currentAwayGoals,
-      lastSignalTimestamps: new Map(),
-    };
-    activeMatches.set(matchCode, state);
-  }
-  state.lastKnownHomeGoals = currentHomeGoals;
-  state.lastKnownAwayGoals = currentAwayGoals;
-
   // ── Signal threshold checks ───────────────────────────────────
   if (goalProbability.score < SIGNAL_THRESHOLD) return null;
   if (!goalProbability.side || goalProbability.side === "both") return null;
 
   // ── Excluded minute zones ─────────────────────────────────────
-  // Skip signals in unreliable time windows:
-  //   0-2 min:    match context still forming
-  //   43-45 min:  pre-halftime tactical uncertainty
-  //   89-120 min: extra-time swings
+  // Faz 9 — DB backed (excludedMinutes.ts), cache TTL 5dk. Config
+  // default fallback.
   const sigMin = parseMinute(minute);
-  if (sigMin <= 2 || (sigMin >= 43 && sigMin <= 45) || sigMin >= 89) return null;
+  const excludedZones = await loadExcludedMinutes();
+  if (isExcludedMinute(sigMin, excludedZones)) return null;
 
   const signalSide = goalProbability.side as "home" | "away";
 
   // ── Cooldown check: Aynı match+side için son 3 dk içinde sinyal oluşturuldu mu? ──
-  const lastSignalTime = state.lastSignalTimestamps.get(signalSide);
-  if (lastSignalTime && (now - lastSignalTime) < SIGNAL_COOLDOWN_MS) {
-    // Cooldown içinde — sadece last values güncelle (yeni sinyal oluşturma)
-    const existing = await repoFindExisting(matchCode, today, signalSide);
-    if (existing && existing.goalHappened === null) {
-      await repoUpdateLastValues(existing.id!, {
-        lastScore: goalProbability.score,
-        lastCalibratedP: goalProbability.calibratedP,
-        lastPoissonP: goalProbability.poissonP,
-        lastFactors: goalProbability.factors,
-        lastSignalTimestamp: now,
-      });
+  // Faz 2 — DB-tabanlı: önce repoFindExisting ile fetch et, sonra lastSignalTimestamp
+  // üzerinden cooldown kontrolü yap. Aktif pending sinyal varsa updateLastValues.
+  const existingForCooldown = await repoFindExisting(matchCode, today, signalSide);
+  if (existingForCooldown?.lastSignalTimestamp) {
+    const lastMs = existingForCooldown.lastSignalTimestamp;
+    if (now - lastMs < SIGNAL_COOLDOWN_MS) {
+      if (existingForCooldown.goalHappened === null) {
+        await repoUpdateLastValues(existingForCooldown.id!, {
+          lastScore: goalProbability.score,
+          lastCalibratedP: goalProbability.calibratedP,
+          lastPoissonP: goalProbability.poissonP,
+          lastFactors: goalProbability.factors,
+          lastSignalTimestamp: now,
+        });
+      }
+      return null;
     }
-    return null;
   }
 
   // ── Upsert logic ──────────────────────────────────────────────
@@ -339,10 +332,8 @@ export async function checkAndRecordSignal(
   };
 
   const created = await repoCreate(record);
-  if (created) {
-    // Cooldown timestamp'ini güncelle
-    state.lastSignalTimestamps.set(signalSide, now);
-  }
+  // Cooldown artık DB'de: oluşturulan kaydın lastSignalTimestamp'ı bir sonraki
+  // checkAndRecordSignal çağrısında repoFindExisting ile okunur.
   return created;
 }
 
@@ -358,35 +349,32 @@ export async function reportGoal(
   goalSide: "home" | "away",
   goalMinute: number,
 ): Promise<void> {
-  const today = getLocalDateString();
+  // Faz 3 — hibrit batch: ortak alanları tek updateMany ile yaz,
+  // satır-bazlı correctPrediction/minutesAfterSignal'i Promise.all ile paralel.
+  // Önce tek sorguda ortak kısımları yaz (goalHappened/goalMinute/goalSide/timestamp).
+  await repoUpdateVerificationBatch(matchCode, {
+    goalHappened: true,
+    goalMinute,
+    goalSide,
+    goalTimestamp: Date.now(),
+  });
 
+  // Sonra satır-bazlı correctPrediction + minutesAfterSignal'i paralel yaz.
   const allPending = await repoFindAllPending(matchCode);
-  for (const s of allPending) {
-    const id = s.id ?? (await loadById(matchCode, today, s.signalSide));
-    if (!id) continue;
-
-    // v3 FIX: Doğru correctPrediction — tahmin edilen taraf ile gol atan taraf eşleşiyor mu?
-    const predictionCorrect = goalSide === s.signalSide;
-
-    // v3 FIX: minutesAfterSignal asla negatif olamaz
-    const minutesDiff = Math.max(0, goalMinute - s.signalMinute);
-
-    await repoUpdateVerification(id, {
-      goalHappened: true,
-      goalMinute,
-      goalSide,
-      correctPrediction: predictionCorrect,
-      minutesAfterSignal: minutesDiff,
-      goalTimestamp: Date.now(),
-    });
-  }
-
-  // Update activeMatches state
-  const state = activeMatches.get(matchCode);
-  if (state) {
-    if (goalSide === 'home') state.lastKnownHomeGoals++;
-    else state.lastKnownAwayGoals++;
-  }
+  await Promise.all(
+    allPending
+      .filter((s): s is GoalSignalRecord & { id: string } => !!s.id)
+      .map((s) =>
+        repoUpdateVerification(s.id, {
+          goalHappened: true,
+          goalMinute,
+          goalSide,
+          correctPrediction: goalSide === s.signalSide,
+          minutesAfterSignal: Math.max(0, goalMinute - s.signalMinute),
+          goalTimestamp: Date.now(),
+        }),
+      ),
+  );
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -397,19 +385,11 @@ export async function reportGoal(
  * Expire any pending signals that have been waiting longer than SIGNAL_EXPIRY_MINUTES.
  */
 async function expireStaleSignals(): Promise<number> {
+  // Faz 3 — tek updateMany. signalRepository.expirePendingBatch import
+  // edildi mi kontrolü aşağıda.
   const expiryMs = SIGNAL_EXPIRY_MINUTES * 60 * 1000;
-  const stale = await repoFindPending(expiryMs);
-  let expired = 0;
-  for (const s of stale) {
-    const id = s.id ?? (await loadById(s.matchCode, s.date, s.signalSide));
-    if (!id) continue;
-    await repoUpdateVerification(id, {
-      goalHappened: false,
-      minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-    });
-    expired++;
-  }
-  return expired;
+  const cutoff = new Date(Date.now() - expiryMs);
+  return repoExpirePendingBatch(cutoff);
 }
 
 /**
@@ -422,22 +402,9 @@ async function expireStaleSignals(): Promise<number> {
 export async function expireSignalsForHalftime(
   halftimeMatchCodes: Set<number>,
 ): Promise<number> {
-  let expired = 0;
-  for (const matchCode of halftimeMatchCodes) {
-    const pending = await repoFindAllPending(matchCode);
-    for (const s of pending) {
-      // Sadece son 5 dakikada (41-45) oluşan sinyalleri expire et
-      if (s.signalMinute < 41) continue;
-      const id = s.id ?? (await loadById(matchCode, s.date, s.signalSide));
-      if (!id) continue;
-      await repoUpdateVerification(id, {
-        goalHappened: false,
-        minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-      });
-      expired++;
-    }
-  }
-  return expired;
+  // Faz 3 — tek updateMany: tüm halftime maçlarının pending'leri (signalMinute >= 41)
+  // tek sorguda expire edilir. SIGNAL_EXPIRY_MINUTES DB-side sabit.
+  return repoExpireHalftimeBatch(Array.from(halftimeMatchCodes));
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -453,7 +420,7 @@ export async function checkPendingSignals(): Promise<{
   stillPending: number;
 }> {
   const expired = await expireStaleSignals();
-  const stillPending = activeMatches.size;
+  const stillPending = await db.signal.count({ where: { goalHappened: null } });
   return { total: expired, expired, stillPending };
 }
 
@@ -489,14 +456,6 @@ export function startExpiryChecker(): void {
   }, EXPIRY_CHECK_INTERVAL_MS);
 }
 
-function stopExpiryChecker(): void {
-  if (expiryInterval) {
-    clearInterval(expiryInterval);
-    expiryInterval = null;
-  }
-}
-void stopExpiryChecker;
-
 // ════════════════════════════════════════════════════════════════
 // MAÇ BİTİŞİ — FINALIZE
 // ════════════════════════════════════════════════════════════════
@@ -509,27 +468,16 @@ export async function finalizeMatchSignals(
   homeScore: number,
   awayScore: number,
 ): Promise<void> {
-  const pending = await repoFindAllPending(matchCode);
-  for (const s of pending) {
-    const id = s.id ?? (await loadById(matchCode, s.date, s.signalSide));
-    if (!id) continue;
-    await repoUpdateVerification(id, {
+  // Faz 3 — tek batch + paralel satır-bazlı. Pending'ler için iki paralel
+  // updateVerification + updateFinalScore tek satırda; resolved'ler için
+  // sadece final score backfill.
+  await Promise.all([
+    repoUpdateVerificationBatch(matchCode, {
       goalHappened: false,
       minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-    });
-    await repoUpdateFinalScore(id, homeScore, awayScore);
-  }
-
-  // Backfill final scores for already-resolved signals
-  const all = await repoFindAllForMatch(matchCode);
-  for (const s of all) {
-    if (s.finalHomeScore != null) continue;
-    const id = s.id ?? (await loadById(matchCode, s.date, s.signalSide));
-    if (!id) continue;
-    await repoUpdateFinalScore(id, homeScore, awayScore);
-  }
-
-  activeMatches.delete(matchCode);
+    }),
+    repoFinalizeMatchBatch(matchCode, homeScore, awayScore),
+  ]);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -542,20 +490,22 @@ export async function finalizeMatchSignals(
 export async function cleanupStaleSignals(
   activeMatchCodes: number[],
 ): Promise<void> {
+  // Faz 3 — DB-tabanlı + tek batch: aktif listede OLMAYAN maçlardaki pending
+  // sinyalleri tek updateMany ile expire et. JS tarafı yalnızca filtreleme.
   const activeSet = new Set(activeMatchCodes);
-  for (const [code] of activeMatches) {
-    if (activeSet.has(code)) continue;
-    const pending = await repoFindAllPending(code);
-    for (const s of pending) {
-      const id = s.id ?? (await loadById(code, s.date, s.signalSide));
-      if (!id) continue;
-      await repoUpdateVerification(id, {
-        goalHappened: false,
-        minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-      });
-    }
-    activeMatches.delete(code);
-  }
+  const distinctCodes = await db.signal.findMany({
+    where: { goalHappened: null },
+    select: { matchCode: true },
+    distinct: ['matchCode'],
+  });
+  const staleCodes = distinctCodes.map((r) => r.matchCode).filter((c) => !activeSet.has(c));
+  if (staleCodes.length === 0) return;
+  // repoExpirePendingBatch'e filter sağlamak için matchCode filtreli
+  // updateMany'i burada çağırıyoruz (staleCodes'e özel).
+  await db.signal.updateMany({
+    where: { matchCode: { in: staleCodes }, goalHappened: null },
+    data: { goalHappened: false, minutesAfterSignal: SIGNAL_EXPIRY_MINUTES },
+  });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -594,29 +544,6 @@ export async function getAvailableDates(): Promise<string[]> {
 // ════════════════════════════════════════════════════════════════
 // YARDIMCI
 // ════════════════════════════════════════════════════════════════
-
-/**
- * Look up the prisma row id by (matchCode, date, signalSide).
- * v3: Artık her çağrıda dynamic import yapmaz.
- * db import zaten module-level, ayrıca import gereksiz.
- */
-async function loadById(
-  matchCode: number,
-  date: string,
-  signalSide: string,
-): Promise<string | null> {
-  try {
-    const { db } = await import("./db");
-    const row = await db.signal.findFirst({
-      where: { matchCode, date, signalSide },
-      select: { id: true },
-      orderBy: { signalTimestamp: "desc" },
-    });
-    return row?.id ?? null;
-  } catch {
-    return null;
-  }
-}
 
 // v3: checkForGoals kaldırıldı — goal detection tek kanaldan (reportGoal) yapılır.
 // Bu fonksiyon daha önce checkAndRecordSignal içinden çağrılıyordu ve

@@ -13,8 +13,8 @@ import {
 } from './fotmobIntelligence';
 import { getSmartF8Adjustment, calculateOddsF8Compound, calibrateF8, loadCalibrationMode } from './smartCalibration';
 import { inPlayGoalProbability, calculateExpectedGoals, calculateMatchProbabilities, getTimeBasedGoalMultiplier } from './dixonColes';
-import { calibrateScore } from './calibration';
 import { logError } from '@/lib/devLog';
+import { determineSide } from './goalRadar/side';
 
 export interface PressureSnapshotLite {
   homePressure: number;
@@ -1036,38 +1036,13 @@ export function calculateGoalProbability(
   }
 
   // Threshold + side determination
-  const RADAR_THRESHOLD = 60,
-    SUSTAINED_THRESHOLD = 55;
-  let side: GoalProbability["side"] = null;
-  const homeNeedsSustained =
-    homeScore >= SUSTAINED_THRESHOLD && homeScore < RADAR_THRESHOLD;
-  const awayNeedsSustained =
-    awayScore >= SUSTAINED_THRESHOLD && awayScore < RADAR_THRESHOLD;
-  const homeSustainedOk = homeNeedsSustained
-    ? pressureHistory &&
-      pressureHistory.length >= 3 &&
-      pressureHistory.slice(-3).filter((s) => s.homePressure > 55).length >= 2
-    : true;
-  const awaySustainedOk = awayNeedsSustained
-    ? pressureHistory &&
-      pressureHistory.length >= 3 &&
-      pressureHistory.slice(-3).filter((s) => s.awayPressure > 55).length >= 2
-    : true;
-  if (homeScore >= 60 && awayScore >= 60) side = "both";
-  else if (homeScore >= 60 || (homeNeedsSustained && homeSustainedOk))
-    side = "home";
-  else if (awayScore >= 60 || (awayNeedsSustained && awaySustainedOk))
-    side = "away";
-  if (
-    side === "home" &&
-    (awayScore >= 60 || (awayNeedsSustained && awaySustainedOk))
-  )
-    side = "both";
-  if (
-    side === "away" &&
-    (homeScore >= 60 || (homeNeedsSustained && homeSustainedOk))
-  )
-    side = "both";
+  // Faz 7 — tek side helper (dosya sonunda). Eski RADAR_THRESHOLD/SUSTAINED_THRESHOLD
+  // const'ları ve 4 unused local kaldırıldı; helper'da sabitler yeniden tanımlı.
+  let side: GoalProbability["side"] = determineSide(
+    homeScore,
+    awayScore,
+    pressureHistory,
+  );
 
   // Levels calibrated to observed goal rates:
   //   score 40-54 → low    (~5% goal rate)
@@ -1113,13 +1088,11 @@ export function calculateGoalProbability(
     );
   } catch (e) { logError('goalRadar', e); /* fallback */ }
 
-  // Probability calibration
-  let calibratedP = 0;
-  try {
-    calibratedP = calibrateScore(clampedScore);
-  } catch {
-    calibratedP = Math.min(0.8, clampedScore / 100);
-  }
+  // Probability calibration — Faz 4: tek kanal.
+  // Eski: calibrateScore ile sigmoid/PAVA çift katman (goalRadar + ensemble). Şimdi
+  // ham score döneriz; tek kalibrasyon route veya ensemble katmanında uygulanır.
+  // Geçici güvenli fallback: score/100 ile [0..0.8] clamp.
+  const calibratedP = Math.min(0.8, clampedScore / 100);
 
   // Time multiplier
   let timeMultiplier = 1.0;
@@ -1345,3 +1318,7 @@ export function calculateGoalProbabilityWithFotMob(
   const intelligence = extractMatchIntelligence(fotmobData);
   return { goalRadar, intelligence };
 }
+
+// ── Faz 8 — side helper'lar ./goalRadar/side.ts'e taşındı ───────────────
+// re-export (geriye uyumluluk — dış import'lar `goalRadar.ts`'ten alır)
+export { determineSide, determineSideByStats } from './goalRadar/side';

@@ -14,7 +14,7 @@
 
 import { extractFeatures, featuresToArray, type FeatureExtractionInput, type MatchFeatures } from './featureEngineering';
 import { predictGBDT, loadModel, type PredictionResult as MLPrediction } from './goalPredictor';
-import { calibrateScore } from './calibration';
+import { determineSideByStats } from './goalRadar';
 import {
   calculateExpectedGoals,
   calculateMatchProbabilities,
@@ -32,6 +32,7 @@ import { estimateXgFromShots } from './estimateXg';
 import { loadXgbChampion } from "./ml/modelRouter";
 import { predictXgb, type XgbModel } from "./ml/xgbLoader";
 import { logError } from '@/lib/devLog';
+import { brierToConfidence, UNRANKED_MODEL_BRIER } from '@/config';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -82,84 +83,6 @@ export interface EnsembleResult {
   }>;
 }
 
-// ── Dynamic Weight Calculation ─────────────────────────────────────
-// Weights shift based on match context:
-//   - Early match (1-20 min): More weight on pre-match models (Elo, Poisson)
-//   - Mid match (20-60 min): Balanced
-//   - Late match (60-90+ min): More weight on in-play models (Rule, ML)
-//   - If ML model not available: redistribute to others
-//   - If ML model has low confidence: reduce its weight
-
-function calculateDynamicWeights(
-  minute: number,
-  mlAvailable: boolean,
-  mlConfidence: number,
-  hasPressureHistory: boolean,
-): EnsembleWeights {
-  // Base weights (pre-match optimized)
-  let weights: EnsembleWeights = {
-    ruleBased: 0.35,
-    poisson: 0.25,
-    elo: 0.10,
-    ml: 0.20,
-    teamStrength: 0.10,
-    inplay: 0.00, // ramped by weight gate below when minute > 20
-  };
-
-  // If ML model not available, redistribute
-  if (!mlAvailable) {
-    weights = {
-      ruleBased: 0.45,
-      poisson: 0.30,
-      elo: 0.15,
-      ml: 0.00,
-      teamStrength: 0.10,
-    inplay: 0.00, // ramped by weight gate below when minute > 20
-    };
-  } else {
-    // Reduce ML weight if low confidence
-    if (mlConfidence < 0.3) {
-      weights.ml *= 0.5;
-      weights.ruleBased += 0.05;
-      weights.poisson += 0.05;
-    }
-  }
-
-  // Time-based adjustments
-  if (minute <= 20) {
-    // Early match: trust pre-match models more
-    weights.elo += 0.08;
-    weights.poisson += 0.07;
-    weights.ruleBased -= 0.10;
-    weights.ml -= 0.05;
-  } else if (minute >= 60) {
-    // Late match: trust in-play models more
-    weights.ruleBased += 0.10;
-    weights.ml += 0.05;
-    weights.elo -= 0.08;
-    weights.poisson -= 0.07;
-  }
-
-  // If we have pressure history, boost rule-based and ML
-  if (hasPressureHistory) {
-    weights.ruleBased += 0.05;
-    weights.ml += 0.03;
-    weights.poisson -= 0.04;
-    weights.elo -= 0.04;
-  }
-
-  // Normalize weights to sum to 1.0
-  const total = weights.ruleBased + weights.poisson + weights.elo + weights.ml;
-  if (total > 0) {
-    weights.ruleBased /= total;
-    weights.poisson /= total;
-    weights.elo /= total;
-    weights.ml /= total;
-  }
-
-  return weights;
-}
-
 // ── Main Ensemble Prediction Function ──────────────────────────────
 
 export interface EnsembleInput extends FeatureExtractionInput {
@@ -198,8 +121,11 @@ export async function predictEnsemble(
   minNum = Math.max(1, Math.min(120, minNum));
 
   // ── Model 1: Rule-based Goal Radar ──
+  // Faz 4 — tek kalibrasyon kanalı: ensemble ham score alır; route
+  // seviyesinde applyCalibration ile kalibre edilir. Burada sigmoid/PAVA
+  // uygulamıyoruz — çift katman riski kalkar.
   const ruleBasedP =
-    ruleBasedScore != null ? calibrateScore(ruleBasedScore) : 0;
+    ruleBasedScore != null ? Math.min(1, ruleBasedScore / 100) : 0;
   const ruleBasedConf =
     ruleBasedScore != null ? Math.min(1, ruleBasedScore / 70) : 0.1;
 
@@ -314,16 +240,25 @@ export async function predictEnsemble(
       // Champion XGB model — extract features once
       const { featureArray } = await getMlFeaturesCached();
       mlP = Math.max(0, Math.min(1, predictXgb(mlModel, featureArray)));
-      mlConfidence = 0.7; // calibrated via backtest Brier
+      // Faz 6 — confidence champion Brier'dan türetilir. Brier mevcut değilse
+      // (henüz backtest edilmemiş şampiyon) 0.7 fallback.
+      const mlChampionBrier = await getChampionBrier("xgb");
+      mlConfidence =
+        mlChampionBrier != null
+          ? brierToConfidence(mlChampionBrier)
+          : 0.7;
 
-      // Extract top feature contributions (heuristic: top-3 magnitude)
+      // Extract top feature contributions — importance artık Brier-skalasına göre
+      // göreceli olarak artık bilinen ML model kullanılır; aksi hâlde heuristic.
       const sorted = featureArray
         .map((v, i) => ({ index: i, value: Math.abs(v) }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 5);
+      const factorImportance =
+        mlChampionBrier != null ? Math.max(0.05, brierToConfidence(mlChampionBrier)) : 0.3;
       mlTopFactors = sorted.map((s) => ({
         feature: `f${s.index}`,
-        importance: 0.3,
+        importance: Math.round(factorImportance * 1000) / 1000,
         value: featureArray[s.index] ?? 0,
       }));
     } else {
@@ -364,7 +299,12 @@ export async function predictEnsemble(
           0,
           Math.min(1, predictXgb(ipChampion.model, featureArray)),
         );
-        inPlayConf = 0.7; // fixed for now; can be re-derived from Brier later
+        // Faz 6 — in-play confidence champion Brier'dan türetilir.
+        const inplayChampionBrier = await getChampionBrier("inplay");
+        inPlayConf =
+          inplayChampionBrier != null
+            ? brierToConfidence(inplayChampionBrier)
+            : 0.7;
         inPlayDetails = `v${ipChampion.version} (horizon=5m, minute=${minNum})`;
       }
     } catch {
@@ -397,6 +337,11 @@ export async function predictEnsemble(
       teamStrengthP = Math.max(0, Math.min(0.6, lambdaImminent));
       teamStrengthConf =
         Math.min(tsPred.matches.home, tsPred.matches.away) >= 5 ? 0.7 : 0.3;
+      const teamStrengthChampionBrier = await getChampionBrier("team-strength");
+      teamStrengthConf =
+        teamStrengthChampionBrier != null
+          ? brierToConfidence(teamStrengthChampionBrier)
+          : teamStrengthConf;
       teamStrengthHomeWin = tsPred.homeWinP;
       teamStrengthDraw = tsPred.drawP;
       teamStrengthAwayWin = tsPred.awayWinP;
@@ -510,21 +455,9 @@ export async function predictEnsemble(
   ).name;
 
   // ── Determine side ──
-  let side: "home" | "away" | "both" | null = null;
-  const getStat = (key: string, side: "home" | "away"): number => {
-    const s = stats[key];
-    if (!s) return 0;
-    return (side === "home" ? s.home : s.away) ?? 0;
-  };
-  const homePressure =
-    getStat("dangerous_attacks", "home") +
-    getStat("shots_on_target", "home") * 2;
-  const awayPressure =
-    getStat("dangerous_attacks", "away") +
-    getStat("shots_on_target", "away") * 2;
-  if (homePressure > awayPressure * 1.5) side = "home";
-  else if (awayPressure > homePressure * 1.5) side = "away";
-  else if (homePressure > 3 && awayPressure > 3) side = "both";
+  // Faz 7 — stats-tabanlı helper'a yönlendirildi. score-based determineSide
+  // goalRadar.ts içinde, burada ensemble kendi heuristic'ini kullanır.
+  const side: "home" | "away" | "both" | null = determineSideByStats(stats);
 
   // ── Score (0-100 for compatibility) ──
   const score = Math.round(ensembleP * 100);
@@ -549,14 +482,17 @@ export async function predictEnsemble(
     {
       name: "Poisson",
       probability: Math.round(poissonP * 1000) / 1000,
-      confidence: poissonP > 0 ? 0.7 : 0,
+      // Faz 6 — Poisson/Elo champion metadata yok (sadece gbdt/xgb/inplay/team-strength
+      // için). Unranked sentinel Brier (0.20) ile türetilir; ileride gerçek Brier eklenecek.
+      confidence: poissonP > 0 ? brierToConfidence(UNRANKED_MODEL_BRIER) : 0,
       weight: Math.round(weights.poisson * 100) / 100,
       details: `O2.5: ${(poissonOverUnder * 100).toFixed(0)}% | BTTS: ${(poissonBTTS * 100).toFixed(0)}%`,
     },
     {
       name: "Elo",
       probability: Math.round(eloP * 1000) / 1000,
-      confidence: homeTeam && awayTeam ? 0.6 : 0,
+      // Faz 6 — bkz. Poisson confidence yorumu.
+      confidence: homeTeam && awayTeam ? brierToConfidence(UNRANKED_MODEL_BRIER) : 0,
       weight: Math.round(weights.elo * 100) / 100,
       details:
         homeTeam && awayTeam ? `${homeTeam} vs ${awayTeam}` : "No team data",
@@ -589,7 +525,7 @@ export async function predictEnsemble(
 
   return {
     probability: Math.round(ensembleP * 1000) / 1000,
-    score: Math.max(0, Math.min(85, score)),
+    score: Math.max(0, Math.min(100, score)),
     level,
     side,
     models,

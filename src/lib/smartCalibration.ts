@@ -1,4 +1,5 @@
 import { logError } from '@/lib/devLog';
+import { MIN_LEAGUE_SAMPLES } from '@/config';
 // ── Smart Calibration System ────────────────────────────────────────
 // League-aware, goal-timing adaptive calibration for the Goal Radar
 // 12-factor scoring model. Adjusts F8 (Match Minute Context) based on
@@ -112,8 +113,6 @@ const LEAGUE_DEFAULTS: LeagueGoalProfile[] = [
   { leagueId: 6, leagueName: 'Süper Lig', country: 'TR', avgGoalMinute: 16.4, medianGoalMinute: 15.0, goalTimeStdDev: 11.8, earlyGoalRate: 0.29, lateGoalRate: 0.19, halftimeGoalRate: 0.17, matchCount: 0, lastUpdated: 0 },
   // Primeira Liga (Portugal) — attacking
   { leagueId: 7, leagueName: 'Primeira Liga', country: 'PT', avgGoalMinute: 17.8, medianGoalMinute: 16.5, goalTimeStdDev: 13.2, earlyGoalRate: 0.26, lateGoalRate: 0.21, halftimeGoalRate: 0.14, matchCount: 0, lastUpdated: 0 },
-  // Eredivisie alternative ID
-  { leagueId: 110, leagueName: 'Eredivisie', country: 'NL', avgGoalMinute: 14.2, medianGoalMinute: 13.0, goalTimeStdDev: 12.5, earlyGoalRate: 0.32, lateGoalRate: 0.18, halftimeGoalRate: 0.15, matchCount: 0, lastUpdated: 0 },
   // Championship
   { leagueId: 11, leagueName: 'Championship', country: 'GB', avgGoalMinute: 19.2, medianGoalMinute: 18.0, goalTimeStdDev: 14.0, earlyGoalRate: 0.22, lateGoalRate: 0.24, halftimeGoalRate: 0.13, matchCount: 0, lastUpdated: 0 },
   // Champions League — tactical, late
@@ -511,7 +510,12 @@ export function updateLeagueProfile(
   // If we have an existing profile with enough data, blend new data in
   // Otherwise, compute from scratch
   const totalMatchCount = (existing?.matchCount ?? 0) + 1;
-  const alpha = Math.min(0.3, 1 / totalMatchCount); // EMA blending factor
+  // Faz 7 — EMA ilk-maç koruması: totalMatchCount < MIN_LEAGUE_SAMPLES iken
+  // alpha 0.1 ile sınırlı (default profile'ı aşırı ezmeyi önler).
+  const baseAlpha = Math.min(0.3, 1 / totalMatchCount);
+  const alpha = totalMatchCount < MIN_LEAGUE_SAMPLES
+    ? Math.min(baseAlpha, 0.1)
+    : baseAlpha;
 
   const newAvg = goalMinutes.reduce((a, b) => a + b, 0) / goalMinutes.length;
   const newMedian = [...goalMinutes].sort((a, b) => a - b)[Math.floor(goalMinutes.length / 2)];

@@ -16,11 +16,11 @@ export async function GET(request: Request) {
       }
 
       case 'autocalibrate': {
-        const result = autoCalibrate();
+        const result = await autoCalibrate();
         if (result) {
           return NextResponse.json({
             success: true,
-            message: `Calibration updated: x0 ${result.x0}, k ${result.k}`,
+            message: `Calibration updated: x0 ${result.x0}, k ${result.k}, L ${result.L}`,
             brierBefore: result.brierBefore,
             brierAfter: result.brierAfter,
             improvement: ((result.brierBefore - result.brierAfter) / result.brierBefore * 100).toFixed(1) + '%',

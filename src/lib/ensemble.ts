@@ -511,7 +511,7 @@ export async function predictEnsemble(
 
   return {
     probability: Math.round(ensembleP * 1000) / 1000,
-    score: Math.max(0, Math.min(85, score)),
+    score: Math.max(0, Math.min(100, score)),
     level,
     side,
     models,

@@ -27,13 +27,14 @@ import {
   updateLastValues as repoUpdateLastValues,
   findByDate as repoFindByDate,
   findByMatch as repoFindByMatch,
-  findRecentPending as repoFindPending,
   findAllPendingForMatch as repoFindAllPending,
-  findAllForMatch as repoFindAllForMatch,
   getAvailableDates as repoGetDates,
   calculateSignalStats as repoCalculateStats,
   updateVerification as repoUpdateVerification,
-  updateFinalScore as repoUpdateFinalScore,
+  updateVerificationBatch as repoUpdateVerificationBatch,
+  expirePendingBatch as repoExpirePendingBatch,
+  expireHalftimeBatch as repoExpireHalftimeBatch,
+  finalizeMatchBatch as repoFinalizeMatchBatch,
 } from "./signalRepository";
 
 import {
@@ -348,29 +349,32 @@ export async function reportGoal(
   goalSide: "home" | "away",
   goalMinute: number,
 ): Promise<void> {
-  const today = getLocalDateString();
+  // Faz 3 — hibrit batch: ortak alanları tek updateMany ile yaz,
+  // satır-bazlı correctPrediction/minutesAfterSignal'i Promise.all ile paralel.
+  // Önce tek sorguda ortak kısımları yaz (goalHappened/goalMinute/goalSide/timestamp).
+  await repoUpdateVerificationBatch(matchCode, {
+    goalHappened: true,
+    goalMinute,
+    goalSide,
+    goalTimestamp: Date.now(),
+  });
 
+  // Sonra satır-bazlı correctPrediction + minutesAfterSignal'i paralel yaz.
   const allPending = await repoFindAllPending(matchCode);
-  for (const s of allPending) {
-    const id = s.id ?? (await loadById(matchCode, today, s.signalSide));
-    if (!id) continue;
-
-    // v3 FIX: Doğru correctPrediction — tahmin edilen taraf ile gol atan taraf eşleşiyor mu?
-    const predictionCorrect = goalSide === s.signalSide;
-
-    // v3 FIX: minutesAfterSignal asla negatif olamaz
-    const minutesDiff = Math.max(0, goalMinute - s.signalMinute);
-
-    await repoUpdateVerification(id, {
-      goalHappened: true,
-      goalMinute,
-      goalSide,
-      correctPrediction: predictionCorrect,
-      minutesAfterSignal: minutesDiff,
-      goalTimestamp: Date.now(),
-    });
-  }
-
+  await Promise.all(
+    allPending
+      .filter((s): s is GoalSignalRecord & { id: string } => !!s.id)
+      .map((s) =>
+        repoUpdateVerification(s.id, {
+          goalHappened: true,
+          goalMinute,
+          goalSide,
+          correctPrediction: goalSide === s.signalSide,
+          minutesAfterSignal: Math.max(0, goalMinute - s.signalMinute),
+          goalTimestamp: Date.now(),
+        }),
+      ),
+  );
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -381,19 +385,11 @@ export async function reportGoal(
  * Expire any pending signals that have been waiting longer than SIGNAL_EXPIRY_MINUTES.
  */
 async function expireStaleSignals(): Promise<number> {
+  // Faz 3 — tek updateMany. signalRepository.expirePendingBatch import
+  // edildi mi kontrolü aşağıda.
   const expiryMs = SIGNAL_EXPIRY_MINUTES * 60 * 1000;
-  const stale = await repoFindPending(expiryMs);
-  let expired = 0;
-  for (const s of stale) {
-    const id = s.id ?? (await loadById(s.matchCode, s.date, s.signalSide));
-    if (!id) continue;
-    await repoUpdateVerification(id, {
-      goalHappened: false,
-      minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-    });
-    expired++;
-  }
-  return expired;
+  const cutoff = new Date(Date.now() - expiryMs);
+  return repoExpirePendingBatch(cutoff);
 }
 
 /**
@@ -406,22 +402,9 @@ async function expireStaleSignals(): Promise<number> {
 export async function expireSignalsForHalftime(
   halftimeMatchCodes: Set<number>,
 ): Promise<number> {
-  let expired = 0;
-  for (const matchCode of halftimeMatchCodes) {
-    const pending = await repoFindAllPending(matchCode);
-    for (const s of pending) {
-      // Sadece son 5 dakikada (41-45) oluşan sinyalleri expire et
-      if (s.signalMinute < 41) continue;
-      const id = s.id ?? (await loadById(matchCode, s.date, s.signalSide));
-      if (!id) continue;
-      await repoUpdateVerification(id, {
-        goalHappened: false,
-        minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-      });
-      expired++;
-    }
-  }
-  return expired;
+  // Faz 3 — tek updateMany: tüm halftime maçlarının pending'leri (signalMinute >= 41)
+  // tek sorguda expire edilir. SIGNAL_EXPIRY_MINUTES DB-side sabit.
+  return repoExpireHalftimeBatch(Array.from(halftimeMatchCodes));
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -485,25 +468,16 @@ export async function finalizeMatchSignals(
   homeScore: number,
   awayScore: number,
 ): Promise<void> {
-  const pending = await repoFindAllPending(matchCode);
-  for (const s of pending) {
-    const id = s.id ?? (await loadById(matchCode, s.date, s.signalSide));
-    if (!id) continue;
-    await repoUpdateVerification(id, {
+  // Faz 3 — tek batch + paralel satır-bazlı. Pending'ler için iki paralel
+  // updateVerification + updateFinalScore tek satırda; resolved'ler için
+  // sadece final score backfill.
+  await Promise.all([
+    repoUpdateVerificationBatch(matchCode, {
       goalHappened: false,
       minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-    });
-    await repoUpdateFinalScore(id, homeScore, awayScore);
-  }
-
-  // Backfill final scores for already-resolved signals
-  const all = await repoFindAllForMatch(matchCode);
-  for (const s of all) {
-    if (s.finalHomeScore != null) continue;
-    const id = s.id ?? (await loadById(matchCode, s.date, s.signalSide));
-    if (!id) continue;
-    await repoUpdateFinalScore(id, homeScore, awayScore);
-  }
+    }),
+    repoFinalizeMatchBatch(matchCode, homeScore, awayScore),
+  ]);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -516,9 +490,8 @@ export async function finalizeMatchSignals(
 export async function cleanupStaleSignals(
   activeMatchCodes: number[],
 ): Promise<void> {
-  // Faz 2 — DB-tabanlı: aktif listede OLMAYAN maçlardaki pending sinyalleri
-  // expire et. Tüm DB matchCode'ları çekmek yerine caller'ın aktif listesini
-  // tamamlayan: distinct matchCode'ları distinct ile çek, filtrele.
+  // Faz 3 — DB-tabanlı + tek batch: aktif listede OLMAYAN maçlardaki pending
+  // sinyalleri tek updateMany ile expire et. JS tarafı yalnızca filtreleme.
   const activeSet = new Set(activeMatchCodes);
   const distinctCodes = await db.signal.findMany({
     where: { goalHappened: null },
@@ -526,17 +499,13 @@ export async function cleanupStaleSignals(
     distinct: ['matchCode'],
   });
   const staleCodes = distinctCodes.map((r) => r.matchCode).filter((c) => !activeSet.has(c));
-  for (const code of staleCodes) {
-    const pending = await repoFindAllPending(code);
-    for (const s of pending) {
-      const id = s.id ?? (await loadById(code, s.date, s.signalSide));
-      if (!id) continue;
-      await repoUpdateVerification(id, {
-        goalHappened: false,
-        minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
-      });
-    }
-  }
+  if (staleCodes.length === 0) return;
+  // repoExpirePendingBatch'e filter sağlamak için matchCode filtreli
+  // updateMany'i burada çağırıyoruz (staleCodes'e özel).
+  await db.signal.updateMany({
+    where: { matchCode: { in: staleCodes }, goalHappened: null },
+    data: { goalHappened: false, minutesAfterSignal: SIGNAL_EXPIRY_MINUTES },
+  });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -575,29 +544,6 @@ export async function getAvailableDates(): Promise<string[]> {
 // ════════════════════════════════════════════════════════════════
 // YARDIMCI
 // ════════════════════════════════════════════════════════════════
-
-/**
- * Look up the prisma row id by (matchCode, date, signalSide).
- * v3: Artık her çağrıda dynamic import yapmaz.
- * db import zaten module-level, ayrıca import gereksiz.
- */
-async function loadById(
-  matchCode: number,
-  date: string,
-  signalSide: string,
-): Promise<string | null> {
-  try {
-    const { db } = await import("./db");
-    const row = await db.signal.findFirst({
-      where: { matchCode, date, signalSide },
-      select: { id: true },
-      orderBy: { signalTimestamp: "desc" },
-    });
-    return row?.id ?? null;
-  } catch {
-    return null;
-  }
-}
 
 // v3: checkForGoals kaldırıldı — goal detection tek kanaldan (reportGoal) yapılır.
 // Bu fonksiyon daha önce checkAndRecordSignal içinden çağrılıyordu ve

@@ -14,6 +14,7 @@ import {
 import { getSmartF8Adjustment, calculateOddsF8Compound, calibrateF8, loadCalibrationMode } from './smartCalibration';
 import { inPlayGoalProbability, calculateExpectedGoals, calculateMatchProbabilities, getTimeBasedGoalMultiplier } from './dixonColes';
 import { logError } from '@/lib/devLog';
+import { determineSide } from './goalRadar/side';
 
 export interface PressureSnapshotLite {
   homePressure: number;
@@ -1318,57 +1319,6 @@ export function calculateGoalProbabilityWithFotMob(
   return { goalRadar, intelligence };
 }
 
-// ── Faz 7 — determineSide helper ────────────────────────────────────
-// Skor + son 3 dakika pressure spike verisinden side üretir.
-// Tek semantik: score ≥ 60 veya sustained (40-59) + son 3 pressure > 55
-// olan en az 2 snapshot. İki taraf da true → "both".
-const SUSTAINED_THRESHOLD = 40;
-const RADAR_THRESHOLD = 60;
-const SPIKE_THRESHOLD = 55;
-const SPIKE_MIN_COUNT = 2;
-
-export function determineSide(
-  homeScore: number,
-  awayScore: number,
-  pressureHistory?: PressureSnapshotLite[],
-): "home" | "away" | "both" | null {
-  const last3 = pressureHistory?.slice(-3) ?? [];
-  const homeSustained =
-    homeScore >= SUSTAINED_THRESHOLD && homeScore < RADAR_THRESHOLD;
-  const awaySustained =
-    awayScore >= SUSTAINED_THRESHOLD && awayScore < RADAR_THRESHOLD;
-  const homeSpike =
-    last3.filter((s) => s.homePressure > SPIKE_THRESHOLD).length >= SPIKE_MIN_COUNT;
-  const awaySpike =
-    last3.filter((s) => s.awayPressure > SPIKE_THRESHOLD).length >= SPIKE_MIN_COUNT;
-  const homeOn =
-    homeScore >= RADAR_THRESHOLD || (homeSustained && homeSpike);
-  const awayOn =
-    awayScore >= RADAR_THRESHOLD || (awaySustained && awaySpike);
-  if (homeOn && awayOn) return "both";
-  if (homeOn) return "home";
-  if (awayOn) return "away";
-  return null;
-}
-
-// Stats-tabanlı side helper (ensemble için). Heuristik: dangerous_attacks + SoT×2
-// composite pressure, 1.5× ratio → tek taraf, > 3 + > 3 → both.
-export function determineSideByStats(
-  stats: MatchStats,
-): "home" | "away" | "both" | null {
-  const getStat = (key: string, side: "home" | "away"): number => {
-    const s = stats[key];
-    if (!s) return 0;
-    return (side === "home" ? s.home : s.away) ?? 0;
-  };
-  const homePressure =
-    getStat("dangerous_attacks", "home") +
-    getStat("shots_on_target", "home") * 2;
-  const awayPressure =
-    getStat("dangerous_attacks", "away") +
-    getStat("shots_on_target", "away") * 2;
-  if (homePressure > awayPressure * 1.5) return "home";
-  if (awayPressure > homePressure * 1.5) return "away";
-  if (homePressure > 3 && awayPressure > 3) return "both";
-  return null;
-}
+// ── Faz 8 — side helper'lar ./goalRadar/side.ts'e taşındı ───────────────
+// re-export (geriye uyumluluk — dış import'lar `goalRadar.ts`'ten alır)
+export { determineSide, determineSideByStats } from './goalRadar/side';

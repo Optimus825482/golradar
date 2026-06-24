@@ -350,9 +350,11 @@ export async function reportGoal(
   goalSide: "home" | "away",
   goalMinute: number,
 ): Promise<void> {
-  // Faz 3 — hibrit batch: ortak alanları tek updateMany ile yaz,
-  // satır-bazlı correctPrediction/minutesAfterSignal'i Promise.all ile paralel.
-  // Önce tek sorguda ortak kısımları yaz (goalHappened/goalMinute/goalSide/timestamp).
+  // Önce pending sinyalleri oku (batch update onları null→true yapmadan)
+  const allPending = await repoFindAllPending(matchCode);
+  const withId = allPending.filter((s): s is GoalSignalRecord & { id: string } => !!s.id);
+
+  // Batch: ortak alanları tek updateMany ile yaz (goalHappened/goalMinute/goalSide/timestamp)
   await repoUpdateVerificationBatch(matchCode, {
     goalHappened: true,
     goalMinute,
@@ -360,21 +362,18 @@ export async function reportGoal(
     goalTimestamp: Date.now(),
   });
 
-  // Sonra satır-bazlı correctPrediction + minutesAfterSignal'i paralel yaz.
-  const allPending = await repoFindAllPending(matchCode);
+  // Satır-bazlı correctPrediction + minutesAfterSignal'i paralel yaz
   await Promise.all(
-    allPending
-      .filter((s): s is GoalSignalRecord & { id: string } => !!s.id)
-      .map((s) =>
-        repoUpdateVerification(s.id, {
-          goalHappened: true,
-          goalMinute,
-          goalSide,
-          correctPrediction: goalSide === s.signalSide,
-          minutesAfterSignal: Math.max(0, goalMinute - s.signalMinute),
-          goalTimestamp: Date.now(),
-        }),
-      ),
+    withId.map((s) =>
+      repoUpdateVerification(s.id, {
+        goalHappened: true,
+        goalMinute,
+        goalSide,
+        correctPrediction: goalSide === s.signalSide,
+        minutesAfterSignal: Math.max(0, goalMinute - s.signalMinute),
+        goalTimestamp: Date.now(),
+      }),
+    ),
   );
 }
 

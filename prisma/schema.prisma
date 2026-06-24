@@ -358,6 +358,7 @@ model TeamHistoryMatch {
   source      String
   fetchedAt   DateTime @default(now())
 
+  @@map("TeamHistoryMatch")
   @@unique([matchDate, homeTeam, awayTeam])
   @@index([matchDate])
   @@index([homeTeam, matchDate])

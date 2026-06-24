@@ -7,7 +7,7 @@ on:
     branches: [main, develop]
 
 env:
-  DATABASE_URL: postgres://test:test@localhost:5432/golradar2_test
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/golradar2_test
 
 jobs:
   lint-and-types:
@@ -15,9 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.4
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bunx tsc --noEmit
@@ -28,12 +28,27 @@ jobs:
     name: Tests (Bun)
     runs-on: ubuntu-latest
     needs: lint-and-types
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: golradar2_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.4
       - run: bun install --frozen-lockfile
+      - run: bun run db:generate
       - run: bun test
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
@@ -64,10 +79,12 @@ jobs:
     needs: [lint-and-types, test]
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.4
       - run: bun install --frozen-lockfile
+      - run: bun run db:generate
       - run: bun run build
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
+          ADMIN_DEFAULT_PASSWORD: ci-dummy-password-12345

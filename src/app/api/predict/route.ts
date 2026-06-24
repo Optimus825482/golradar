@@ -7,6 +7,11 @@ import { fetchMatchDetails } from '@/lib/fotmob';
 import { rateLimit, RATE_LIMIT_DEFAULTS } from '@/lib/rateLimit';
 import type { MatchStats } from '@/lib/nesineTypes';
 import { logError } from '@/lib/devLog';
+import {
+  recordTrainingSchema,
+  predictFullSchema,
+  parseActionBody,
+} from '@/lib/apiSchemas';
 
 export const dynamic = 'force-dynamic';
 
@@ -197,10 +202,9 @@ export async function POST(request: Request) {
     const { action } = body;
 
     if (action === 'record') {
-      const { features, label, matchCode, minute, side } = body;
-      if (!features || label == null) {
-        return NextResponse.json({ error: 'features and label required' }, { status: 400 });
-      }
+      const v = parseActionBody(recordTrainingSchema, body);
+      if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+      const { features, label, matchCode, minute, side } = v.data;
 
       const record: TrainingRecord = {
         features,
@@ -208,7 +212,7 @@ export async function POST(request: Request) {
         matchCode: matchCode ?? -1,
         minute: minute ?? 0,
         timestamp: Date.now(),
-        side: side ?? 'both',
+        side,
       };
 
       saveTrainingRecord(record);
@@ -216,12 +220,14 @@ export async function POST(request: Request) {
     }
 
     if (action === 'predict-full') {
-      const { stats, minute, homeGoals, awayGoals, homeTeam, awayTeam, ruleBasedScore, fotmobId } = body;
+      const v = parseActionBody(predictFullSchema, body);
+      if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+      const { stats, minute, homeGoals, awayGoals, homeTeam, awayTeam, ruleBasedScore, fotmobId } = v.data;
 
       let intelligence: ReturnType<typeof extractMatchIntelligence> | null = null;
       if (fotmobId) {
         try {
-          const fotmobData = await fetchMatchDetails(parseInt(fotmobId));
+          const fotmobData = await fetchMatchDetails(fotmobId);
           if (fotmobData) {
             intelligence = extractMatchIntelligence(fotmobData);
           }
@@ -231,7 +237,7 @@ export async function POST(request: Request) {
       }
 
       const input: EnsembleInput = {
-        stats: stats || {},
+        stats: (stats as MatchStats | undefined) || {},
         minute: minute || '45',
         isLive: true,
         homeGoals: homeGoals || 0,

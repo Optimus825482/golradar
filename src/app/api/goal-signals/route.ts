@@ -13,8 +13,15 @@ import {
   startExpiryChecker,
 } from "@/lib/goalSignalTracker";
 import { rateLimit, RATE_LIMIT_DEFAULTS } from "@/lib/rateLimit";
-import { validateSession } from "@/lib/auth";
+import { getClientIp, isSameOrigin, requireAdmin } from "@/lib/securityHelpers";
 import { logError } from '@/lib/devLog';
+import {
+  recordSignalSchema,
+  expireHalftimeSchema,
+  cleanupSignalsSchema,
+  reportGoalSchema,
+  parseActionBody,
+} from '@/lib/apiSchemas';
 
 // Defer background expiry checker to avoid blocking first request
 if (typeof window === 'undefined') {
@@ -22,12 +29,6 @@ if (typeof window === 'undefined') {
 }
 
 export const dynamic = "force-dynamic";
-
-function getClientIp(request: Request): string {
-  const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0]!.trim();
-  return request.headers.get("x-real-ip") || "unknown";
-}
 
 // ── Lightweight validators (no zod dep) ────────────────────────
 const SIGNAL_SIDES = new Set(["home", "away"]);
@@ -189,46 +190,11 @@ function validateReportGoal(body: unknown): Validation<{
   };
 }
 
-// ── Auth gate ──────────────────────────────────────────────────
+// ── Auth gate (delegated to securityHelpers) ─────────────────────
 // Destructive admin-only actions (cleanup) require a valid admin
 // session token. reportGoal / expireHalftime / finalize are called
 // from the client-side poller as part of real-time goal detection;
 // they require origin validation to prevent external abuse.
-async function requireAdmin(request: Request): Promise<{ ok: boolean; reason?: string }> {
-  const auth = request.headers.get("authorization");
-  if (!auth) return { ok: false, reason: "no auth header" };
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (!m) return { ok: false, reason: "malformed auth header" };
-  const result = await validateSession(m[1].trim());
-  return result;
-}
-
-// Validates that the request originates from the same application
-// (same-origin check). Provides basic CSRF / external abuse protection
-// for endpoints that must be callable from client-side code.
-function isSameOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  const referer = request.headers.get("referer");
-  if (!origin && !referer) return false; // No origin info = likely external
-  try {
-    const allowedHosts = [
-      "localhost:3000",
-      "localhost:3001",
-      "golradari.com",
-      "www.golradari.com",
-      ...(process.env.ALLOWED_ORIGINS?.split(",").map(s => s.trim()) || []),
-    ];
-    const checkUrl = (url: string) => {
-      try {
-        const u = new URL(url);
-        return allowedHosts.some(h => u.host === h || u.host.endsWith("." + h));
-      } catch { return false; }
-    };
-    if (origin && checkUrl(origin)) return true;
-    if (referer && checkUrl(referer)) return true;
-  } catch { /* fall through */ }
-  return false;
-}
 
 // Stricter rate limiter for unauthenticated write endpoints
 function requireClientRateLimit(request: Request): { allowed: boolean; reason?: string } {
@@ -328,18 +294,18 @@ export async function POST(request: Request) {
         if (!isSameOrigin(request)) {
           return NextResponse.json({ error: "forbidden" }, { status: 403 });
         }
-        const v = validateExpireHalftime(body);
+        const v = parseActionBody(expireHalftimeSchema, body);
         if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
-        const expired = await expireSignalsForHalftime(new Set(v.value));
+        const expired = await expireSignalsForHalftime(new Set(v.data.matchCodes));
         return NextResponse.json({ ok: true, expired });
       }
 
       if (action === "cleanup") {
         const auth = await requireAdmin(request);
         if (!auth.ok) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-        const v = validateCleanup(body);
+        const v = parseActionBody(cleanupSignalsSchema, body);
         if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
-        await cleanupStaleSignals(v.value);
+        await cleanupStaleSignals(v.data.activeCodes);
         return NextResponse.json({ ok: true });
       }
 
@@ -360,13 +326,13 @@ export async function POST(request: Request) {
         if (!clRl.allowed) {
           return NextResponse.json({ error: "rate_limited" }, { status: 429 });
         }
-        const v = validateReportGoal(body);
+        const v = parseActionBody(reportGoalSchema, body);
         if (!v.ok)
           return NextResponse.json({ error: v.error }, { status: 400 });
         await reportGoal(
-          v.value.matchCode,
-          v.value.goalSide,
-          v.value.goalMinute,
+          v.data.matchCode,
+          v.data.goalSide,
+          v.data.goalMinute,
         );
         return NextResponse.json({ ok: true });
       }
@@ -377,14 +343,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
-    const v = validateRecordBody(body);
-    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
-    if (v.value === null) {
-      // side was 'both' / null / missing — valid probability output but not
-      // recordable. Drop silently so the poller isn't punished for it.
+    // Accept 'both' / null / missing as valid probability output and drop
+    // server-side. We must inspect `side` BEFORE Zod rejects it.
+    const sideRaw = (body as Record<string, unknown>)?.side;
+    if (sideRaw === null || sideRaw === undefined || sideRaw === "both") {
       return NextResponse.json({ ok: false, dropped: "side" });
     }
-    const data = v.value;
+
+    const v = parseActionBody(recordSignalSchema, body);
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+    const data = v.data;
 
     const result = await checkAndRecordSignal(
       data.matchCode,

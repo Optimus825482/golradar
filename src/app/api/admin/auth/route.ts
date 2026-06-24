@@ -66,7 +66,7 @@ export async function POST(request: Request) {
         );
       }
 
-      if (!verifyPassword(password, user.passwordHash, user.passwordSalt)) {
+      if (!(await verifyPassword(password, user.passwordHash, user.passwordSalt))) {
         return NextResponse.json(
           { ok: false, reason: "invalid credentials" },
           { status: 401 },
@@ -125,14 +125,14 @@ export async function POST(request: Request) {
           { status: 401 },
         );
 
-      if (!verifyPassword(password, user.passwordHash, user.passwordSalt)) {
+      if (!(await verifyPassword(password, user.passwordHash, user.passwordSalt))) {
         return NextResponse.json(
           { ok: false, reason: "current password is incorrect" },
           { status: 401 },
         );
       }
 
-      const { hash, salt } = hashPassword(newPassword);
+      const { hash, salt } = await hashPassword(newPassword);
       await db.user.update({
         where: { id: user.id },
         data: {

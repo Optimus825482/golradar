@@ -22,10 +22,10 @@ export async function GET(request: Request) {
     switch (action) {
       // Get current calibration mode and league profiles
       case 'status': {
-        const mode = loadCalibrationMode();
-        const profiles = getAllLeagueProfiles();
+        const mode = await loadCalibrationMode();
+        const profiles = await getAllLeagueProfiles();
         // Get F8 calibration preview for requested league
-        const f8Result = calibrateF8(leagueId, mode);
+        const f8Result = await calibrateF8(leagueId, mode);
         return NextResponse.json({
           mode,
           f8Calibration: {
@@ -60,15 +60,15 @@ export async function GET(request: Request) {
 
       // Get all league profiles
       case 'profiles': {
-        const profiles = getAllLeagueProfiles();
+        const profiles = await getAllLeagueProfiles();
         return NextResponse.json(profiles);
       }
 
       // Preview F8 calibration for a specific league at a specific minute
       case 'preview': {
         const minute = parseInt(searchParams.get('minute') || '45');
-        const mode = loadCalibrationMode();
-        const f8Adj = getSmartF8Adjustment(minute, leagueId, mode);
+        const mode = await loadCalibrationMode();
+        const f8Adj = await getSmartF8Adjustment(minute, leagueId, mode);
         return NextResponse.json({
           minute,
           leagueId,
@@ -113,9 +113,9 @@ export async function POST(request: Request) {
           oddsCompoundEnabled: body.oddsCompoundEnabled ?? true,
           minSampleSize: body.minSampleSize ?? 20,
         };
-        saveCalibrationMode(mode);
+        await saveCalibrationMode(mode);
         // Return updated F8 calibration preview
-        const f8Result = calibrateF8(body.leagueId ?? null, mode);
+        const f8Result = await calibrateF8(body.leagueId ?? null, mode);
         return NextResponse.json({
           success: true,
           mode,
@@ -135,7 +135,7 @@ export async function POST(request: Request) {
         if (!leagueId || !goalMinutes || !Array.isArray(goalMinutes)) {
           return NextResponse.json({ error: 'Missing required fields: leagueId, goalMinutes' }, { status: 400 });
         }
-        const profile = updateLeagueProfile(leagueId, leagueName || '', country || '', goalMinutes);
+        const profile = await updateLeagueProfile(leagueId, leagueName || '', country || '', goalMinutes);
         if (!profile) {
           return NextResponse.json({ error: 'Failed to update profile' }, { status: 500 });
         }
@@ -145,7 +145,7 @@ export async function POST(request: Request) {
       // Preview odds-F8 compound effect
       case 'previewCompound': {
         const { oddsSignificance, currentMinute, homeOddsBoost, awayOddsBoost, leagueId: lId } = body;
-        const cal = calibrateF8(lId ?? null);
+        const cal = await calibrateF8(lId ?? null);
         const compound = calculateOddsF8Compound(
           cal,
           oddsSignificance || 'medium',

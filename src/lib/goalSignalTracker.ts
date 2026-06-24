@@ -33,6 +33,7 @@ import {
   updateVerification as repoUpdateVerification,
   updateVerificationBatch as repoUpdateVerificationBatch,
   expirePendingBatch as repoExpirePendingBatch,
+  expirePendingBatchForCodes as repoExpirePendingBatchForCodes,
   expireHalftimeBatch as repoExpireHalftimeBatch,
   finalizeMatchBatch as repoFinalizeMatchBatch,
 } from "./signalRepository";
@@ -349,9 +350,11 @@ export async function reportGoal(
   goalSide: "home" | "away",
   goalMinute: number,
 ): Promise<void> {
-  // Faz 3 — hibrit batch: ortak alanları tek updateMany ile yaz,
-  // satır-bazlı correctPrediction/minutesAfterSignal'i Promise.all ile paralel.
-  // Önce tek sorguda ortak kısımları yaz (goalHappened/goalMinute/goalSide/timestamp).
+  // Önce pending sinyalleri oku (batch update onları null→true yapmadan)
+  const allPending = await repoFindAllPending(matchCode);
+  const withId = allPending.filter((s): s is GoalSignalRecord & { id: string } => !!s.id);
+
+  // Batch: ortak alanları tek updateMany ile yaz (goalHappened/goalMinute/goalSide/timestamp)
   await repoUpdateVerificationBatch(matchCode, {
     goalHappened: true,
     goalMinute,
@@ -359,21 +362,18 @@ export async function reportGoal(
     goalTimestamp: Date.now(),
   });
 
-  // Sonra satır-bazlı correctPrediction + minutesAfterSignal'i paralel yaz.
-  const allPending = await repoFindAllPending(matchCode);
+  // Satır-bazlı correctPrediction + minutesAfterSignal'i paralel yaz
   await Promise.all(
-    allPending
-      .filter((s): s is GoalSignalRecord & { id: string } => !!s.id)
-      .map((s) =>
-        repoUpdateVerification(s.id, {
-          goalHappened: true,
-          goalMinute,
-          goalSide,
-          correctPrediction: goalSide === s.signalSide,
-          minutesAfterSignal: Math.max(0, goalMinute - s.signalMinute),
-          goalTimestamp: Date.now(),
-        }),
-      ),
+    withId.map((s) =>
+      repoUpdateVerification(s.id, {
+        goalHappened: true,
+        goalMinute,
+        goalSide,
+        correctPrediction: goalSide === s.signalSide,
+        minutesAfterSignal: Math.max(0, goalMinute - s.signalMinute),
+        goalTimestamp: Date.now(),
+      }),
+    ),
   );
 }
 
@@ -429,20 +429,33 @@ export async function checkPendingSignals(): Promise<{
 // ════════════════════════════════════════════════════════════════
 
 let expiryInterval: ReturnType<typeof setInterval> | null = null;
+let expiryStarted = false;
 
 /**
  * Start the background expiry checker. Runs every EXPIRY_CHECK_INTERVAL_MS.
- */
-/**
- * Start the background expiry checker. Runs every EXPIRY_CHECK_INTERVAL_MS.
+ *
+ * Idempotent and process-global: hot-reload and multiple importers can
+ * call this freely; only the first call attaches an interval. The
+ * interval handle lives on globalThis so even if the module is
+ * re-evaluated (Next.js dev fast refresh, serverless cold start
+ * reusing the worker), we never end up with two loops.
+ *
  * Server-only — guarded inline so this module stays safe to import
  * from any code path without accidentally registering intervals in
  * the client bundle.
  */
 export function startExpiryChecker(): void {
-  if (expiryInterval) return;
   if (typeof window !== "undefined") return; // client-side guard
-  expiryInterval = setInterval(async () => {
+  if (expiryStarted) return;
+
+  const g = globalThis as unknown as { __golradarExpiryInterval?: ReturnType<typeof setInterval> };
+  if (g.__golradarExpiryInterval) {
+    expiryInterval = g.__golradarExpiryInterval;
+    expiryStarted = true;
+    return;
+  }
+
+  const handle = setInterval(async () => {
     try {
       const expired = await expireStaleSignals();
       if (expired > 0 && process.env.NODE_ENV === 'development') {
@@ -454,6 +467,26 @@ export function startExpiryChecker(): void {
       }
     }
   }, EXPIRY_CHECK_INTERVAL_MS);
+
+  // Detach on shutdown so Node can exit cleanly.
+  if (typeof handle.unref === 'function') handle.unref();
+
+  expiryInterval = handle;
+  g.__golradarExpiryInterval = handle;
+  expiryStarted = true;
+}
+
+/**
+ * Stop the background expiry checker. Useful for tests and graceful
+ * shutdown hooks. Safe to call when no checker is running.
+ */
+export function stopExpiryChecker(): void {
+  if (!expiryInterval) return;
+  clearInterval(expiryInterval);
+  expiryInterval = null;
+  expiryStarted = false;
+  const g = globalThis as unknown as { __golradarExpiryInterval?: ReturnType<typeof setInterval> };
+  g.__golradarExpiryInterval = undefined;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -486,6 +519,11 @@ export async function finalizeMatchSignals(
 
 /**
  * Remove stale matches from active tracking.
+ *
+ * Implementation: önce aktif maç dışındaki matchCode'ları DB'den oku,
+ * sonra repoExpirePendingBatch ile expirePendingBatch'i matchCode
+ * filtresi ile çağır. Repository katmanını BYPASS etmeden tek satır
+ * update yapılır.
  */
 export async function cleanupStaleSignals(
   activeMatchCodes: number[],
@@ -500,12 +538,9 @@ export async function cleanupStaleSignals(
   });
   const staleCodes = distinctCodes.map((r) => r.matchCode).filter((c) => !activeSet.has(c));
   if (staleCodes.length === 0) return;
-  // repoExpirePendingBatch'e filter sağlamak için matchCode filtreli
-  // updateMany'i burada çağırıyoruz (staleCodes'e özel).
-  await db.signal.updateMany({
-    where: { matchCode: { in: staleCodes }, goalHappened: null },
-    data: { goalHappened: false, minutesAfterSignal: SIGNAL_EXPIRY_MINUTES },
-  });
+  // Repo katmanı: expirePendingBatch zaten updateMany ile pending'leri expire
+  // ediyor; burada staleCodes filtresi ekliyoruz (DB-side).
+  await repoExpirePendingBatchForCodes(staleCodes);
 }
 
 // ════════════════════════════════════════════════════════════════

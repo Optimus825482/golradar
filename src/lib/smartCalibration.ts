@@ -1,4 +1,5 @@
 import { logError } from '@/lib/devLog';
+import { db } from './db';
 import { MIN_LEAGUE_SAMPLES } from '@/config';
 // ── Smart Calibration System ────────────────────────────────────────
 // League-aware, goal-timing adaptive calibration for the Goal Radar
@@ -15,14 +16,10 @@ import { MIN_LEAGUE_SAMPLES } from '@/config';
 // Reference: Ayana et al. 2025 — non-linear goal probability curves
 // vary significantly by league due to tactical styles, pressing intensity,
 // and defensive organization.
-
-let _fs_sc: any = undefined, _path_sc: any = undefined;
-function getFsSc(): { fs: any; path: any } | null {
-  if (typeof window === 'undefined' && _fs_sc === undefined) {
-    try { _fs_sc = require('fs'); _path_sc = require('path'); } catch { _fs_sc = null; }
-  }
-  return _fs_sc ? { fs: _fs_sc, path: _path_sc } : null;
-}
+//
+// Persistence: PostgreSQL `LeagueProfile` + `SystemConfig` (mode). Disk
+// persistence (data/smart-calibration/*.json) was the v1 path and is
+// REMOVED — multi-instance serverless requires a single source of truth.
 
 // ════════════════════════════════════════════════════════════════
 // TYPES
@@ -141,70 +138,151 @@ const DEFAULT_MODE: CalibrationMode = {
 };
 
 // ════════════════════════════════════════════════════════════════
-// PERSISTENCE
+// PERSISTENCE — PostgreSQL only (LeagueProfile + SystemConfig)
 // ════════════════════════════════════════════════════════════════
 
-const sSc = getFsSc();
-const DATA_DIR = sSc ? sSc.path.join(process.cwd(), 'data', 'smart-calibration') : '';
-const PROFILES_FILE = DATA_DIR ? sSc!.path.join(DATA_DIR, 'league-profiles.json') : '';
-const MODE_FILE = DATA_DIR ? sSc!.path.join(DATA_DIR, 'mode.json') : '';
+const MODE_SYSTEM_KEY = 'smartCalibration.mode';
+const MODE_CACHE_TTL_MS = 5 * 60 * 1000;
 
-function ensureDataDir(): void {
-  const s2 = getFsSc();
-  if (!s2) return;
-  if (!s2.fs.existsSync(DATA_DIR)) {
-    s2.fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+let modeCache: { value: CalibrationMode; at: number } | null = null;
+
+function toProfile(row: {
+  leagueId: number;
+  leagueName: string;
+  country: string;
+  avgGoalMinute: number;
+  medianGoalMinute: number;
+  goalTimeStdDev: number;
+  earlyGoalRate: number;
+  lateGoalRate: number;
+  halftimeGoalRate: number;
+  matchCount: number;
+  lastUpdatedAt: Date;
+}): LeagueGoalProfile {
+  return {
+    leagueId: row.leagueId,
+    leagueName: row.leagueName,
+    country: row.country,
+    avgGoalMinute: row.avgGoalMinute,
+    medianGoalMinute: row.medianGoalMinute,
+    goalTimeStdDev: row.goalTimeStdDev,
+    earlyGoalRate: row.earlyGoalRate,
+    lateGoalRate: row.lateGoalRate,
+    halftimeGoalRate: row.halftimeGoalRate,
+    matchCount: row.matchCount,
+    lastUpdated: row.lastUpdatedAt.getTime(),
+  };
 }
 
-function loadLeagueProfiles(): Map<number, LeagueGoalProfile> {
+async function loadLeagueProfiles(): Promise<Map<number, LeagueGoalProfile>> {
   const map = new Map<number, LeagueGoalProfile>();
+  // Hardcoded defaults first — DB'de olmayan ligler için fallback.
   for (const p of LEAGUE_DEFAULTS) {
     map.set(p.leagueId, p);
   }
   try {
-    const s2 = getFsSc();
-    if (!s2) return map;
-    ensureDataDir();
-    if (s2.fs.existsSync(PROFILES_FILE)) {
-      const persisted: LeagueGoalProfile[] = JSON.parse(s2.fs.readFileSync(PROFILES_FILE, 'utf-8'));
-      for (const p of persisted) map.set(p.leagueId, p);
-    }
-  } catch (e) { logError('smartCalibration', e); /* ignore */ }
+    const rows = await db.leagueProfile.findMany();
+    for (const r of rows) map.set(r.leagueId, toProfile(r));
+  } catch (e) {
+    logError('smartCalibration', e);
+  }
   return map;
 }
 
-function saveLeagueProfiles(profiles: Map<number, LeagueGoalProfile>): void {
+/**
+ * Sync default-only map. DB yüklemeleri yapmadan yalnızca LEAGUE_DEFAULTS
+ * döner. calculateGoalProbability gibi sync hot-path'ler için kullanılır —
+ * DB öğrenmesi async katmanda (calibrateF8 async / admin endpoints) olur.
+ */
+function loadLeagueProfilesSyncDefaults(): Map<number, LeagueGoalProfile> {
+  const map = new Map<number, LeagueGoalProfile>();
+  for (const p of LEAGUE_DEFAULTS) {
+    map.set(p.leagueId, p);
+  }
+  return map;
+}
+
+async function saveLeagueProfile(profile: LeagueGoalProfile): Promise<void> {
   try {
-    const s2 = getFsSc();
-    if (!s2) return;
-    ensureDataDir();
-    s2.fs.writeFileSync(PROFILES_FILE, JSON.stringify(Array.from(profiles.values()), null, 2));
+    await db.leagueProfile.upsert({
+      where: { leagueId: profile.leagueId },
+      create: {
+        leagueId: profile.leagueId,
+        leagueName: profile.leagueName,
+        country: profile.country,
+        avgGoalMinute: profile.avgGoalMinute,
+        medianGoalMinute: profile.medianGoalMinute,
+        goalTimeStdDev: profile.goalTimeStdDev,
+        earlyGoalRate: profile.earlyGoalRate,
+        lateGoalRate: profile.lateGoalRate,
+        halftimeGoalRate: profile.halftimeGoalRate,
+        matchCount: profile.matchCount,
+      },
+      update: {
+        leagueName: profile.leagueName,
+        country: profile.country,
+        avgGoalMinute: profile.avgGoalMinute,
+        medianGoalMinute: profile.medianGoalMinute,
+        goalTimeStdDev: profile.goalTimeStdDev,
+        earlyGoalRate: profile.earlyGoalRate,
+        lateGoalRate: profile.lateGoalRate,
+        halftimeGoalRate: profile.halftimeGoalRate,
+        matchCount: profile.matchCount,
+      },
+    });
   } catch (e) {
-    console.error('[SmartCalibration] Failed to save profiles:', e);
+    logError('smartCalibration', e);
   }
 }
 
-export function loadCalibrationMode(): CalibrationMode {
-  try {
-    const s2 = getFsSc();
-    if (!s2) return { ...DEFAULT_MODE };
-    ensureDataDir();
-    if (s2.fs.existsSync(MODE_FILE)) {
-      return { ...DEFAULT_MODE, ...JSON.parse(s2.fs.readFileSync(MODE_FILE, 'utf-8')) };
-    }
-  } catch (e) { logError('smartCalibration', e); /* ignore */ }
-  return { ...DEFAULT_MODE };
+export function loadCalibrationModeSync(): CalibrationMode {
+  // In-memory cache'ten sync okuma. İlk hydrate'ı loadCalibrationMode()
+  // (async) yapar; senkron hot-path'ler (calculateGoalProbability) buradan
+  // beslenir.
+  return modeCache?.value ?? { ...DEFAULT_MODE };
 }
 
-export function saveCalibrationMode(mode: CalibrationMode): void {
+export async function loadCalibrationMode(): Promise<CalibrationMode> {
+  const now = Date.now();
+  if (modeCache && now - modeCache.at < MODE_CACHE_TTL_MS) {
+    return modeCache.value;
+  }
   try {
-    const s2 = getFsSc();
-    if (!s2) return;
-    ensureDataDir();
-    s2.fs.writeFileSync(MODE_FILE, JSON.stringify(mode, null, 2));
+    const row = await db.systemConfig.findUnique({ where: { key: MODE_SYSTEM_KEY } });
+    if (row && row.value && typeof row.value === 'object') {
+      const parsed = row.value as Partial<CalibrationMode>;
+      const value: CalibrationMode = {
+        ...DEFAULT_MODE,
+        ...parsed,
+      };
+      modeCache = { value, at: now };
+      return value;
+    }
   } catch (e) {
-    console.error('[SmartCalibration] Failed to save mode:', e);
+    logError('smartCalibration', e);
+  }
+  const def = { ...DEFAULT_MODE };
+  modeCache = { value: def, at: now };
+  return def;
+}
+
+export async function saveCalibrationMode(mode: CalibrationMode): Promise<void> {
+  try {
+    await db.systemConfig.upsert({
+      where: { key: MODE_SYSTEM_KEY },
+      create: {
+        key: MODE_SYSTEM_KEY,
+        value: mode as unknown as object,
+        updatedBy: 'smartCalibration',
+      },
+      update: {
+        value: mode as unknown as object,
+        updatedBy: 'smartCalibration',
+      },
+    });
+    modeCache = null;
+  } catch (e) {
+    logError('smartCalibration', e);
   }
 }
 
@@ -228,14 +306,17 @@ export function saveCalibrationMode(mode: CalibrationMode): void {
 //     → Increase late boost (1.30 → 1.38)
 //   - Sensitivity parameter controls how aggressively we adjust
 
-export function calibrateF8(
+/**
+ * Sync version of calibrateF8 — uses in-memory mode cache + hardcoded
+ * league defaults. DB-yüklemeli async yol (loadLeagueProfiles / DB-backed
+ * calibrateF8) route/admin pipeline'da çağrılır. Bu sync overload
+ * calculateGoalProbability gibi hot-path'ler için korunur.
+ */
+export function calibrateF8Sync(
   leagueId: number | null,
-  mode?: CalibrationMode,
+  mode: CalibrationMode,
 ): F8CalibrationResult {
-  const currentMode = mode ?? loadCalibrationMode();
-
-  // If calibration is OFF, return defaults
-  if (currentMode.mode === 'off') {
+  if (mode.mode === 'off') {
     return {
       originalDampener: 0.85,
       calibratedDampener: 0.85,
@@ -250,13 +331,11 @@ export function calibrateF8(
     };
   }
 
-  // Determine which avgGoalMinute to use
   let profile: LeagueGoalProfile | null = null;
   let source: 'auto' | 'manual' | 'default' = 'default';
 
-  if (currentMode.mode === 'manual' && currentMode.manualAvgGoalMinute != null) {
-    // Manual override: create synthetic profile from user input
-    const userAvg = currentMode.manualAvgGoalMinute;
+  if (mode.mode === 'manual' && mode.manualAvgGoalMinute != null) {
+    const userAvg = mode.manualAvgGoalMinute;
     profile = {
       leagueId: 0, leagueName: 'Kullanıcı Tanımlı', country: '*',
       avgGoalMinute: userAvg,
@@ -269,9 +348,8 @@ export function calibrateF8(
       lastUpdated: Date.now(),
     };
     source = 'manual';
-  } else if (currentMode.mode === 'auto') {
-    // Auto: look up league profile
-    const profiles = loadLeagueProfiles();
+  } else if (mode.mode === 'auto') {
+    const profiles = loadLeagueProfilesSyncDefaults();
     if (leagueId && profiles.has(leagueId)) {
       profile = profiles.get(leagueId)!;
       source = 'auto';
@@ -286,73 +364,32 @@ export function calibrateF8(
     source = 'default';
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // CALIBRATION MATH
-  // ════════════════════════════════════════════════════════════════
-  // Reference point: avgGoalMinute = 20.0 (global average)
-  // Deviation from reference determines adjustment strength
+  return computeF8Calibration(profile, mode, source);
+}
+
+function computeF8Calibration(
+  profile: LeagueGoalProfile,
+  currentMode: CalibrationMode,
+  source: 'auto' | 'manual' | 'default',
+): F8CalibrationResult {
   const REFERENCE_AVG = 20.0;
-  const deviation = profile.avgGoalMinute - REFERENCE_AVG; // negative = early, positive = late
+  const deviation = profile.avgGoalMinute - REFERENCE_AVG;
   const sensitivity = currentMode.sensitivity;
 
-  // ── 1. DAMPENER ADJUSTMENT ──
-  // Original: 0.85 for first 5 min of each half
-  // Early goal league (deviation < 0): reduce dampener (less suppression = trust early pressure more)
-  // Late goal league (deviation > 0): increase dampener (more suppression = early pressure is noise)
-  //
-  // Formula: dampener = 0.85 + deviation * 0.008 * sensitivity
-  // Range: [0.70, 0.95]
-  // Example: Süper Lig (16.4) → deviation = -3.6 → dampener = 0.85 + (-3.6)*0.008*0.7 = 0.85 - 0.020 = 0.83
-  //          Wait, early goals mean we should REDUCE dampener (increase multiplier)
-  //          So: early league → dampener should be HIGHER (closer to 1.0 = less suppression)
-  //
-  // Correction: dampener = 0.85 - deviation * 0.008 * sensitivity
-  //   Early (deviation < 0): -(-3.6)*0.008*0.7 = +0.020 → 0.87 (less suppression)
-  //   Late (deviation > 0): -(4.8)*0.008*0.7 = -0.027 → 0.82 (more suppression)
   const originalDampener = 0.85;
   const dampenerAdjustment = -deviation * 0.008 * sensitivity;
   const calibratedDampener = Math.max(0.70, Math.min(0.95, originalDampener + dampenerAdjustment));
 
-  // ── 2. DANGER ZONE ADJUSTMENT ──
-  // Original: 1.30 for minutes 86+
-  // Early goal league: goals come earlier, so danger zone should start earlier and be slightly less extreme
-  // Late goal league: goals come later, so danger zone is more extreme
-  //
-  // Danger boost: 1.30 - deviation * 0.01 * sensitivity (capped [1.15, 1.45])
-  // Early league: 1.30 + 0.025 = 1.325 → danger is real but spread earlier
-  // Late league: 1.30 - 0.034 = 1.266 → but we compensate by shifting zone later
   const originalDangerBoost = 1.30;
   const dangerBoostAdjustment = -deviation * 0.01 * sensitivity;
   const calibratedDangerBoost = Math.max(1.15, Math.min(1.45, originalDangerBoost + dangerBoostAdjustment));
 
-  // ── 3. DANGER ZONE SHIFT ──
-  // Original: starts at minute 86
-  // Early league: shift earlier (negative shift) — goals come sooner
-  // Late league: shift later (positive shift) — goals come later
-  //
-  // Shift = deviation * 0.5 * sensitivity (capped [-5, +5])
-  // Early (Süper Lig -3.6): shift = -3.6 * 0.5 * 0.7 = -1.26 → danger starts at ~85
-  // Late (Serie A +4.8): shift = +4.8 * 0.5 * 0.7 = +1.68 → danger starts at ~88
   const dangerZoneShift = Math.max(-5, Math.min(5, Math.round(deviation * 0.5 * sensitivity)));
-
-  // ── 4. DAMPENER ZONE SHIFT ──
-  // Original: dampener applies to minutes 1-5 and 46-50
-  // Early league: dampener zone can be shorter (dampenerZoneShift = negative = apply to fewer minutes)
-  // Late league: dampener zone should be longer (extend suppression)
-  // Shift = deviation * 0.3 * sensitivity (capped [-3, +3])
   const dampenerZoneShift = Math.max(-3, Math.min(3, Math.round(deviation * 0.3 * sensitivity)));
-
-  // ── 5. HALFTIME SURGE SHIFT ──
-  // Original: surge starts at minute 35
-  // Early league: surge starts earlier (negative shift)
-  // Late league: surge starts later (positive shift)
-  // Shift = deviation * 0.4 * sensitivity (capped [-4, +4])
   const halftimeSurgeShift = Math.max(-4, Math.min(4, Math.round(deviation * 0.4 * sensitivity)));
 
-  // ── 6. GENERATE EXPLANATION ──
   let explanation = '';
   const leagueLabel = profile.leagueName !== 'Global Average' ? profile.leagueName : 'Genel';
-
   if (Math.abs(deviation) <= 1) {
     explanation = `${leagueLabel}: Ortalama gol ${profile.avgGoalMinute.toFixed(1)} dk — ligin hedef zamanlaması ortalamaya yakın, minimal kalibrasyon`;
   } else if (deviation < 0) {
@@ -379,6 +416,65 @@ export function calibrateF8(
     leagueProfile: profile,
     explanation,
   };
+}
+
+export async function calibrateF8(
+  leagueId: number | null,
+  mode?: CalibrationMode,
+): Promise<F8CalibrationResult> {
+  const currentMode = mode ?? await loadCalibrationMode();
+
+  // If calibration is OFF, return defaults
+  if (currentMode.mode === 'off') {
+    return {
+      originalDampener: 0.85,
+      calibratedDampener: 0.85,
+      originalDangerBoost: 1.30,
+      calibratedDangerBoost: 1.30,
+      dangerZoneShift: 0,
+      dampenerZoneShift: 0,
+      halftimeSurgeShift: 0,
+      source: 'default',
+      leagueProfile: null,
+      explanation: 'Akıllı kalibrasyon kapalı — varsayılan F8 değerleri kullanılıyor',
+    };
+  }
+
+  // Determine which avgGoalMinute to use
+  let profile: LeagueGoalProfile | null = null;
+  let source: 'auto' | 'manual' | 'default' = 'default';
+
+  if (currentMode.mode === 'manual' && currentMode.manualAvgGoalMinute != null) {
+    const userAvg = currentMode.manualAvgGoalMinute;
+    profile = {
+      leagueId: 0, leagueName: 'Kullanıcı Tanımlı', country: '*',
+      avgGoalMinute: userAvg,
+      medianGoalMinute: userAvg - 1.5,
+      goalTimeStdDev: 14.0,
+      earlyGoalRate: userAvg < 18 ? 0.30 : userAvg < 22 ? 0.22 : 0.15,
+      lateGoalRate: userAvg > 23 ? 0.28 : userAvg > 20 ? 0.23 : 0.18,
+      halftimeGoalRate: userAvg < 18 ? 0.17 : 0.13,
+      matchCount: 0,
+      lastUpdated: Date.now(),
+    };
+    source = 'manual';
+  } else if (currentMode.mode === 'auto') {
+    const profiles = await loadLeagueProfiles();
+    if (leagueId && profiles.has(leagueId)) {
+      profile = profiles.get(leagueId)!;
+      source = 'auto';
+    } else {
+      profile = GLOBAL_DEFAULT;
+      source = 'auto';
+    }
+  }
+
+  if (!profile) {
+    profile = GLOBAL_DEFAULT;
+    source = 'default';
+  }
+
+  return computeF8Calibration(profile, currentMode, source);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -496,15 +592,15 @@ interface GoalTimingRecord {
   matchDate: string; // YYYY-MM-DD
 }
 
-export function updateLeagueProfile(
+export async function updateLeagueProfile(
   leagueId: number,
   leagueName: string,
   country: string,
   goalMinutes: number[],
-): LeagueGoalProfile | null {
+): Promise<LeagueGoalProfile | null> {
   if (goalMinutes.length === 0) return null;
 
-  const profiles = loadLeagueProfiles();
+  const profiles = await loadLeagueProfiles();
   const existing = profiles.get(leagueId);
 
   // If we have an existing profile with enough data, blend new data in
@@ -558,7 +654,7 @@ export function updateLeagueProfile(
   }
 
   profiles.set(leagueId, profile);
-  saveLeagueProfiles(profiles);
+  await saveLeagueProfile(profile);
   return profile;
 }
 
@@ -566,8 +662,8 @@ export function updateLeagueProfile(
 // GET ALL LEAGUE PROFILES (for UI display)
 // ════════════════════════════════════════════════════════════════
 
-export function getAllLeagueProfiles(): LeagueGoalProfile[] {
-  const profiles = loadLeagueProfiles();
+export async function getAllLeagueProfiles(): Promise<LeagueGoalProfile[]> {
+  const profiles = await loadLeagueProfiles();
   return Array.from(profiles.values()).sort((a, b) => a.avgGoalMinute - b.avgGoalMinute);
 }
 
@@ -590,12 +686,12 @@ export interface F8AdjustedResult {
   calibration: F8CalibrationResult;
 }
 
-export function getSmartF8Adjustment(
+export async function getSmartF8Adjustment(
   minute: number,
   leagueId: number | null,
   mode?: CalibrationMode,
-): F8AdjustedResult {
-  const cal = calibrateF8(leagueId, mode);
+): Promise<F8AdjustedResult> {
+  const cal = await calibrateF8(leagueId, mode);
   const minNum = minute;
   let minuteMultiplier = 1.0;
   let homeScoreAdj = 0;

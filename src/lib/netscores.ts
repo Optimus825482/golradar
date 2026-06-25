@@ -147,6 +147,33 @@ function fetchViaScrapling(url: string, timeoutMs: number = 20000): Promise<any>
   });
 }
 
+// ── Trainer sidecar Cloudflare bypass ──
+// When the main container has no Python runtime (e.g. Alpine-based
+// production image), proxy through the ml-trainer sidecar which has
+// Python + Scrapling (curl_cffi) for CF challenge solving.
+
+const TRAINER_NETSCORES_URL = process.env.ML_TRAINER_URL
+  ? `${process.env.ML_TRAINER_URL}/netscores-proxy`
+  : null;
+
+async function fetchViaTrainerProxy(url: string): Promise<any> {
+  if (!TRAINER_NETSCORES_URL) return null;
+  try {
+    const resp = await fetch(TRAINER_NETSCORES_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, timeout_ms: 20000 }),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!resp.ok) return null;
+    const result = await resp.json();
+    if (result.ok && result.data) return result.data;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Direct Node.js fetch (fast but Cloudflare may block)
 async function fetchDirect(url: string): Promise<any> {
   try {
@@ -229,6 +256,10 @@ async function fetchWithCFBypass(url: string): Promise<any> {
     const bridgeResult = await scrapeUrl(url, { type: 'json', referer: 'https://www.netscores.com/', timeout: 20000 });
     if (bridgeResult.ok && bridgeResult.data) return bridgeResult.data;
   }
+
+  // Last resort: ml-trainer sidecar proxy (has Python + Scrapling)
+  const trainerResult = await fetchViaTrainerProxy(url);
+  if (trainerResult) return trainerResult;
 
   return null;
 }

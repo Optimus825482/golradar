@@ -17,7 +17,8 @@ export async function writeModelArtifact(
   // Next 16+ Turbopack.
   const { writeFile, mkdir } = await import(/* turbopackIgnore: true */ 'node:fs/promises');
   const { join } = await import(/* turbopackIgnore: true */ 'node:path');
-  const dir = join(process.cwd(), 'data', 'ml-models');
+  const base = process.env.ML_DATA_DIR || join(process.cwd(), 'data');
+  const dir = join(base, 'ml-models');
   await mkdir(dir, { recursive: true });
   const filePath = join(dir, `${artifactName}-v${modelVersion}.json`);
   await writeFile(filePath, serialized, 'utf-8');

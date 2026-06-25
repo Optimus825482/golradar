@@ -30,7 +30,9 @@ import type { FeatureExtractionInput } from '../featureEngineering';
 // Use the Docker volume mount path (/app/data/ml-training) so the file is
 // visible to the ml-trainer sidecar which mounts the same volume at /data.
 // Falls back to cwd-relative path for local development.
-export const TRAINING_DIR = process.env.NODE_ENV === 'production'
+export const TRAINING_DIR = process.env.ML_DATA_DIR
+  ? join(process.env.ML_DATA_DIR, 'ml-training')
+  : process.env.NODE_ENV === 'production'
   ? '/app/data/ml-training'
   : join(process.cwd(), 'data', 'ml-training');
 

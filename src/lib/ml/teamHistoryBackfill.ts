@@ -149,14 +149,14 @@ async function backfillFromScoremer(
 // the B[] array of a SoccerAjax type=6 response; adjust if Goaloo
 // renumbers.
 const GOALOO_BACKFILL_LEAGUES = [
-  { id: 1, name: 'Premier League' },
-  { id: 2, name: 'La Liga' },
+  // Goaloo's /jsData/matchResult/json/{season}/s{league}_en.json endpoint
+  // returns 404 for some leagues. Verified working IDs only (Jun 2026).
   { id: 3, name: 'Bundesliga' },
-  { id: 4, name: 'Serie A' },
   { id: 5, name: 'Ligue 1' },
-  { id: 75, name: 'Süper Lig' },
   { id: 7, name: 'Champions League' },
   { id: 8, name: 'Europa League' },
+  // PL / La Liga / Serie A / Süper Lig return HTML 404 from Goaloo —
+  // recover separately via fotmob/scoremer source.
 ];
 
 function getSeasonsForRange(start: Date, end: Date): string[] {

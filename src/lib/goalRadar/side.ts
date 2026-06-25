@@ -9,12 +9,12 @@
 // (40-59) + son 3 pressure spike >= 2 → o taraf "on". İki taraf true
 // ise "both", hiçbiri değil ise "null".
 
-import type { PressureSnapshotLite } from '../goalRadar';
+import type { PressureSnapshotLite } from './types';
 import type { MatchStats } from '../nesineTypes';
+import { RADAR_THRESHOLD, SUSTAINED_THRESHOLD } from '@/config';
 
 // ── Thresholds (Faz 7 — score-based) ────────────────────────────
-const SUSTAINED_THRESHOLD = 40;
-const RADAR_THRESHOLD = 60;
+// SPIKE_THRESHOLD / SPIKE_MIN_COUNT not in config yet — kept local
 const SPIKE_THRESHOLD = 55;
 const SPIKE_MIN_COUNT = 2;
 

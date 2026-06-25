@@ -254,17 +254,21 @@ export async function updateLastValues(
   },
 ): Promise<GoalSignalRecord | null> {
   try {
-    // Read current signalScore to check for escalation
-    const current = await db.signal.findUnique({
-      where: { id },
-      select: { signalScore: true, escalated: true },
+    // Atomic escalation via updateMany WHERE clause. Only rows that are
+    // NOT already escalated AND have signalScore <= lastScore - 10 get
+    // escalated=true. Concurrent callers both run this query -- the first
+    // one succeeds (escalated flips to true), the second finds no matching
+    // rows (escalated is already true). No read-then-write race.
+    await db.signal.updateMany({
+      where: {
+        id,
+        escalated: false,
+        signalScore: { lte: fields.lastScore - 10 },
+      },
+      data: { escalated: true },
     });
-    const previousEscalated = current?.escalated ?? false;
-    const previousSignalScore = current?.signalScore ?? 0;
 
-    const isEscalation =
-      !previousEscalated && fields.lastScore >= previousSignalScore + 10;
-
+    // Then update last values (escalation race is handled above)
     const row = await db.signal.update({
       where: { id },
       data: {
@@ -273,7 +277,6 @@ export async function updateLastValues(
         lastPoissonP: fields.lastPoissonP,
         lastFactors: fields.lastFactors,
         lastSignalTimestamp: new Date(fields.lastSignalTimestamp),
-        escalated: isEscalation ? true : previousEscalated,
       },
     });
     return toGoalSignalRecord(row);

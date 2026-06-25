@@ -12,6 +12,18 @@
 /** Goal Radar skoru bu değerin altındaysa sinyal oluşturulmaz (0-100). */
 export const SIGNAL_THRESHOLD = 60;
 
+/** Side detection için RADAR eşiği (score >= this → side "on"). */
+export const RADAR_THRESHOLD = 60;
+
+/** Side detection için SUSTAINED eşiği (40-59 arası + pressure spike → side "on"). */
+export const SUSTAINED_THRESHOLD = 40;
+
+/** 5-dk içinde gol olasılığı eşiği — altında sinyal level "low"a düşer. */
+export const SIGNAL_5MIN_THRESHOLD = 0.25;
+
+/** Momentum yükselirken kullanılan daha düşük 5-dk olasılık eşiği. */
+export const MIN_PROB_FOR_SIGNAL = 0.20;
+
 /** Sinyal oluştuktan sonra gol için bekleme süresi (dakika). Aşılırsa fail. */
 export const SIGNAL_EXPIRY_MINUTES = 15;
 

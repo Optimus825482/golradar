@@ -3,6 +3,7 @@
 import { MatchCard } from './MatchCard'
 import type { Match } from './types'
 import type { GoalProbability } from '@/lib/nesine'
+import { SIGNAL_THRESHOLD } from '@/config'
 
 interface GoalRadarSectionProps {
   matches: Match[]
@@ -23,6 +24,7 @@ export function GoalRadarSection({
     const bScore = goalProbabilities.get(b.code)?.score || 0
     return bScore - aScore
   })
+  const filtered = sorted.filter(m => (goalProbabilities.get(m.code)?.score || 0) >= SIGNAL_THRESHOLD)
 
   return (
     <div className="mb-4">
@@ -35,10 +37,10 @@ export function GoalRadarSection({
           <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-400 rounded-full animate-ping" />
         </div>
         <h2 className="text-sm font-bold text-red-700 uppercase tracking-wide">Gol Radarı</h2>
-        <span className="text-[10px] text-red-400 ml-auto">{sorted.length} maç · Yüksek gol ihtimali</span>
+        <span className="text-[10px] text-red-400 ml-auto">{filtered.length} maç · Yüksek gol ihtimali</span>
       </div>
       <div className="bg-white rounded-xl border-2 border-red-200 overflow-hidden shadow-sm">
-        {sorted.map(match => (
+        {filtered.map(match => (
           <MatchCard
             key={match.code}
             match={match}

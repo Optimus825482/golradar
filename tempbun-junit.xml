@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="17" assertions="29" failures="6" skipped="0" time="0.146992">
+  <testsuite name="src\lib\__tests__\goalRadar.test.ts" file="src\lib\__tests__\goalRadar.test.ts" tests="17" assertions="29" failures="6" skipped="0" time="0" hostname="">
+    <testsuite name="calculateGoalProbability: non-live guard" file="src\lib\__tests__\goalRadar.test.ts" line="22" tests="1" assertions="3" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="non-live match → zeros with low/null" classname="calculateGoalProbability: non-live guard" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="23" assertions="3" />
+    </testsuite>
+    <testsuite name="calculateGoalProbability: basic live match" file="src\lib\__tests__\goalRadar.test.ts" line="31" tests="1" assertions="7" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="balanced stats, mid match → moderate score" classname="calculateGoalProbability: basic live match" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="32" assertions="7" />
+    </testsuite>
+    <testsuite name="calculateGoalProbability: odds movement boost" file="src\lib\__tests__\goalRadar.test.ts" line="44" tests="2" assertions="2" failures="1" skipped="0" time="0" hostname="">
+      <testcase name="critical odds boost → increased score + factor" classname="calculateGoalProbability: odds movement boost" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="45" assertions="1">
+        <failure type="AssertionError" />
+      </testcase>
+      <testcase name="no boost → no market factor" classname="calculateGoalProbability: odds movement boost" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="55" assertions="1" />
+    </testsuite>
+    <testsuite name="calculateGoalProbability: pressure dominance" file="src\lib\__tests__\goalRadar.test.ts" line="65" tests="1" assertions="2" failures="1" skipped="0" time="0" hostname="">
+      <testcase name="high home pressure → home side factor" classname="calculateGoalProbability: pressure dominance" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="66" assertions="2">
+        <failure type="AssertionError" />
+      </testcase>
+    </testsuite>
+    <testsuite name="calculateGoalProbability: card advantage" file="src\lib\__tests__\goalRadar.test.ts" line="79" tests="3" assertions="3" failures="3" skipped="0" time="0" hostname="">
+      <testcase name="away red card → home gets +18 boost, away gets -22 penalty" classname="calculateGoalProbability: card advantage" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="80" assertions="1">
+        <failure type="AssertionError" />
+      </testcase>
+      <testcase name="home red card → away gets boost" classname="calculateGoalProbability: card advantage" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="87" assertions="1">
+        <failure type="AssertionError" />
+      </testcase>
+      <testcase name="≥3 away yellows → home gets incremental boost" classname="calculateGoalProbability: card advantage" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="94" assertions="1">
+        <failure type="AssertionError" />
+      </testcase>
+    </testsuite>
+    <testsuite name="calculateGoalProbability: goal cooldown" file="src\lib\__tests__\goalRadar.test.ts" line="101" tests="2" assertions="2" failures="1" skipped="0" time="0" hostname="">
+      <testcase name="recent home goal → cooldown active, scores suppressed" classname="calculateGoalProbability: goal cooldown" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="116" assertions="1">
+        <failure type="AssertionError" />
+      </testcase>
+      <testcase name="no recent goal → no cooldown factor" classname="calculateGoalProbability: goal cooldown" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="129" assertions="1" />
+    </testsuite>
+    <testsuite name="calculateGoalProbability: concurrent threat multiplier" file="src\lib\__tests__\goalRadar.test.ts" line="136" tests="1" assertions="1" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="many active factors → fırtına or kritik eşik bonus" classname="calculateGoalProbability: concurrent threat multiplier" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="137" assertions="1" />
+    </testsuite>
+    <testsuite name="calculateGoalProbability: level determination" file="src\lib\__tests__\goalRadar.test.ts" line="151" tests="2" assertions="4" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="high stats → critical level" classname="calculateGoalProbability: level determination" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="152" assertions="2" />
+      <testcase name="low stats → low level" classname="calculateGoalProbability: level determination" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="165" assertions="2" />
+    </testsuite>
+    <testsuite name="calculateGoalProbability: edge cases" file="src\lib\__tests__\goalRadar.test.ts" line="178" tests="4" assertions="5" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="empty stats → safe result" classname="calculateGoalProbability: edge cases" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="179" assertions="2" />
+      <testcase name="very early minute → conservative" classname="calculateGoalProbability: edge cases" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="186" assertions="1" />
+      <testcase name="stoppage time minute parsing" classname="calculateGoalProbability: edge cases" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="195" assertions="1" />
+      <testcase name="very late in match → high minute multiplier" classname="calculateGoalProbability: edge cases" time="0" file="src\lib\__tests__\goalRadar.test.ts" line="204" assertions="1" />
+    </testsuite>
+  </testsuite>
+</testsuites>

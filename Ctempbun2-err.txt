@@ -1,0 +1,35 @@
+
+src\lib\__tests__\goalRadar.test.ts:
+70 |       shots_on_target: { home: 6, away: 1 },
+71 |       corners: { home: 8, away: 1 },
+72 |     });
+73 |     const r = calculateGoalProbability(stats, "60", true);
+74 |     expect(r.factors.some((f) => f.includes("Baskı") || f.includes("Tehl"))).toBe(true);
+75 |     expect(r.side === "home" || r.side === "both").toBe(true);
+                                                        ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (D:\golradar2\src\lib\__tests__\goalRadar.test.ts:75:52)
+(fail) calculateGoalProbability: pressure dominance > high home pressure → home side factor
+121 |     });
+122 |     const r = calculateGoalProbability(makeStats({
+123 |       dangerous_attacks: { home: 25, away: 5 },
+124 |       shots_on_target: { home: 7, away: 1 },
+125 |     }), "60", true, hist, 1, 0);
+126 |     expect(r.factors.some((f) => f.includes("soğuma"))).toBe(true);
+                                                             ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (D:\golradar2\src\lib\__tests__\goalRadar.test.ts:126:56)
+(fail) calculateGoalProbability: goal cooldown > recent home goal → cooldown active, scores suppressed
+
+ 15 pass
+ 2 fail
+ 32 expect() calls
+Ran 17 tests across 1 file. [139.00ms]

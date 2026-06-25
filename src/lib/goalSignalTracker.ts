@@ -45,6 +45,7 @@ import {
   SIGNAL_COOLDOWN_MS,
 } from "@/config";
 import { db } from "./db";
+import { logError } from "./devLog";
 import { loadExcludedMinutes, isExcludedMinute } from "./excludedMinutes";
 
 // ── Local date helper ────────────────────────────────────
@@ -350,31 +351,25 @@ export async function reportGoal(
   goalSide: "home" | "away",
   goalMinute: number,
 ): Promise<void> {
-  // Önce pending sinyalleri oku (batch update onları null→true yapmadan)
-  const allPending = await repoFindAllPending(matchCode);
-  const withId = allPending.filter((s): s is GoalSignalRecord & { id: string } => !!s.id);
+  try {
+    const allPending = await repoFindAllPending(matchCode);
+    const withId = allPending.filter((s): s is GoalSignalRecord & { id: string } => !!s.id);
 
-  // Batch: ortak alanları tek updateMany ile yaz (goalHappened/goalMinute/goalSide/timestamp)
-  await repoUpdateVerificationBatch(matchCode, {
-    goalHappened: true,
-    goalMinute,
-    goalSide,
-    goalTimestamp: Date.now(),
-  });
-
-  // Satır-bazlı correctPrediction + minutesAfterSignal'i paralel yaz
-  await Promise.all(
-    withId.map((s) =>
-      repoUpdateVerification(s.id, {
-        goalHappened: true,
-        goalMinute,
-        goalSide,
-        correctPrediction: goalSide === s.signalSide,
-        minutesAfterSignal: Math.max(0, goalMinute - s.signalMinute),
-        goalTimestamp: Date.now(),
-      }),
-    ),
-  );
+    await Promise.all(
+      withId.map((s) =>
+        repoUpdateVerification(s.id, {
+          goalHappened: true,
+          goalMinute,
+          goalSide,
+          correctPrediction: goalSide === s.signalSide,
+          minutesAfterSignal: Math.max(0, goalMinute - s.signalMinute),
+          goalTimestamp: Date.now(),
+        }),
+      ),
+    );
+  } catch (err) {
+    logError('goalSignalTracker', 'reportGoal failed:', err);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════

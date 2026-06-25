@@ -221,45 +221,44 @@ async function fetchDirect(url: string): Promise<any> {
 // fresh User-Agent from the pool so consecutive challenges look like
 // different browsers.
 async function fetchWithCFBypass(url: string): Promise<any> {
-  if (scraplingAvailable === false) {
-    return await fetchWithCFRetry(url);
-  }
-
   // Try direct fetch first (fastest)
   const directResult = await fetchWithCFRetry(url);
   if (directResult) return directResult;
 
+  // Try trainer proxy early — it's the most reliable bypass since
+  // ml-trainer has Python + curl_cffi. Try before local Python methods
+  // to avoid slow process spawns.
+  const trainerResult = await fetchViaTrainerProxy(url);
+  if (trainerResult) return trainerResult;
+
   // Try Scrapling Python script — skip entirely when no Python on PATH
-  // to avoid spawning a process that will ENOENT on us.
-  if (scraplingAvailable === null) {
-    const python = resolvePython();
-    if (!python) {
-      scraplingAvailable = false;
-    } else {
-      try {
-        const fs = await import("fs");
-        scraplingAvailable = fs.existsSync(getScraplingScript());
-      } catch {
+  // or when previously marked unavailable.
+  if (scraplingAvailable !== false) {
+    if (scraplingAvailable === null) {
+      const python = resolvePython();
+      if (!python) {
         scraplingAvailable = false;
+      } else {
+        try {
+          const fs = await import("fs");
+          scraplingAvailable = fs.existsSync(getScraplingScript());
+        } catch {
+          scraplingAvailable = false;
+        }
       }
+    }
+
+    if (scraplingAvailable) {
+      const scraplingResult = await fetchViaScrapling(url);
+      if (scraplingResult) return scraplingResult;
     }
   }
 
-  if (scraplingAvailable) {
-    const scraplingResult = await fetchViaScrapling(url);
-    if (scraplingResult) return scraplingResult;
-  }
-
-  // Last resort: Python bridge (curl_cffi with TLS fingerprint) — also
-  // requires a Python runtime, so skip when missing.
+  // Python bridge (curl_cffi with TLS fingerprint)
   if (resolvePython()) {
     const bridgeResult = await scrapeUrl(url, { type: 'json', referer: 'https://www.netscores.com/', timeout: 20000 });
     if (bridgeResult.ok && bridgeResult.data) return bridgeResult.data;
   }
-
-  // Last resort: ml-trainer sidecar proxy (has Python + Scrapling)
-  const trainerResult = await fetchViaTrainerProxy(url);
-  if (trainerResult) return trainerResult;
 
   return null;
 }

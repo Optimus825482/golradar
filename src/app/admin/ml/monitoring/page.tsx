@@ -46,13 +46,22 @@ export default function AdminMLMonitoringPage() {
     setLoading(true);
     authFetch(`/api/admin/ml/monitoring?days=${days}`)
       .then(r => r.ok ? r.json() : null)
-      .then(d => { setData(d); setLoading(false); });
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
   }, [days]);
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="flex justify-center py-20">
         <div className="animate-spin w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="flex justify-center py-20">
+        <p className="text-xs text-gray-400">Henüz monitoring verisi yok. Günlük job çalıştığında dolacak.</p>
       </div>
     );
   }

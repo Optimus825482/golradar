@@ -395,7 +395,7 @@ const MAPPING_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 // Name normalization for matching (delegated to shared module)
 
-import { normalizeTeamName, translateTeamName, nameSimilarity } from './teamNameNormalizer';
+import { nameSimilarity } from './teamNameNormalizer';
 import { logError } from '@/lib/devLog';
 
 // Extract slug ID from URL like "/football/xxx-live-127912"
@@ -959,9 +959,3 @@ export async function fetchGameTimers(gameIds: number[]): Promise<Record<number,
 }
 
 // ── Get team logo URL from NetScores ──
-
-function getNetScoresTeamLogo(logoUrl: string | null): string | null {
-  if (!logoUrl) return null;
-  if (logoUrl.startsWith("http")) return logoUrl;
-  return `${NETSCORES_BASE}${logoUrl}`;
-}

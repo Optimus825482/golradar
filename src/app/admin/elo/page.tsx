@@ -1,18 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-
-function authFetch(path: string, init?: RequestInit) {
-  const token = sessionStorage.getItem('admin_token');
-  return fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
-    },
-  });
-}
+import { authFetch } from '@/lib/adminAuth';
 
 interface EloRating {
   id?: string;
@@ -65,7 +54,7 @@ export default function AdminEloPage() {
         const data = await jobsRes.json();
         setJobs(data.jobs || []);
       }
-    } catch (e) { /* silent */ }
+    } catch { /* connection error */ }
     setLoading(false);
   }, []);
 

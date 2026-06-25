@@ -2,18 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { fmtDate, fmtNum } from '@/lib/safeFormat';
-
-function authFetch(path: string, init?: RequestInit) {
-  const token = sessionStorage.getItem('admin_token');
-  return fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers || {}),
-    },
-  });
-}
+import { authFetch } from '@/lib/adminAuth';
 
 interface ModelArtifact {
   id: string;
@@ -35,6 +24,11 @@ const MODEL_NAMES: Record<string, { label: string; color: string; description: s
   'xt-grid': { label: 'xT Grid', color: '#56a6d9', description: 'Expected Threat — pozisyon bazlı tehlike' },
 };
 
+interface MLStatus {
+  trainer?: { health?: { ok: boolean; latencyMs?: number } };
+  scheduler?: { exportRunning: boolean; inplayRunning: boolean; lastExportAt?: string };
+}
+
 interface ModelWeight {
   name: string;
   version: string | null;
@@ -50,7 +44,7 @@ interface ModelWeight {
 
 export default function AdminMLPage() {
   const [artifacts, setArtifacts] = useState<ModelArtifact[]>([]);
-  const [status, setStatus] = useState<any>(null);
+  const [status, setStatus] = useState<MLStatus | null>(null);
   const [weights, setWeights] = useState<ModelWeight[]>([]);
   const [loading, setLoading] = useState(true);
 

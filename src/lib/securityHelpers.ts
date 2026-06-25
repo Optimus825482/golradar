@@ -2,7 +2,14 @@
 // Same-origin check (CSRF guard) + IP extraction + admin auth.
 // Used by presence, goal-signals, and other write endpoints.
 
+import { NextResponse } from 'next/server';
 import { validateSession } from "./auth";
+
+export type AdminAuthResult = { ok: boolean; reason?: string };
+
+export function adminUnauthorized(reason: string): NextResponse {
+  return NextResponse.json({ ok: false, error: reason }, { status: 401 });
+}
 
 interface HostRule {
   /** Exact host match, e.g. "api.example.com". */

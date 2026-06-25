@@ -1,13 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-
-function authFetch(path: string) {
-  const token = sessionStorage.getItem('admin_token');
-  return fetch(path, {
-    headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' },
-  });
-}
+import { authFetch } from '@/lib/adminAuth';
 
 interface MetricsPoint {
   date: string;

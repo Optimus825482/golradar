@@ -2,18 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { fmtNum } from '@/lib/safeFormat';
-
-function authFetch(path: string, init?: RequestInit) {
-  const token = sessionStorage.getItem('admin_token');
-  return fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
-    },
-  });
-}
+import { authFetch } from '@/lib/adminAuth';
 
 interface TrainingDataset {
   horizon: number;
@@ -92,9 +81,7 @@ export default function AdminMLTrainPage() {
       ]);
       if (dsRes?.datasets) setDatasets(dsRes.datasets);
       if (runsRes?.runs) setRuns(runsRes.runs);
-    } catch (e) {
-      // Silent
-    }
+    } catch { /* connection error — keep existing data */ }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -115,7 +102,7 @@ export default function AdminMLTrainPage() {
     setSuccess(null);
     try {
       const ds = datasets.find(d => d.path === datasetId);
-      const body: any = {
+      const body: Record<string, unknown> = {
         name: modelName,
         version,
         horizon_min: horizonMin,

@@ -160,17 +160,48 @@ export async function evaluateDailyShadows(
       where: { date: yesterday },
     });
     if (prevMetrics && prevMetrics.shadowBrierDelta) {
-      // Two days of bad shadow: log a note on today's row.
-      // We don't actually flip isChampion=false because shadows
-      // shouldn't be champion to begin with. Instead we mark the
-      // artifact with a `notes` flag for human review.
+      // Two days of bad shadow: archive the artifact. Append a deprecation
+      // note to `notes` so operators can see when and why it was archived.
       const bothBad = shadowBrierDelta > 0.02 && prevMetrics.shadowBrierDelta > 0.02;
       if (bothBad) {
+        const variantBrier = new Map<string, number>();
         for (const [v, agg] of perVariantAgg.entries()) {
           if (v === 'champion') continue;
           const brier = agg.sum / agg.n;
           if (brier - championBrier > 0.02) {
             suspendedVariants.push(v);
+            variantBrier.set(v, brier);
+          }
+        }
+        // Apply archive action for any variants we identified. `agg.artifact`
+        // holds the version token (e.g. "xgb@1.0.0" → "1.0.0"); we look up
+        // the artifact by (name, version) and prepend a note.
+        if (suspendedVariants.length > 0) {
+          for (const variant of suspendedVariants) {
+            const parts = variant.split('@');
+            if (parts.length !== 2) continue;
+            const name = parts[0].replace(/^shadow:|^artifact:/, '');
+            const version = parts[1];
+            const variantB = variantBrier.get(variant) ?? 0;
+            try {
+              const art = await db.modelArtifact.findUnique({
+                where: { name_version: { name, version } },
+              });
+              if (!art) continue;
+              const stamp = new Date().toISOString();
+              const note = `[AUTO-SUSPENDED ${stamp}] Brier ${(variantB - championBrier).toFixed(4)} worse than champion for 2 consecutive days.`;
+              await db.modelArtifact.update({
+                where: { id: art.id },
+                data: {
+                  notes: art.notes ? `${art.notes}\n${note}` : note,
+                },
+              });
+              logWarn('shadowEvaluator',
+                `Archived ${name}@${version}: 2-day Brier gap ${(variantB - championBrier).toFixed(4)}`);
+            } catch (e) {
+              logWarn('shadowEvaluator',
+                `Archive failed for ${variant}:`, e);
+            }
           }
         }
       }

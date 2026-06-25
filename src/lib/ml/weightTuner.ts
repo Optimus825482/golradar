@@ -5,7 +5,7 @@
 // tier-driven scheme: better-calibrated models (low Brier) get more
 // weight, poorly-calibrated ones (Brier ≥ 0.50) are zeroed out.
 //
-// Tier mapping (matches modelWeightRouter.tierForBrier):
+// Tier mapping (shared via @/config BRIER_TIERS):
 //   brier < 0.18         → tier "excellent" → contributes heavily
 //   0.18 ≤ brier < 0.25   → tier "good"
 //   0.25 ≤ brier < 0.32   → tier "fair"
@@ -13,6 +13,8 @@
 //   0.40 ≤ brier < 0.50   → tier "disabled" (weight 0)
 //   brier ≥ 0.50          → weight 0
 //   brier == null         → fallback weight 0.20 (unranked)
+
+import { tierWeight } from '@/config';
 
 export interface WeightTunerInput {
   inplayBrier?: number | null;
@@ -41,22 +43,6 @@ interface ModelSlot {
   earlyBonus: number;  // extra weight when minute <= 20
   lateBonus: number;   // extra weight when minute >= 60
   pressureBonus: number; // extra weight when hasPressureHistory
-}
-
-const TIER_BRIER_CAPS: Array<{ cap: number; weight: number }> = [
-  { cap: 0.18, weight: 1.0 },
-  { cap: 0.25, weight: 0.75 },
-  { cap: 0.32, weight: 0.5 },
-  { cap: 0.40, weight: 0.25 },
-  { cap: 0.50, weight: 0.0 },
-];
-
-function tierWeight(brier: number | null | undefined): number {
-  if (brier == null) return 0.2;
-  for (const tier of TIER_BRIER_CAPS) {
-    if (brier < tier.cap) return tier.weight;
-  }
-  return 0;
 }
 
 export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights {

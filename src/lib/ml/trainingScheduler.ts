@@ -19,6 +19,7 @@ import {
   ML_TRAINER_ENABLED,
 } from './mlClient';
 import { registerArtifact } from './modelRouter';
+import { logInfo, logWarn, logError } from '@/lib/devLog';
 
 const EXPORT_HOUR_LOCAL = 3; // 03:00 local
 const EXPORT_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 min — re-check time
@@ -28,6 +29,7 @@ const MAX_ROWS_PER_EXPORT = 50_000;
 interface SchedulerState {
   exportTimer: ReturnType<typeof setInterval> | null;
   lastExportDate: string; // YYYY-MM-DD, used as a once-per-day guard
+  lastInPlayExportDate: string; // YYYY-MM-DD, used as a once-per-window guard
   horizons: TrainingHorizon[];
   startedAt: number;
 }
@@ -41,6 +43,7 @@ function getState(): SchedulerState {
     globalForScheduler.mlTrainingScheduler = {
       exportTimer: null,
       lastExportDate: '',
+      lastInPlayExportDate: '',
       horizons: [5, 10, 15],
       startedAt: 0,
     };
@@ -58,19 +61,19 @@ async function exportAllHorizons(): Promise<void> {
         maxRows: MAX_ROWS_PER_EXPORT,
       });
       if (result) {
-        console.log(
-          `[MLScheduler] Exported ${result.rowCount} rows (horizon=${horizon}min) → ${result.path}`,
-        );
+        logInfo('MLScheduler',
+          `Exported ${result.rowCount} rows (horizon=${horizon}min) → ${result.path}`);
       } else {
-        console.log(`[MLScheduler] No data for horizon=${horizon}min — skipped`);
+        logInfo('MLScheduler', `No data for horizon=${horizon}min — skipped`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[MLScheduler] Export failed (horizon=${horizon}min):`, msg);
+      logError('MLScheduler', `Export failed (horizon=${horizon}min): ${msg}`);
       try {
         await recordExportFailure(horizon, msg);
       } catch (innerErr) {
-        console.error('[MLScheduler] Failed to record failure:', innerErr);
+        const innerMsg = innerErr instanceof Error ? innerErr.message : String(innerErr);
+        logError('MLScheduler', `Failed to record failure: ${innerMsg}`);
       }
     }
   }
@@ -107,10 +110,9 @@ export function startTrainingScheduler(): SchedulerState {
   // wait 15 min for the first export.
   checkAndRunDaily();
 
-  console.log(
-    `[MLScheduler] Started — check every ${EXPORT_CHECK_INTERVAL_MS / 60000}m, ` +
-      `horizons=${state.horizons.join(',')}min, daily at ${EXPORT_HOUR_LOCAL}:00 local`,
-  );
+  logInfo('MLScheduler',
+    `Started — check every ${EXPORT_CHECK_INTERVAL_MS / 60000}m, ` +
+      `horizons=${state.horizons.join(',')}min, daily at ${EXPORT_HOUR_LOCAL}:00 local`);
   return state;
 }
 
@@ -125,6 +127,7 @@ export function getTrainingSchedulerStatus(): {
   startedAt: number;
   uptimeMs: number;
   lastExportDate: string;
+  lastInPlayExportDate: string;
   horizons: TrainingHorizon[];
 } {
   const state = getState();
@@ -133,6 +136,7 @@ export function getTrainingSchedulerStatus(): {
     startedAt: state.startedAt,
     uptimeMs: state.startedAt > 0 ? Date.now() - state.startedAt : 0,
     lastExportDate: state.lastExportDate,
+    lastInPlayExportDate: state.lastInPlayExportDate,
     horizons: state.horizons,
   };
 }
@@ -197,14 +201,23 @@ function isInMatchWindow(now: Date): boolean {
 }
 
 async function runInPlayRetrain(): Promise<void> {
+  const state = getState();
   if (!ML_TRAINER_ENABLED) {
-    console.log('[MLScheduler] In-play skipped: trainer sidecar disabled (ML_TRAINER_URL not set)');
+    logInfo('MLScheduler', 'In-play skipped: trainer sidecar disabled (ML_TRAINER_URL not set)');
     return;
   }
   if (!isInMatchWindow(new Date())) {
-    console.log('[MLScheduler] In-play skipped: outside match window');
+    logInfo('MLScheduler', 'In-play skipped: outside match window');
     return;
   }
+  // Once-per-calendar-day guard for in-play: avoid burning trainer
+  // cycles on every 6h tick when we're inside an active window.
+  const today = new Date().toISOString().slice(0, 10);
+  if (state.lastInPlayExportDate === today) {
+    logInfo('MLScheduler', `In-play skipped: already exported today (${today})`);
+    return;
+  }
+  state.lastInPlayExportDate = today;
   try {
     // 1. Export 5-min-horizon training data from the last 7 days
     const result = await exportTrainingData({
@@ -213,7 +226,7 @@ async function runInPlayRetrain(): Promise<void> {
       maxRows: MAX_ROWS_PER_EXPORT,
     });
     if (!result) {
-      console.log('[MLScheduler] In-play skipped: no data in last 7 days');
+      logInfo('MLScheduler', 'In-play skipped: no data in last 7 days');
       return;
     }
     // 2. Fire training job
@@ -225,12 +238,12 @@ async function runInPlayRetrain(): Promise<void> {
       dataset_path: result.path,
     });
     if (!job) {
-      console.log('[MLScheduler] In-play trainer unreachable');
+      logWarn('MLScheduler', 'In-play trainer unreachable');
       return;
     }
     const completed = await pollJob(job.jobId, { timeoutMs: 180_000, pollMs: 3_000 });
     if (!completed || completed.status !== 'success' || !completed.artifactPath) {
-      console.warn(`[MLScheduler] In-play train failed: ${completed?.error ?? 'timeout'}`);
+      logWarn('MLScheduler', `In-play train failed: ${completed?.error ?? 'timeout'}`);
       return;
     }
     // 3. Register as a shadow artifact (champion=false). Operator
@@ -244,9 +257,13 @@ async function runInPlayRetrain(): Promise<void> {
       bytes: completed.metrics.artifactBytes ?? null,
       notes: `In-play re-train (n=${completed.metrics.n ?? '?'}, horizon=5min, last 7 days)`,
     });
-    console.log(`[MLScheduler] In-play artifact registered: ${version}`);
+    logInfo('MLScheduler', `In-play artifact registered: ${version}`);
   } catch (err) {
-    console.error('[MLScheduler] In-play retrain error:', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    logError('MLScheduler', `In-play retrain error: ${msg}`);
+    // Roll back so a retry can happen on the next tick instead of
+    // waiting until tomorrow's first window.
+    state.lastInPlayExportDate = '';
   }
 }
 
@@ -266,10 +283,9 @@ export function startInPlayScheduler(): { running: boolean; startedAt: number } 
   if (isInMatchWindow(new Date())) {
     void runInPlayRetrain();
   }
-  console.log(
-    `[MLScheduler] In-play scheduler started — every ${INPLAY_INTERVAL_MS / 3_600_000}h, ` +
-      `match windows only (Fri-Sun + Tue/Wed evenings UTC+3)`,
-  );
+  logInfo('MLScheduler',
+    `In-play scheduler started — every ${INPLAY_INTERVAL_MS / 3_600_000}h, ` +
+      `match windows only (Fri-Sun + Tue/Wed evenings UTC+3)`);
   return { running: true, startedAt: Date.now() };
 }
 
@@ -296,7 +312,8 @@ if (typeof window === 'undefined' && process.env.DATABASE_URL) {
       startTrainingScheduler();
       startInPlayScheduler();
     } catch (err) {
-      console.warn('[MLScheduler] Auto-start failed:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      logWarn('MLScheduler', `Auto-start failed: ${msg}`);
     }
   });
 }

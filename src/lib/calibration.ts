@@ -400,38 +400,5 @@ export async function calculateCalibrationStats(days?: number): Promise<Calibrat
 }
 
 export async function autoCalibrate(): Promise<{ x0: number; k: number; L: number; brierBefore: number; brierAfter: number } | null> {
-  const records = await loadCalibrationRecords();
-  if (records.length < 50) return null;
-  const currentBrier = calculateBrierScore(records);
-  let bestX0 = CALIBRATION_PARAMS.x0;
-  let bestK = CALIBRATION_PARAMS.k;
-  let bestL = CALIBRATION_PARAMS.L;
-  let bestBrier = currentBrier;
-  for (let x0 = 40; x0 <= 90; x0 += 5) {
-    for (let k = 30; k <= 100; k += 5) {
-      const kVal = k / 1000;
-      for (let lRaw = 80; lRaw <= 99; lRaw += 2) {
-        const L = lRaw / 100;
-        let sum = 0;
-        for (const r of records) {
-          const p = L / (1 + Math.exp(-kVal * (r.score - x0)));
-          sum += Math.pow(p - (r.goalScored ? 1 : 0), 2);
-        }
-        const brier = sum / records.length;
-        if (brier < bestBrier) { bestBrier = brier; bestX0 = x0; bestK = kVal; bestL = L; }
-      }
-    }
-  }
-  if (bestBrier < currentBrier * 0.95) {
-    CALIBRATION_PARAMS.x0 = bestX0;
-    CALIBRATION_PARAMS.k = bestK;
-    CALIBRATION_PARAMS.L = bestL;
-    try {
-      await persistParamsToDB('autoCalibrate');
-    } catch (e) {
-      logError('calibration', 'persist failed:', e);
-    }
-    return { x0: bestX0, k: bestK, L: bestL, brierBefore: currentBrier, brierAfter: bestBrier };
-  }
-  return null;
+  return autoCalibrateFromDB();
 }

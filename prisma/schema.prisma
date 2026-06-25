@@ -409,6 +409,7 @@ model PipelineRun {
   brierDelta    Float?
   isBetter      Boolean?
   isPromoted    Boolean?
+  promotionRequiredDelta Float?
   @@index([createdAt])
   @@index([status])
 }

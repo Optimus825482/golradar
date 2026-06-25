@@ -15,6 +15,7 @@
 // Brier and weights assigned proportionally.
 
 import { db } from '@/lib/db';
+import { BRIER_TIERS, UNRANKED_WEIGHT } from '@/config';
 
 export interface ModelWeight {
   name: string;
@@ -26,19 +27,12 @@ export interface ModelWeight {
   lastUpdated: string | null;
 }
 
-const TIERS = [
-  { maxBrier: 0.18, weight: 1.0, status: 'active' as const },
-  { maxBrier: 0.25, weight: 0.75, status: 'active' as const },
-  { maxBrier: 0.32, weight: 0.5, status: 'active' as const },
-  { maxBrier: 0.40, weight: 0.25, status: 'active' as const },
-  { maxBrier: 0.50, weight: 0.0, status: 'disabled' as const },
-];
-
 export function tierForBrier(brier: number | null): { weight: number; status: ModelWeight['status'] } {
-  if (brier == null) return { weight: 0.25, status: 'active' as const };
-  for (const tier of TIERS) {
-    if (brier < tier.maxBrier) return { weight: tier.weight, status: tier.status };
+  if (brier == null) return { weight: UNRANKED_WEIGHT, status: 'active' as const };
+  for (const tier of BRIER_TIERS) {
+    if (brier < tier.maxBrier) return { weight: tier.weight, status: 'active' as const };
   }
+  // brier >= 0.50: archived
   return { weight: 0.0, status: 'archived' as const };
 }
 

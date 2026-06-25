@@ -52,9 +52,38 @@ export const EXCLUDED_MINUTE_RANGES: readonly MinuteRange[] = [
   { start: 89, end: MAX_MINUTE, reason: "Uzatma oylamaları" },
 ];
 
-/** Bir `minute` değerinin dışlanan bölgelerden birine düşüp düşmediği. */
-export function isExcludedMinute(minute: number): boolean {
-  return EXCLUDED_MINUTE_RANGES.some((r) => minute >= r.start && minute <= r.end);
+// ── Shared Brier Tier System ──────────────────────────────────────────
+// Single source of truth for modelWeightRouter.ts and weightTuner.ts.
+// Prevents tier drift between the two weight systems.
+export const BRIER_TIERS: readonly { maxBrier: number; weight: number }[] = [
+  { maxBrier: 0.18, weight: 1.0 },
+  { maxBrier: 0.25, weight: 0.75 },
+  { maxBrier: 0.32, weight: 0.50 },
+  { maxBrier: 0.40, weight: 0.25 },
+  { maxBrier: 0.50, weight: 0.0 },
+] as const;
+
+/** Unranked baseline weight (null Brier = 0.20, matches old default). */
+export const UNRANKED_WEIGHT = 0.20;
+
+/** Resolve weight from Brier via shared tiers. Returns 0 for brier ≥ 0.50. */
+export function tierWeight(brier: number | null | undefined): number {
+  if (brier == null) return UNRANKED_WEIGHT;
+  for (const t of BRIER_TIERS) {
+    if (brier < t.maxBrier) return t.weight;
+  }
+  return 0;
+}
+
+// ── Promotion Significance Threshold ──────────────────────────────────
+// Minimum Brier improvement required to auto-promote. Scales inversely
+// with sample count — tiny deltas on < 500 samples are likely noise.
+export function minDeltaForPromotion(nSamples: number): number {
+  if (nSamples < MIN_REAL_SAMPLES_FOR_PROMOTION) return Infinity;
+  if (nSamples < 500) return 0.015;
+  if (nSamples < 1000) return 0.010;
+  if (nSamples < 5000) return 0.005;
+  return 0.003;
 }
 
 // ── In-play ML model geçidi ───────────────────────────────────────

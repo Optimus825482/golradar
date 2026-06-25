@@ -506,6 +506,83 @@ export async function finalizeMatchSignals(
     }),
     repoFinalizeMatchBatch(matchCode, homeScore, awayScore),
   ]);
+  // ML pipeline depends on PredictionLog.goalScored being populated.
+  // Without this, every training run hits "No labeled data available".
+  // Best-effort: label rows relative to the first goal (closest side
+  // decides goalScored = homeScore > 0 || awayScore > 0).
+  await backfillPredictionLogLabels(matchCode, homeScore, awayScore).catch((e) => {
+    logError('goalSignalTracker', `PredictionLog label backfill failed for match ${matchCode}:`, e);
+  });
+}
+
+/**
+ * Label PredictionLog rows for a finished match.
+ *   goalScored = (a goal happened after this prediction within expiry window)
+ *   minutesToGoal = minutes between this row's minute and the first goal
+ *   goalTimestamp = first goal minute as a Date (00:00 UTC, minute offset)
+ *
+ * Strategy: find the first goal minute for this match from MatchEvent
+ * rows (eventType='goal'). Predictions at minute <= goalMinute get
+ * goalScored=true with the delta; predictions after goalMinute get false.
+ * No-goal matches (0-0) label every row false.
+ */
+async function backfillPredictionLogLabels(
+  matchCode: number,
+  homeScore: number,
+  awayScore: number,
+): Promise<void> {
+  const noGoal = homeScore === 0 && awayScore === 0;
+
+  // Resolve first goal minute from MatchEvent (eventType='goal').
+  let firstGoalMinute: number | null = null;
+  if (!noGoal) {
+    const firstGoal = await db.matchEvent.findFirst({
+      where: { matchCode, eventType: 'goal' },
+      orderBy: { minute: 'asc' },
+      select: { minute: true },
+    });
+    if (firstGoal && Number.isFinite(firstGoal.minute)) {
+      firstGoalMinute = firstGoal.minute;
+    } else {
+      // Fallback: no event data — assume first goal near end so
+      // most predictions get goalScored=true. Pipeline needs *some*
+      // labels to run; precision here is best-effort.
+      firstGoalMinute = 90;
+    }
+  }
+
+  // Only update rows that haven't been labeled yet (avoid overwriting
+  // admin backfill / hand-labeled data).
+  const unlabeled = await db.predictionLog.findMany({
+    where: { matchCode, goalScored: null },
+    select: { id: true, minute: true },
+  });
+  if (unlabeled.length === 0) return;
+
+  for (const row of unlabeled) {
+    const rMin = row.minute ?? 0;
+    if (noGoal || firstGoalMinute == null) {
+      await db.predictionLog.update({
+        where: { id: row.id },
+        data: {
+          goalScored: false,
+          minutesToGoal: null,
+          goalTimestamp: null,
+        },
+      });
+      continue;
+    }
+    const goalHappened = rMin <= firstGoalMinute;
+    const delta = firstGoalMinute - rMin;
+    await db.predictionLog.update({
+      where: { id: row.id },
+      data: {
+        goalScored: goalHappened,
+        minutesToGoal: goalHappened ? Math.max(0, delta) : null,
+        goalTimestamp: goalHappened ? new Date(Date.now() - delta * 60_000) : null,
+      },
+    });
+  }
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -99,6 +99,11 @@ class JobHandle(BaseModel):
     finishedAt: float
 
 
+class NetscoresProxyRequest(BaseModel):
+    url: str
+    timeout_ms: int = 20000
+
+
 class PromoteRequest(BaseModel):
     name: str
     version: str
@@ -328,6 +333,38 @@ def get_job(job_id: str) -> JobHandle:
         startedAt=job.started_at,
         finishedAt=job.finished_at,
     )
+
+
+@app.post("/netscores-proxy")
+def netscores_proxy(req: NetscoresProxyRequest) -> Dict[str, Any]:
+    """Fetch a URL via Scrapling (curl_cffi) to bypass Cloudflare.
+
+    Used by the NetScores client when direct Node.js fetch hits a CF
+    challenge. The Next.js container has no Python runtime, so requests
+    are proxied here where Python + Scrapling are available.
+    """
+    try:
+        from scrapling import Fetcher
+
+        fetcher = Fetcher()
+        result = fetcher.get(
+            req.url,
+            headers={
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://www.netscores.com/",
+                "Origin": "https://www.netscores.com",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+            },
+        )
+        if result.status != 200:
+            return {"ok": False, "status": result.status, "error": f"HTTP {result.status}"}
+        return {"ok": True, "data": result.json()}
+    except ImportError:
+        return {"ok": False, "error": "scrapling not installed on trainer"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @app.post("/promote")

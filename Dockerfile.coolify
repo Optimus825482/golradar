@@ -13,7 +13,7 @@ RUN bunx prisma generate
 
 COPY . .
 
-ENV NODE_OPTIONS=--max-old-space-size=512
+ENV NODE_OPTIONS=--max-old-space-size=2048
 RUN bun run build
 
 # ── Stage 2: Runtime ──

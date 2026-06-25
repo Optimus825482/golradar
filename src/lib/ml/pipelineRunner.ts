@@ -13,8 +13,9 @@ import { writeFile, mkdir, unlink } from 'fs/promises';
 import { createHash } from 'crypto';
 import { join } from 'path';
 import { startTraining, pollJob } from './mlClient';
-import { registerArtifact, listArtifacts } from './modelRouter';
+import { registerArtifact } from './modelRouter';
 import { logError, logInfo } from '../devLog';
+import { minDeltaForPromotion, MIN_REAL_SAMPLES_FOR_PROMOTION } from '@/config';
 
 // Use the Docker volume mount path (/app/data/ml-training) so the file is
 // visible to the ml-trainer sidecar which mounts the same volume at /data.
@@ -50,8 +51,6 @@ export async function updatePipelineProgress(
 export async function runPipeline(config: PipelineConfig): Promise<string> {
   const modelName = config.modelName;
   const horizonMin = config.horizonMin;
-  const days = config.days ?? 90;
-  const maxRows = config.maxRows ?? 50000;
 
   // Create pipeline run
   const run = await db.pipelineRun.create({
@@ -256,14 +255,27 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
     const newCalErr = completed.metrics?.calibrationError ?? 0;
     const oldBrier = oldChampion ? (JSON.parse(oldChampion.metricsJson || '{}').brier ?? 0) : null;
     const brierDelta = oldBrier !== null ? newBrier - oldBrier : null;
+
+    // Significance gate: tiny Brier deltas on small samples are noise.
+    // `minDeltaForPromotion` scales the required improvement with nSamples:
+    //   < MIN_REAL_SAMPLES_FOR_PROMOTION: never auto-promote (synthetic)
+    //   < 500:    ≥ 0.015 Brier improvement required
+    //   < 1000:   ≥ 0.010
+    //   < 5000:   ≥ 0.005
+    //   else:     ≥ 0.003
+    const requiredDelta = minDeltaForPromotion(allRows.length);
+    const brierImprovedEnough = brierDelta !== null ? -brierDelta >= requiredDelta : true;
     const isBetter = brierDelta !== null ? brierDelta < 0 : true; // lower Brier = better
+    const isPromoted = isBetter && brierImprovedEnough;
 
-    await updatePipelineProgress(runId, 'comparing', 90, isBetter
-      ? '✅ Yeni model daha iyi! Champion yapılıyor...'
-      : '⚠️ Yeni model eski kadar iyi değil. Shadow olarak kalıyor.');
+    await updatePipelineProgress(runId, 'comparing', 90, isPromoted
+      ? `✅ Yeni model daha iyi (|Δ|=${brierDelta?.toFixed(4)} ≥ ${requiredDelta.toFixed(4)})! Champion yapılıyor...`
+      : isBetter
+        ? `⚠️ Δ küçük (${brierDelta?.toFixed(4)} < ${requiredDelta.toFixed(4)}). Shadow olarak kalıyor.`
+        : '⚠️ Yeni model eski kadar iyi değil. Shadow olarak kalıyor.');
 
-    // Auto-promote if better
-    if (isBetter && oldChampion) {
+    // Auto-promote if better AND significant
+    if (isPromoted && oldChampion) {
       // Demote old champion
       await db.modelArtifact.update({
         where: { name_version: { name: modelName, version: oldChampion.version } },
@@ -280,6 +292,12 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
         where: { name: modelName, version: newVersion },
         data: { isChampion: true, promotedAt: new Date() },
       });
+    } else if (isPromoted && !oldChampion && allRows.length < MIN_REAL_SAMPLES_FOR_PROMOTION) {
+      // Synthetic first-run: still register as champion but log it
+      await db.modelArtifact.updateMany({
+        where: { name: modelName, version: newVersion },
+        data: { isChampion: true, promotedAt: new Date() },
+      });
     }
 
     const totalTime = Math.round((Date.now() - startTime) / 1000);
@@ -289,9 +307,11 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
         completedAt: new Date(),
         status: 'done',
         progressPct: 100,
-        step: isBetter
-          ? `✅ ${newVersion} champion oldu! (Brier: ${newBrier.toFixed(4)}, acc: ${(newAccuracy * 100).toFixed(1)}%, süre: ${totalTime}s)`
-          : `⚠️ ${newVersion} shadow olarak kaldı (Brier: ${newBrier.toFixed(4)}, eski: ${oldBrier?.toFixed(4) ?? 'N/A'})`,
+        step: isPromoted
+          ? `✅ ${newVersion} champion oldu! (Brier: ${newBrier.toFixed(4)}, |Δ|=${brierDelta?.toFixed(4)}, süre: ${totalTime}s)`
+          : isBetter
+            ? `⚠️ ${newVersion} shadow olarak kaldı — Δ küçük (Brier: ${newBrier.toFixed(4)}, |Δ|=${brierDelta?.toFixed(4)} < ${requiredDelta.toFixed(4)})`
+            : `⚠️ ${newVersion} shadow olarak kaldı (Brier: ${newBrier.toFixed(4)}, eski: ${oldBrier?.toFixed(4) ?? 'N/A'})`,
         newVersion,
         newBrier,
         newLogLoss,
@@ -300,7 +320,8 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
         newTrainRows: allRows.length,
         brierDelta,
         isBetter,
-        isPromoted: isBetter,
+        isPromoted,
+        promotionRequiredDelta: requiredDelta,
       },
     });
 

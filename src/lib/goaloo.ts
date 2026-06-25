@@ -457,26 +457,25 @@ export async function fetchGoalooSeasonMatches(
     // ScheduleList structure varies by league:
     //   Serie A/Bundesliga: { "sub_XXXX": { "R_1": [...], ... } }
     //   Premier League/etc: { "R_1": [...], "R_2": [...], ... }   (no sub_ wrapper)
-    //   We flatten both: collect every key whose value is an object
-    //   containing "R_..." round keys, then walk each round array.
+    //   Walk top-level keys, push each R_* array directly. For sub_*
+    //   wrappers, recurse one level.
     const matches: GoalooSeasonMatch[] = [];
     const scheduleList = json.ScheduleList || {};
-    const roundObjects: Array<{ rounds: Record<string, unknown> }> = [];
+    const roundArrays = new Map<string, unknown[]>();
     for (const key of Object.keys(scheduleList)) {
       const v = scheduleList[key];
-      if (v && typeof v === "object" && !Array.isArray(v)) {
-        const subKeys = Object.keys(v);
-        const hasRounds = subKeys.some(k => /^R_\d+/.test(k));
-        if (hasRounds) {
-          roundObjects.push({ rounds: v as Record<string, unknown> });
+      if (Array.isArray(v) && key.startsWith("R_")) {
+        roundArrays.set(key, v);
+      } else if (v && typeof v === "object" && !Array.isArray(v)) {
+        for (const subKey of Object.keys(v)) {
+          if (subKey.startsWith("R_") && Array.isArray((v as Record<string, unknown>)[subKey])) {
+            roundArrays.set(subKey, (v as Record<string, unknown>)[subKey] as unknown[]);
+          }
         }
       }
     }
-    for (const { rounds } of roundObjects) {
-      for (const roundKey of Object.keys(rounds)) {
-        const roundMatches = rounds[roundKey];
-        if (!Array.isArray(roundMatches)) continue;
-        for (const row of roundMatches) {
+    for (const [roundKey, roundMatches] of roundArrays) {
+      for (const row of roundMatches) {
           if (!Array.isArray(row) || row.length < 8) continue;
           // Row: [scheduleId, leagueId, state, dateStr, homeTeamId, awayTeamId, score, htScore, homeRank, awayRank, ahLine, ahHome, ouLine, ouHome, ...]
           const scheduleId = Number(row[0]) || 0;
@@ -504,7 +503,6 @@ export async function fetchGoalooSeasonMatches(
             round: roundKey,
           });
         }
-      }
     }
 
     console.log(`[Goaloo] Season ${season} league ${leagueId}: ${matches.length} matches`);

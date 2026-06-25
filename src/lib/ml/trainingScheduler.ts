@@ -30,6 +30,7 @@ interface SchedulerState {
   exportTimer: ReturnType<typeof setInterval> | null;
   lastExportDate: string; // YYYY-MM-DD, used as a once-per-day guard
   lastInPlayExportDate: string; // YYYY-MM-DD, used as a once-per-window guard
+  lastShadowEvalDate: string; // YYYY-MM-DD, used as a once-per-day guard
   horizons: TrainingHorizon[];
   startedAt: number;
 }
@@ -44,6 +45,7 @@ function getState(): SchedulerState {
       exportTimer: null,
       lastExportDate: '',
       lastInPlayExportDate: '',
+      lastShadowEvalDate: '',
       horizons: [5, 10, 15],
       startedAt: 0,
     };
@@ -87,6 +89,46 @@ function checkAndRunDaily(): void {
   if (state.lastExportDate === today) return; // already ran today
   state.lastExportDate = today;
   void exportAllHorizons();
+  // Same daily trigger: run shadow Brier rollup + drift persistence.
+  // Both write to DB so the monitoring page has data on first load.
+  if (state.lastShadowEvalDate !== today) {
+    state.lastShadowEvalDate = today;
+    void runDailyShadowEval(today);
+  }
+}
+
+async function runDailyShadowEval(today: string): Promise<void> {
+  try {
+    const { evaluateDailyShadows } = await import('./shadowEvaluator');
+    const { evaluateCalibrationDrift, persistDriftReport } = await import('./calibrationLoop');
+    const { db } = await import('@/lib/db');
+
+    // 1. Shadow Brier rollup → writes ModelMetrics
+    const shadow = await evaluateDailyShadows(new Date(), { persist: true });
+
+    // 2. Build series from last 14 days for drift calculation
+    const since = new Date(Date.now() - 14 * 86_400_000);
+    const series = await db.modelMetrics.findMany({
+      where: { date: { gte: since } },
+      orderBy: { date: 'asc' },
+      select: { date: true, brierScore: true },
+    });
+    const brierSeries = series
+      .filter((r) => r.brierScore != null)
+      .map((r) => ({
+        date: r.date.toISOString().slice(0, 10),
+        brierScore: r.brierScore as number,
+      }));
+    const driftReport = evaluateCalibrationDrift({ series: brierSeries, windowDays: 7 });
+    await persistDriftReport(today, driftReport, 'trainingScheduler');
+
+    logInfo('MLScheduler',
+      `Daily shadow eval done — champion=${shadow.championBrier.toFixed(4)}, ` +
+      `delta=${shadow.shadowBrierDelta.toFixed(4)}, suspended=${shadow.suspendedVariants.length}`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logError('MLScheduler', `Daily shadow eval failed: ${msg}`);
+  }
 }
 
 export function startTrainingScheduler(): SchedulerState {

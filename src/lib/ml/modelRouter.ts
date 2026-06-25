@@ -354,13 +354,15 @@ export function defaultArtifactPath(name: ModelName, version: string): string {
  * existsSync check against the resolved path.
  */
 export function resolveArtifactPath(storedPath: string): string {
+  const dir = process.env.ML_DATA_DIR || join(process.cwd(), 'data');
   // Trainer writes to /data/ml-models/... but app sees /app/data/ml-models/
-  // After bidirectional translation, storedPath may be in either format:
-  //   /data/ml-models/v1.json      (old records, /data/ = 6 chars)
-  //   /app/data/ml-models/v1.json  (new records, already translated by mlClient.ts)
   if (storedPath.startsWith('/data/')) {
-    const dir = process.env.ML_DATA_DIR || join(process.cwd(), 'data');
     return join(dir, storedPath.slice(6));
+  }
+  // Legacy paths recorded before ML_DATA_DIR was introduced —
+  // old code used process.cwd()=/app/web giving /app/web/data/...
+  if (storedPath.startsWith('/app/web/data/')) {
+    return join(dir, storedPath.slice(14));
   }
   return storedPath;
 }

@@ -160,6 +160,23 @@ async function findPythonPath(): Promise<string | null> {
 }
 
 async function goalooFetchSeasonJson(url: string): Promise<string | null> {
+  // Prefer the global fetch API (Node 18+/Bun). It works inside
+  // containers where Python is not installed, and Goaloo returns JSON
+  // directly without needing a scraping shim.
+  try {
+    const r = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+    if (r.ok) {
+      const t = await r.text();
+      if (t.length > 100) return t;
+    }
+    devError('[Goaloo] global fetch failed', r.status);
+  } catch (e) {
+    devError('[Goaloo] global fetch error', e);
+  }
+
+  // Fallback to Python scraping sidecar if available.
   const python = await findPythonPath();
   if (!python) {
     devError('[Goaloo] No Python found for season JSON');
@@ -175,24 +192,18 @@ async function goalooFetchSeasonJson(url: string): Promise<string | null> {
         timeout: 30000,
         maxBuffer: 5 * 1024 * 1024,
       }, (err: any, stdout: string) => {
-        if (err || !stdout) { resolve(null); return; }
-        try {
-          // Validate it's JSON
-          JSON.parse(stdout);
-          resolve(stdout);
-        } catch {
-          // Try stripping BOM
-          try {
-            const stripped = stdout.replace(/^\uFEFF/, '');
-            JSON.parse(stripped);
-            resolve(stripped);
-          } catch {
-            resolve(null);
-          }
+        if (err) {
+          devError('[Goaloo] python fetch error', err.message);
+          resolve(null);
+          return;
         }
+        resolve(stdout && stdout.length > 100 ? stdout : null);
       });
     });
-  } catch { return null; }
+  } catch (e) {
+    devError('[Goaloo] python fallback error', e);
+    return null;
+  }
 }
 
 // ── Parse match data JS format ────────────────────────────────

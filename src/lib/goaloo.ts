@@ -454,11 +454,25 @@ export async function fetchGoalooSeasonMatches(
       }
     }
 
-    // ScheduleList is { "sub_XXXX": { "R_1": [...], "R_2": [...] } }
+    // ScheduleList structure varies by league:
+    //   Serie A/Bundesliga: { "sub_XXXX": { "R_1": [...], ... } }
+    //   Premier League/etc: { "R_1": [...], "R_2": [...], ... }   (no sub_ wrapper)
+    //   We flatten both: collect every key whose value is an object
+    //   containing "R_..." round keys, then walk each round array.
     const matches: GoalooSeasonMatch[] = [];
     const scheduleList = json.ScheduleList || {};
-    for (const subKey of Object.keys(scheduleList)) {
-      const rounds = scheduleList[subKey];
+    const roundObjects: Array<{ rounds: Record<string, unknown> }> = [];
+    for (const key of Object.keys(scheduleList)) {
+      const v = scheduleList[key];
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        const subKeys = Object.keys(v);
+        const hasRounds = subKeys.some(k => /^R_\d+/.test(k));
+        if (hasRounds) {
+          roundObjects.push({ rounds: v as Record<string, unknown> });
+        }
+      }
+    }
+    for (const { rounds } of roundObjects) {
       for (const roundKey of Object.keys(rounds)) {
         const roundMatches = rounds[roundKey];
         if (!Array.isArray(roundMatches)) continue;

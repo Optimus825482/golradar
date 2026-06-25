@@ -9,7 +9,7 @@
 // The handler receives the original Request plus the auth result.
 
 import { NextResponse } from 'next/server';
-import { adminUnauthorized, requireAdmin, type AdminAuthResult } from './adminAuth';
+import { adminUnauthorized, requireAdmin, type AdminAuthResult } from './securityHelpers';
 
 export type AdminHandler = (
   request: Request,

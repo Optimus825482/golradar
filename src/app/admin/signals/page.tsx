@@ -1,13 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-
-function authFetch(path: string) {
-  const token = sessionStorage.getItem('admin_token');
-  return fetch(path, {
-    headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' },
-  });
-}
+import { authFetch, KPICard } from '@/lib/adminAuth';
 
 interface SignalStats {
   totalSignals: number;
@@ -38,7 +32,7 @@ export default function AdminSignalsPage() {
         const data = await resp.json();
         setStats(data);
       }
-    } catch (e) { /* silent */ }
+    } catch { setStats(null) }
     setLoading(false);
   }, [days]);
 
@@ -204,16 +198,6 @@ export default function AdminSignalsPage() {
           <KPICard label="Goal %" value={`${(stats.goalAfterSignalRate * 100).toFixed(1)}%`} color="#f79520" sub="sinyal → gol" />
         </div>
       </div>
-    </div>
-  );
-}
-
-function KPICard({ label, value, color, sub }: { label: string; value: string; color: string; sub?: string }) {
-  return (
-    <div className="rounded-lg border border-gray-200 p-3 bg-gradient-to-br from-gray-50 to-white">
-      <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</div>
-      <div className="text-xl font-black" style={{ color }}>{value}</div>
-      {sub && <div className="text-[10px] text-gray-400 mt-1">{sub}</div>}
     </div>
   );
 }

@@ -12,6 +12,7 @@
 
 import { useState, useCallback } from 'react';
 import { fmtNum } from '@/lib/safeFormat';
+import { authFetch } from '@/lib/adminAuth';
 
 interface ImportResult {
   ok: boolean;
@@ -81,13 +82,8 @@ export default function AdminDataImportPage() {
       setError(null);
       setResult(null);
       try {
-        const token = sessionStorage.getItem('admin_token');
-        const res = await fetch('/api/admin/ml/data-import', {
+        const res = await authFetch('/api/admin/ml/data-import', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
           body: JSON.stringify({
             source,
             startDate,

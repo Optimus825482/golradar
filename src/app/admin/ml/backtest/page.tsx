@@ -1,18 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-
-function authFetch(path: string, init?: RequestInit) {
-  const token = sessionStorage.getItem('admin_token');
-  return fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
-    },
-  });
-}
+import { authFetch } from '@/lib/adminAuth';
 
 interface Artifact {
   name: string;
@@ -54,7 +43,7 @@ export default function AdminMLBacktestPage() {
           metrics: typeof a.metrics === 'string' ? JSON.parse(a.metrics) : (a.metrics || {}),
         })));
       }
-    } catch (e) { /* silent */ }
+    } catch { /* connection error — keep existing data */ }
   }, []);
 
   useEffect(() => { load(); }, [load]);

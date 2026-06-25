@@ -3,19 +3,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { fmtDate } from '@/lib/safeFormat';
 import Link from 'next/link';
-
-// ── Auth API Helper ──────────────────────────────────────────────
-function authFetch(path: string, init?: RequestInit) {
-  const token = sessionStorage.getItem('admin_token');
-  return fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
-    },
-  });
-}
+import { authFetch } from '@/lib/adminAuth';
 
 // ── Helpers ───────────────────────────────────────────────────────
 function asPct(v: number | null | undefined, decimals = 1): string {
@@ -91,7 +79,7 @@ export default function AdminPage() {
       const signals = signalRes.ok ? await signalRes.json() : null;
       const daily = dailyRes.ok ? await dailyRes.json() : null;
       setData({ ml, signals, daily });
-    } catch { /* skip */ }
+    } catch { /* connection error — show stale data if any */ }
   };
 
   useEffect(() => {

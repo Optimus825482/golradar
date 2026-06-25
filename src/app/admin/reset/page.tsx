@@ -1,18 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-
-function authFetch(path: string, init?: RequestInit) {
-  const token = sessionStorage.getItem('admin_token');
-  return fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers || {}),
-    },
-  });
-}
+import { authFetch } from '@/lib/adminAuth';
 
 interface AffectedRow {
   dryRun: boolean;

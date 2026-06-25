@@ -1,13 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-
-function authFetch(path: string) {
-  const token = sessionStorage.getItem('admin_token');
-  return fetch(path, {
-    headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' },
-  });
-}
+import { authFetch, KPICard } from '@/lib/adminAuth';
 
 interface CalibrationBucket {
   range: string;
@@ -166,16 +160,6 @@ export default function AdminCalibrationPage() {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function KPICard({ label, value, color, sub }: { label: string; value: string; color: string; sub: string }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-      <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</div>
-      <div className="text-2xl font-black" style={{ color }}>{value}</div>
-      <div className="text-[10px] text-gray-400 mt-1">{sub}</div>
     </div>
   );
 }

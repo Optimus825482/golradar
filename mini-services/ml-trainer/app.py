@@ -337,18 +337,19 @@ def get_job(job_id: str) -> JobHandle:
 
 @app.post("/netscores-proxy")
 def netscores_proxy(req: NetscoresProxyRequest) -> Dict[str, Any]:
-    """Fetch a URL via Scrapling (curl_cffi) to bypass Cloudflare.
+    """Fetch a URL via curl_cffi to bypass Cloudflare.
 
-    Used by the NetScores client when direct Node.js fetch hits a CF
-    challenge. The Next.js container has no Python runtime, so requests
-    are proxied here where Python + Scrapling are available.
+    curl_cffi impersonates a real browser TLS fingerprint. Used when
+    direct Node.js fetch hits a CF challenge and the Alpine main
+    container has no Python runtime.
     """
     try:
-        from scrapling import Fetcher
+        from curl_cffi import requests
 
-        fetcher = Fetcher()
-        result = fetcher.get(
+        result = requests.get(
             req.url,
+            impersonate="chrome124",
+            timeout=req.timeout_ms / 1000,
             headers={
                 "Accept": "application/json, text/javascript, */*; q=0.01",
                 "Accept-Language": "en-US,en;q=0.9",
@@ -358,11 +359,11 @@ def netscores_proxy(req: NetscoresProxyRequest) -> Dict[str, Any]:
                 "Pragma": "no-cache",
             },
         )
-        if result.status != 200:
-            return {"ok": False, "status": result.status, "error": f"HTTP {result.status}"}
+        if result.status_code != 200:
+            return {"ok": False, "status": result.status_code, "error": f"HTTP {result.status_code}"}
         return {"ok": True, "data": result.json()}
     except ImportError:
-        return {"ok": False, "error": "scrapling not installed on trainer"}
+        return {"ok": False, "error": "curl_cffi not installed on trainer"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

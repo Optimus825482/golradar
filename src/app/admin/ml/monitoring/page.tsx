@@ -131,6 +131,40 @@ export default function AdminMLMonitoringPage() {
           sub={latestShadow?.bestModel ? `Best: ${latestShadow.bestModel}` : 'shadow yok'} />
       </div>
 
+      {/* Per-Model Champion Cards */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-indigo-400 to-purple-500" />
+          <h3 className="text-sm font-bold text-gray-800">🏆 Model Bazında Champion Başarısı</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {latest && (
+            <ModelChampionCard
+              name="GBDT"
+              icon="🌳"
+              currentBrier={latest.gbdtBrier ?? null}
+              trendSeries={series.map(s => ({ date: s.date, brier: s.gbdtBrier }))}
+            />
+          )}
+          {latest && (
+            <ModelChampionCard
+              name="XGBoost"
+              icon="⚡"
+              currentBrier={latest.xgbBrier ?? null}
+              trendSeries={series.map(s => ({ date: s.date, brier: s.xgbBrier }))}
+            />
+          )}
+          {latest && (
+            <ModelChampionCard
+              name="InPlay 5m"
+              icon="⚽"
+              currentBrier={latest.inPlayBrier ?? null}
+              trendSeries={series.map(s => ({ date: s.date, brier: s.inPlayBrier }))}
+            />
+          )}
+        </div>
+      </div>
+
       {/* Brier Score Trend Chart */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
         <div className="flex items-center justify-between mb-3">
@@ -197,6 +231,82 @@ function KPICard({ label, value, color, sub }: { label: string; value: string; c
       <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</div>
       <div className="text-2xl font-black" style={{ color }}>{value}</div>
       <div className="text-[10px] text-gray-400 mt-1">{sub}</div>
+    </div>
+  );
+}
+
+function ModelChampionCard({
+  name, icon, currentBrier, trendSeries,
+}: {
+  name: string;
+  icon: string;
+  currentBrier: number | null;
+  trendSeries: { date: string; brier: number | null }[];
+}) {
+  const validPoints = trendSeries.filter(p => p.brier != null) as { date: string; brier: number }[];
+  const firstBrier = validPoints[0]?.brier ?? null;
+  const lastBrier = validPoints[validPoints.length - 1]?.brier ?? currentBrier;
+  const delta = firstBrier != null && lastBrier != null ? lastBrier - firstBrier : null;
+
+  const tier = currentBrier == null ? { label: 'veri yok', color: '#6b7280' }
+    : currentBrier < 0.18 ? { label: 'mükemmel', color: '#10b981' }
+    : currentBrier < 0.25 ? { label: 'iyi', color: '#22c55e' }
+    : currentBrier < 0.32 ? { label: 'orta', color: '#f59e0b' }
+    : currentBrier < 0.40 ? { label: 'zayıf', color: '#f97316' }
+    : { label: 'çok zayıf', color: '#ef4444' };
+
+  const trendColor = delta == null ? '#6b7280' : delta < 0 ? '#10b981' : delta > 0 ? '#ef4444' : '#6b7280';
+  const trendLabel = delta == null ? '—'
+    : delta < -0.005 ? '↓ İyileşiyor'
+    : delta > 0.005 ? '↑ Kötüleşiyor'
+    : '→ Stabil';
+
+  // Mini sparkline
+  const W = 240, H = 50;
+  const padL = 4, padR = 4, padT = 6, padB = 6;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const values = validPoints.map(p => p.brier);
+  const minV = Math.min(...values, 0);
+  const maxV = Math.max(...values, 0.5);
+  const range = maxV - minV || 0.1;
+  const xFor = (i: number) => padL + (i / Math.max(1, validPoints.length - 1)) * innerW;
+  const yFor = (v: number) => padT + (1 - (v - minV) / range) * innerH;
+  const path = validPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(p.brier)}`).join(' ');
+
+  return (
+    <div className="rounded-xl border-2 border-gray-200 p-4 bg-gradient-to-br from-white to-gray-50">
+      <div className="flex items-baseline justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <span className="text-2xl">{icon}</span>
+          <div>
+            <div className="text-sm font-black text-gray-800">{name}</div>
+            <div className="text-[10px] text-gray-500">Champion</div>
+          </div>
+        </div>
+        <div className="text-[10px] px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: tier.color + '20', color: tier.color }}>
+          {tier.label}
+        </div>
+      </div>
+      <div className="flex items-baseline gap-2 mb-2">
+        <div className="text-3xl font-black" style={{ color: tier.color }}>
+          {currentBrier != null ? currentBrier.toFixed(4) : '—'}
+        </div>
+        <div className="text-[10px] text-gray-500">Brier (son gün)</div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-12">
+        <line x1={padL} x2={W - padR} y1={yFor(0.2)} y2={yFor(0.2)} stroke="#10b981" strokeWidth={1} strokeDasharray="3 3" opacity={0.4} />
+        {path && <path d={path} fill="none" stroke={tier.color} strokeWidth={2} />}
+        {validPoints.length > 0 && (
+          <circle cx={xFor(validPoints.length - 1)} cy={yFor(values[values.length - 1])} r={3} fill={tier.color} />
+        )}
+      </svg>
+      <div className="flex justify-between text-[10px] mt-1">
+        <span className="text-gray-500">{validPoints.length} gün</span>
+        <span className="font-bold" style={{ color: trendColor }}>
+          {trendLabel} {delta != null && `(${delta > 0 ? '+' : ''}${delta.toFixed(4)})`}
+        </span>
+      </div>
     </div>
   );
 }

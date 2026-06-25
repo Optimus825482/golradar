@@ -9,7 +9,7 @@
 
 import { db } from '../db';
 import { extractFeatures, featuresToArray } from '../featureEngineering';
-import { writeFile, mkdir } from 'fs/promises';
+import { writeFile, mkdir, unlink } from 'fs/promises';
 import { createHash } from 'crypto';
 import { join } from 'path';
 import { startTraining, pollJob } from './mlClient';
@@ -83,6 +83,7 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
   const days = config.days ?? 90;
   const maxRows = config.maxRows ?? 50000;
   const startTime = Date.now();
+  let featureFilePath = '';
 
   try {
     // ══════════════════════════════════════════════════════════════
@@ -152,9 +153,9 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
     // Serialize to JSONL — each line is {"features": [...], "label": 0|1}
     // as expected by the Python trainer sidecar
     await mkdir(FEATURE_DIR, { recursive: true });
-    const featureFile = join(FEATURE_DIR, `features-${modelName}-${horizonMin}min-${Date.now()}.jsonl`);
+    featureFilePath = join(FEATURE_DIR, `features-${modelName}-${horizonMin}min-${Date.now()}.jsonl`);
     const lines = allRows.map(r => JSON.stringify(r)).join('\n');
-    await writeFile(featureFile, lines, 'utf-8');
+    await writeFile(featureFilePath, lines, 'utf-8');
     const sha256 = createHash('sha256').update(lines).digest('hex');
 
     // Save FeatureSet record
@@ -164,7 +165,7 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
         rowCount: allRows.length,
         featureCount,
         sha256,
-        path: featureFile,
+        path: featureFilePath,
         status: 'ready',
         dataStart: logs[0]?.createdAt || new Date(),
         dataEnd: logs[logs.length - 1]?.createdAt || new Date(),
@@ -217,7 +218,7 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
       name: modelName,
       version: newVersion,
       horizon_min: horizonMin,
-      dataset_path: featureFile,
+      dataset_path: featureFilePath,
     });
 
     if (!job) {
@@ -304,9 +305,13 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
     });
 
     logInfo('Pipeline', `Run ${runId} complete: ${modelName}@${newVersion} Brier=${newBrier.toFixed(4)} (delta=${brierDelta?.toFixed(4) ?? 'N/A'})`);
+    // Clean up feature file — data preserved in FeatureSet + ModelArtifact records
+    unlink(featureFilePath).catch(() => {});
   } catch (err: any) {
     const msg = err.message || String(err);
     logError('Pipeline', `Run ${runId} error:`, msg);
+    // Clean up feature file — not consumed by trainer
+    if (featureFilePath) unlink(featureFilePath).catch(() => {});
     await db.pipelineRun.update({
       where: { id: runId },
       data: { status: 'failed', errorMsg: msg, progressPct: 0 },

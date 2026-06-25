@@ -116,3 +116,15 @@ echo "════════════════════════�
 echo ""
 
 exec node server.js
+
+
+# Ensure legacy artifact paths resolve
+mkdir -p /app/web/data
+ln -sfn /app/data/ml-models /app/web/data/ml-models 2>/dev/null || true
+for model in xgb gbdt inplay; do
+  latest=$(ls /app/data/ml-models/${model}-v*.json 2>/dev/null | grep -v ready | sort -V | tail -1)
+  if [ -n "$latest" ] && [ ! -f "/app/data/ml-models/${model}-v1.0.1.json" ]; then
+    cp -f "$latest" "/app/data/ml-models/${model}-v1.0.1.json"
+    [ -f "${latest%.json}.ready" ] && cp -f "${latest%.json}.ready" "/app/data/ml-models/${model}-v1.0.1.ready"
+  fi
+done

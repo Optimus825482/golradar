@@ -337,7 +337,8 @@ export type { XtGrid } from './xtGrid';
 
 // Helper to compute the default artifact path (same convention as trainer)
 export function defaultArtifactPath(name: ModelName, version: string): string {
-  return join(process.cwd(), 'data', 'ml-models', `${name}-v${version}.json`);
+  const dir = process.env.ML_DATA_DIR || join(process.cwd(), 'data');
+  return join(dir, 'ml-models', `${name}-v${version}.json`);
 }
 
 /**
@@ -358,7 +359,8 @@ export function resolveArtifactPath(storedPath: string): string {
   //   /data/ml-models/v1.json      (old records, /data/ = 6 chars)
   //   /app/data/ml-models/v1.json  (new records, already translated by mlClient.ts)
   if (storedPath.startsWith('/data/')) {
-    return join(process.cwd(), 'data', storedPath.slice(6));
+    const dir = process.env.ML_DATA_DIR || join(process.cwd(), 'data');
+    return join(dir, storedPath.slice(6));
   }
   return storedPath;
 }

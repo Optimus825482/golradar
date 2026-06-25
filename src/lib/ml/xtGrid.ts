@@ -25,7 +25,11 @@ function getServerFs() {
 }
 
 const sXt = getServerFs();
-const GRID_DIR = sXt ? sXt.path.join(process.cwd(), 'data', 'ml-models') : '';
+const GRID_DIR = sXt
+  ? process.env.ML_DATA_DIR
+    ? sXt.path.join(process.env.ML_DATA_DIR, 'ml-models')
+    : sXt.path.join(process.cwd(), 'data', 'ml-models')
+  : '';
 
 const DEFAULT_GRID: XtGrid = {
   grid: new Array(16 * 10).fill(0.05),

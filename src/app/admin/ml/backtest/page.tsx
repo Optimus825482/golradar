@@ -21,6 +21,13 @@ interface BacktestResult {
   windowDays: number;
 }
 
+interface CompareResult {
+  champion?: { metrics: Record<string, number> };
+  candidate?: { metrics: Record<string, number> };
+  delta?: Record<string, number>;
+  verdict?: string;
+}
+
 export default function AdminMLBacktestPage() {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [mode, setMode] = useState<'champion' | 'artifact'>('champion');
@@ -31,7 +38,7 @@ export default function AdminMLBacktestPage() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [compareResult, setCompareResult] = useState<any>(null);
+  const [compareResult, setCompareResult] = useState<CompareResult | null>(null);
 
   const load = useCallback(async () => {
     try {

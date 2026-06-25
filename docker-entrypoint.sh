@@ -128,3 +128,4 @@ for model in xgb gbdt inplay; do
     [ -f "${latest%.json}.ready" ] && cp -f "${latest%.json}.ready" "/app/data/ml-models/${model}-v1.0.1.ready"
   fi
 done
+

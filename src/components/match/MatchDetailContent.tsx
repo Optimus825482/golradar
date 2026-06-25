@@ -7,6 +7,7 @@ import type { MomentumBarDataPoint, xGFlowPoint, ThreatIndex } from '@/lib/advan
 import type { Match, MatchStats } from './types'
 import { statKeys } from './types'
 import { CountryFlag, MatchStatusBadge, StatBar, RedCardIndicator } from './shared-components'
+import { SIGNAL_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
 import { DangerousAttacksChart } from '@/components/charts/DangerousAttacksChart'
 import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomentumChart'
 import { FotMobSection } from '@/components/fotmob/FotMobSection'
@@ -144,7 +145,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         )}
 
         {/* Goal Radar Indicator */}
-        {selectedGoalProb && selectedGoalProb.score >= 60 && selectedGoalProb.goalProbability5min >= 0.25 && (
+        {selectedGoalProb && selectedGoalProb.score >= SIGNAL_THRESHOLD && selectedGoalProb.goalProbability5min >= SIGNAL_5MIN_THRESHOLD && (
           <div className={`mt-4 p-3 rounded-xl border-2 ${
             selectedGoalProb.level === 'critical' ? 'bg-red-50 border-red-300' :
             selectedGoalProb.level === 'high' ? 'bg-orange-50 border-orange-300' :

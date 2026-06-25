@@ -11,36 +11,14 @@ import {
   formScoreAdjustment,
   type MatchIntelligence,
 } from './fotmobIntelligence';
-import { getSmartF8Adjustment, calculateOddsF8Compound, calibrateF8, calibrateF8Sync, loadCalibrationMode, loadCalibrationModeSync } from './smartCalibration';
+import { calculateOddsF8Compound, calibrateF8Sync, loadCalibrationModeSync } from './smartCalibration';
 import { inPlayGoalProbability, calculateExpectedGoals, calculateMatchProbabilities, getTimeBasedGoalMultiplier } from './dixonColes';
 import { calibrateScore } from './calibration';
 import { logError } from '@/lib/devLog';
+import { SIGNAL_5MIN_THRESHOLD, MIN_PROB_FOR_SIGNAL, ENSEMBLE_SCORE_CAP, RADAR_THRESHOLD } from '@/config';
 import { determineSide } from './goalRadar/side';
-
-export interface PressureSnapshotLite {
-  homePressure: number;
-  awayPressure: number;
-  stats: MatchStats;
-  homeGoals?: number;
-  awayGoals?: number;
-  timestamp?: number;
-}
-
-export interface GoalProbability {
-  score: number;
-  homeScore: number;
-  awayScore: number;
-  side: 'home' | 'away' | 'both' | null;
-  level: 'low' | 'medium' | 'high' | 'critical';
-  factors: string[];
-  calibratedP: number;
-  poissonP: number;
-  eloAdj: { homeAdjust: number; awayAdjust: number } | null;
-  overUnder25: number;
-  btts: number;
-  timeMultiplier: number;
-  goalProbability5min: number;
-}
+import { detectGoalCooldown, applyGoalCooldown } from './goalRadar/cooldown';
+import type { PressureSnapshotLite, GoalProbability } from './goalRadar/types';
 
 export function calculateGoalProbability(
   stats: MatchStats,
@@ -76,56 +54,11 @@ export function calculateGoalProbability(
   };
   if (!isLive) return emptyResult;
 
-  // Determine if smart calibration is active
   const _calMode = loadCalibrationModeSync();
-  const useSmartCalibration = _calMode.mode !== "off";
 
-  let goalCooldownHome = 0;
-  let goalCooldownAway = 0;
-  let recentGoalSide: "home" | "away" | "both" | null = null;
-  // P0.4: Expanded cooldown window — 20 snapshots (~5 min) covers
-  // post-goal threat waves (PLOS One 2024 event-sequence window).
-  const GOAL_COOLDOWN_SNAPSHOTS = 20;
-
-  if (pressureHistory && pressureHistory.length >= 2) {
-    const currentHG =
-      currentHomeGoals ?? pressureHistory[pressureHistory.length - 1].homeGoals;
-    const currentAG =
-      currentAwayGoals ?? pressureHistory[pressureHistory.length - 1].awayGoals;
-    if (currentHG != null && currentAG != null) {
-      for (let i = pressureHistory.length - 1; i >= 1; i--) {
-        const snap = pressureHistory[i];
-        const prev = pressureHistory[i - 1];
-        const snapHG = snap.homeGoals,
-          snapAG = snap.awayGoals;
-        const prevHG = prev.homeGoals,
-          prevAG = prev.awayGoals;
-        if (
-          snapHG == null ||
-          snapAG == null ||
-          prevHG == null ||
-          prevAG == null
-        )
-          continue;
-        const homeGoalScored = snapHG > prevHG;
-        const awayGoalScored = snapAG > prevAG;
-        if (homeGoalScored || awayGoalScored) {
-          const snapshotsAgo = pressureHistory.length - 1 - i;
-          if (homeGoalScored && awayGoalScored) recentGoalSide = "both";
-          else if (homeGoalScored) recentGoalSide = "home";
-          else recentGoalSide = "away";
-          const progress = Math.min(1, snapshotsAgo / GOAL_COOLDOWN_SNAPSHOTS);
-          // P0.4: Stronger quadratic cooldown. After 5 snapshots (75s),
-          // factor ≈ (5/20)² = 0.063 — near-total suppression.
-          // Full recovery at 20 snapshots (~5 min).
-          const cooldownFactor = Math.pow(progress, 2.0);
-          if (homeGoalScored) goalCooldownHome = cooldownFactor;
-          if (awayGoalScored) goalCooldownAway = cooldownFactor;
-          break;
-        }
-      }
-    }
-  }
+  const { goalCooldownHome, goalCooldownAway, recentGoalSide } = detectGoalCooldown(
+    pressureHistory, currentHomeGoals, currentAwayGoals,
+  );
 
   let homeScore = 0,
     awayScore = 0;
@@ -384,23 +317,13 @@ export function calculateGoalProbability(
     // (calculateGoalProbability) multiplier default 1.0 bırakılır; async
     // katman (admin route + ensemble pipeline) calibrateF8'i kendi başına
     // çağırır ve DB'den gelen profile göre düzeltir.
-    void getSmartF8Adjustment(minNum, leagueId ?? null)
-      .then((f8Adj) => {
-        if (f8Adj.factorDescription) {
-          // sharedFactors burada kapatılmış olabilir; cache üzerinden değil
-          // hot path'te sadece default multiplier kullanıyoruz.
-        }
-      })
-      .catch((e) => logError('goalRadar', e));
-    if (!useSmartCalibration) {
-      if ((minNum >= 1 && minNum <= 5) || (minNum >= 46 && minNum <= 50))
-        minuteMultiplier = 0.7;
-      else if (minNum >= 35 && minNum <= 45) minuteMultiplier = 1.08;
-      else if (minNum >= 60 && minNum < 86)
-        minuteMultiplier = 1.05 + (minNum - 60) * 0.002;
-      else if (minNum >= 86) minuteMultiplier = 1.18;
-      else minuteMultiplier = 1.0;
-    }
+    if ((minNum >= 1 && minNum <= 5) || (minNum >= 46 && minNum <= 50))
+      minuteMultiplier = 0.7;
+    else if (minNum >= 35 && minNum <= 45) minuteMultiplier = 1.08;
+    else if (minNum >= 60 && minNum < 86)
+      minuteMultiplier = 1.05 + (minNum - 60) * 0.002;
+    else if (minNum >= 86) minuteMultiplier = 1.18;
+    else minuteMultiplier = 1.0;
   }
 
   // Factor 9: Corner + SOT compound
@@ -630,49 +553,6 @@ export function calculateGoalProbability(
     }
   }
 
-  // Factor 15: Burst risk
-  if (pressureHistory && pressureHistory.length >= 2) {
-    const BURST_SNAPSHOTS = 36;
-    const currentHG =
-      currentHomeGoals ?? pressureHistory[pressureHistory.length - 1].homeGoals;
-    const currentAG =
-      currentAwayGoals ?? pressureHistory[pressureHistory.length - 1].awayGoals;
-    if (currentHG != null && currentAG != null) {
-      for (let i = pressureHistory.length - 1; i >= 1; i--) {
-        const snap = pressureHistory[i],
-          prev = pressureHistory[i - 1];
-        if (
-          snap.homeGoals == null ||
-          snap.awayGoals == null ||
-          prev.homeGoals == null ||
-          prev.awayGoals == null
-        )
-          continue;
-        const homeScored = snap.homeGoals > prev.homeGoals,
-          awayScored = snap.awayGoals > prev.awayGoals;
-        if (homeScored || awayScored) {
-          const snapsAgo = pressureHistory.length - 1 - i;
-          if (snapsAgo < BURST_SNAPSHOTS) {
-            const burstProgress = snapsAgo / BURST_SNAPSHOTS;
-            const burstMultiplier = 1.25 * (1 - burstProgress);
-            if (homeScored) {
-              const burstPts = Math.round(homeScore * (burstMultiplier - 1));
-              homeScore += burstPts;
-              if (burstPts >= 3)
-                homeFactors.push(`Gol sonrası atak rüzgarı +${burstPts}`);
-            }
-            if (awayScored) {
-              const burstPts = Math.round(awayScore * (burstMultiplier - 1));
-              awayScore += burstPts;
-              if (burstPts >= 3)
-                awayFactors.push(`Gol sonrası atak rüzgarı +${burstPts}`);
-            }
-          }
-          break;
-        }
-      }
-    }
-  }
 
   // Factor 16: Dangerous sequence detector
   if (pressureHistory && pressureHistory.length >= 12) {
@@ -761,57 +641,41 @@ export function calculateGoalProbability(
   // Concurrent threat multiplier
   const homeActiveCount = homeFactors.length,
     awayActiveCount = awayFactors.length;
-  if (homeActiveCount >= 6) {
+  if (homeActiveCount >= 12) {
     homeScore += 10;
     homeFactors.push("Fırtına!");
-  } else if (homeActiveCount >= 5) {
+  } else if (homeActiveCount >= 10) {
     homeScore += 8;
     homeFactors.push("Kritik eşik!");
-  } else if (homeActiveCount >= 4) {
+  } else if (homeActiveCount >= 8) {
     homeScore += 5;
-  } else if (homeActiveCount >= 3) {
+  } else if (homeActiveCount >= 6) {
     homeScore += 2;
   }
-  if (awayActiveCount >= 6) {
+  if (awayActiveCount >= 12) {
     awayScore += 10;
     awayFactors.push("Fırtına!");
-  } else if (awayActiveCount >= 5) {
+  } else if (awayActiveCount >= 10) {
     awayScore += 8;
     awayFactors.push("Kritik eşik!");
-  } else if (awayActiveCount >= 4) {
+  } else if (awayActiveCount >= 8) {
     awayScore += 5;
-  } else if (awayActiveCount >= 3) {
+  } else if (awayActiveCount >= 6) {
     awayScore += 2;
   }
 
-  const allFactors = [
-    ...new Set([...sharedFactors, ...homeFactors, ...awayFactors]),
-  ];
+  const postFactors: string[] = [];
 
   // Goal cooldown
-  if (goalCooldownHome < 1 || goalCooldownAway < 1) {
-    if (recentGoalSide === "home") {
-      homeScore = Math.round(homeScore * goalCooldownHome * 0.3);
-      awayScore = Math.round(
-        awayScore * Math.max(goalCooldownAway, goalCooldownHome * 0.6),
-      );
-    } else if (recentGoalSide === "away") {
-      awayScore = Math.round(awayScore * goalCooldownAway * 0.3);
-      homeScore = Math.round(
-        homeScore * Math.max(goalCooldownHome, goalCooldownAway * 0.6),
-      );
-    } else if (recentGoalSide === "both") {
-      homeScore = Math.round(homeScore * goalCooldownHome * 0.3);
-      awayScore = Math.round(awayScore * goalCooldownAway * 0.3);
-    }
-    if (recentGoalSide && (homeScore >= 20 || awayScore >= 20)) {
-      const goalSideLabel =
-        recentGoalSide === "home"
-          ? "Ev sahibi"
-          : recentGoalSide === "away"
-            ? "Deplasman"
-            : "Her iki";
-      allFactors.push(`Gol sonrası soğuma (${goalSideLabel})`);
+  {
+    const cooldownResult = applyGoalCooldown(
+      homeScore, awayScore,
+      goalCooldownHome, goalCooldownAway, recentGoalSide,
+    );
+    homeScore = cooldownResult.homeScore;
+    awayScore = cooldownResult.awayScore;
+    if (cooldownResult.factors.length > 0) {
+      postFactors.push(...cooldownResult.factors);
     }
   }
 
@@ -861,8 +725,6 @@ export function calculateGoalProbability(
     } catch (e) { logError('goalRadar', e); /* fallback */ }
   }
 
-  homeScore = Math.min(100, homeScore);
-  awayScore = Math.min(100, awayScore);
   const score = Math.max(homeScore, awayScore);
 
   // Factor 17: Card advantage
@@ -1065,8 +927,8 @@ export function calculateGoalProbability(
   else if (score >= 70) level = "high";
   else if (score >= 55) level = "medium";
 
-  homeScore = Math.max(0, Math.min(85, homeScore));
-  awayScore = Math.max(0, Math.min(85, awayScore));
+  homeScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, homeScore));
+  awayScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, awayScore));
   const clampedScore = Math.max(homeScore, awayScore);
 
   // Dixon-Coles Poisson blend (light anchor, 10% weight)
@@ -1121,10 +983,10 @@ export function calculateGoalProbability(
   } catch (e) { logError('goalRadar', e); /* fallback */ }
 
   let finalHomeScore = Math.round(
-    Math.max(0, Math.min(85, Math.round(homeScore * timeMultiplier))),
+    Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore * timeMultiplier))),
   );
   let finalAwayScore = Math.round(
-    Math.max(0, Math.min(85, Math.round(awayScore * timeMultiplier))),
+    Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore * timeMultiplier))),
   );
   let finalScore = Math.max(finalHomeScore, finalAwayScore);
 
@@ -1268,8 +1130,6 @@ export function calculateGoalProbability(
     }
   }
 
-  const SIGNAL_5MIN_THRESHOLD = 0.25;
-  const MIN_PROB_FOR_SIGNAL = 0.20;
 
   // Trend-adjusted threshold: if momentum is rising, accept signals
   // with slightly lower 5-min prob (0.20 vs 0.25). Preserves "warning"
@@ -1281,12 +1141,16 @@ export function calculateGoalProbability(
   if (goalProbability5min < effectiveThreshold && level !== "critical") {
     level = "low";
     side = null;
-    if (finalScore < 60) {
+    if (finalScore < RADAR_THRESHOLD) {
       finalScore = Math.min(finalScore, 59);
       finalHomeScore = Math.min(finalHomeScore, 59);
       finalAwayScore = Math.min(finalAwayScore, 59);
     }
   }
+
+  const allFactors = [
+    ...new Set([...sharedFactors, ...homeFactors, ...awayFactors, ...postFactors]),
+  ];
 
   return {
     score: finalScore,
@@ -1305,40 +1169,8 @@ export function calculateGoalProbability(
   };
 }
 
-// ── FotMob-enriched convenience wrapper ─────────────────────────────
-// Callers with FotMob data available can use this instead of calling
-// calculateGoalProbability directly. The FotMob intel (weather, squad,
-// H2H, form, formation) is applied as the final adjustment layer.
-
-export interface FotMobEnrichedResult {
-  goalRadar: GoalProbability;
-  intelligence: MatchIntelligence;
-}
-
-export function calculateGoalProbabilityWithFotMob(
-  stats: MatchStats,
-  minute: string,
-  isLive: boolean,
-  pressureHistory: PressureSnapshotLite[] | undefined,
-  currentHomeGoals: number | undefined,
-  currentAwayGoals: number | undefined,
-  homeTeam: string | undefined,
-  awayTeam: string | undefined,
-  fotmobData: import('./fotmob').FotMobMatchDetails | null,
-  oddsMovementBoost?: { homeBoost: number; awayBoost: number; significance: string } | null,
-  leagueId?: number | null,
-): FotMobEnrichedResult {
-  const goalRadar = calculateGoalProbability(
-    stats, minute, isLive,
-    pressureHistory, currentHomeGoals, currentAwayGoals,
-    homeTeam, awayTeam,
-    oddsMovementBoost, leagueId,
-    fotmobData,
-  );
-  const intelligence = extractMatchIntelligence(fotmobData);
-  return { goalRadar, intelligence };
-}
-
 // ── Faz 8 — side helper'lar ./goalRadar/side.ts'e taşındı ───────────────
 // re-export (geriye uyumluluk — dış import'lar `goalRadar.ts`'ten alır)
 export { determineSide, determineSideByStats } from './goalRadar/side';
+// Re-export types for backward compat (imported via barrel in nesine.ts)
+export type { PressureSnapshotLite, GoalProbability } from './goalRadar/types';

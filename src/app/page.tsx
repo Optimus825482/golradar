@@ -27,7 +27,7 @@ import {
   calculateXgFlow,
   generateSyntheticSnapshots,
 } from '@/lib/advancedAnalytics'
-import { playGoalSound } from '@/lib/playGoalSound'
+import { SIGNAL_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
 import SignalsCenter from '@/components/SignalsCenter'
 import { usePresence } from '@/hooks/usePresence'
 import { tierConfig } from '@/lib/tier'
@@ -96,14 +96,16 @@ export default function OptimusGolRadariPage() {
   // Favorites
   const [favorites, setFavorites] = useState<Set<number>>(new Set())
 
-  // Goal detection (flash + notifications + prevGoals)
-  const {
-    goalFlashMap,
-    goalNotifications,
-    prevGoalsMap: prevGoals,
-    addGoalNotification,
-    clearGoalNotification,
-  } = useGoalDetection()
+	  // Goal detection (flash + notifications + prevGoals)
+	  const {
+	    goalFlashMap,
+	    goalNotifications,
+	    prevGoalsRef,
+	    addGoalNotification,
+	    clearGoalNotification,
+	  } = useGoalDetection()
+	  // Read current prev goals through the ref (avoids stale snapshot between renders)
+	  const prevGoals = prevGoalsRef.current
 
   // NetScores integration (replaces FotMob)
   const [fotmobData, setFotmobData] = useState<FotMobMatchDetails | null>(null)
@@ -487,20 +489,19 @@ export default function OptimusGolRadariPage() {
         }
 
         if (favorites.has(m.code)) {
-          playGoalSound()
-          const notification: GoalNotification = {
-            id: `${m.code}-${now}`,
-            matchCode: m.code,
-            home: m.home, away: m.away,
-            homeGoals: m.homeGoals, awayGoals: m.awayGoals,
-            scoringTeam: homeScored ? 'home' : 'away',
-            league: m.league, minute: m.minute, timestamp: now,
-          }
-          addGoalNotification(notification)
-          setTimeout(() => {
-            clearGoalNotification(notification.id)
-          }, 8000)
-        }
+	          const notification: GoalNotification = {
+	            id: `${m.code}-${now}`,
+	            matchCode: m.code,
+	            home: m.home, away: m.away,
+	            homeGoals: m.homeGoals, awayGoals: m.awayGoals,
+	            scoringTeam: homeScored ? 'home' : 'away',
+	            league: m.league, minute: m.minute, timestamp: now,
+	          }
+	          addGoalNotification(notification)
+	          setTimeout(() => {
+	            clearGoalNotification(notification.id)
+	          }, 8000)
+	        }
       }
 
       // When match ends, finalize all pending signals for this match
@@ -512,25 +513,26 @@ export default function OptimusGolRadariPage() {
 
   }, [matches, favorites])
 
-  // Goal probabilities — pure computation only, no side-effects
-  const goalProbabilities = useMemo(() => {
-    const map = new Map<number, GoalProbability>()
-    for (const m of matches) {
-      if (!m.isLive || !m.hasStats || (m.status === 3 || m.status === 28)) continue
-      if (m.goalRadar && m.goalRadar.score >= 60 && m.goalRadar.goalProbability5min >= 0.25) {
-        map.set(m.code, m.goalRadar)
-        continue
-      }
-      const history = allPressureData[m.code]
-      const prob = calculateGoalProbability(
-        m.stats, m.minute, m.isLive, history, m.homeGoals, m.awayGoals, m.home, m.away,
-      )
-      if (prob.score >= 60 && prob.goalProbability5min >= 0.25) {
-        map.set(m.code, prob)
-      }
-    }
-    return map
-  }, [matches, allPressureData])
+	  // Goal probabilities — pure computation only, no side-effects
+	  const goalProbabilities = useMemo(() => {
+	    const map = new Map<number, GoalProbability>()
+	    for (const m of matches) {
+	      if (!m.isLive || !m.hasStats || HALFTIME_STATUSES.has(m.status)) continue
+	      // B3: Server goalRadar varsa ve maç hala canlıysa kullan
+	      if (m.isLive && m.goalRadar && m.goalRadar.score >= SIGNAL_THRESHOLD && m.goalRadar.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) {
+	        map.set(m.code, m.goalRadar)
+	        continue
+	      }
+	      const history = allPressureData[m.code]
+	      const prob = calculateGoalProbability(
+	        m.stats, m.minute, m.isLive, history, m.homeGoals, m.awayGoals, m.home, m.away,
+	      )
+	      if (prob.score >= SIGNAL_THRESHOLD && prob.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) {
+	        map.set(m.code, prob)
+	      }
+	    }
+	    return map
+	  }, [matches, allPressureData])
 
   // Signal posting — isolated in its own effect so fetch calls don't
   // fire inside a useMemo (React anti-pattern). A ref tracks which
@@ -560,11 +562,11 @@ export default function OptimusGolRadariPage() {
       }).catch((e) => { logError('page', e); })
     }
     // Keep set from growing unbounded — cap at 500 entries
-    if (posted.size > 500) {
-      // True FIFO: keep first inserted by recreating with stable insertion order
-      const arr = Array.from(posted)
-      postedSignalsRef.current = new Set(arr.slice(arr.length - 300))
-    }
+	    if (posted.size > 500) {
+	      // True FIFO: eski sinyalleri koru, en yeni 200'ü bırak
+	      const arr = Array.from(posted)
+	      postedSignalsRef.current = new Set(arr.slice(0, 300))
+	    }
   }, [goalProbabilities, matches])
 
   const radarCount = goalProbabilities.size
@@ -608,7 +610,7 @@ export default function OptimusGolRadariPage() {
       const curMin = snaps[i].minute
       const prevNum = parseInt(prevMin.replace(/[^0-9]/g, ''), 10) || 0
       const curNum = parseInt(curMin.replace(/[^0-9]/g, ''), 10) || 0
-      if (prevNum <= 45 && (curMin.includes('DA') || curNum >= 46)) return i - 1
+	      if (prevNum <= 45 && (/^(?:DA|HT|Devre|Half)/i.test(curMin) || curNum >= 46)) return i - 1
     }
     return -1
   }, [pressureSnapshots])
@@ -940,9 +942,10 @@ export default function OptimusGolRadariPage() {
             <img src="/logo-192.png" alt="Gol Radarı" className="w-8 h-8 rounded-lg shadow-sm object-cover" />
             <div>
               <h1 className="text-base font-bold text-gray-900 tracking-tight leading-tight">Gol Radarı</h1>
-              <p className="text-[10px] text-gray-400 leading-tight">
-                {lastUpdate ? lastUpdate.toLocaleTimeString('tr-TR') : '—'}
-              </p>
+	              <p className="text-[10px] text-gray-400 leading-tight flex items-center gap-1">
+	                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+	                {lastUpdate ? `Canlı · ${lastUpdate.toLocaleTimeString('tr-TR')}` : '—'}
+	              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">

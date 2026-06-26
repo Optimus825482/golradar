@@ -12,14 +12,14 @@ interface FlashEntry {
   expiresAt: number;
 }
 
-export interface UseGoalDetectionResult {
-  goalFlashMap: Record<number, FlashEntry>;
-  goalNotifications: GoalNotification[];
-  prevGoalsMap: Record<number, { home: number; away: number; status: number }>;
-  addGoalNotification: (notification: GoalNotification) => void;
-  clearGoalNotification: (id: string) => void;
-  dismissFlash: (matchCode: number) => void;
-}
+	export interface UseGoalDetectionResult {
+	  goalFlashMap: Record<number, FlashEntry>;
+	  goalNotifications: GoalNotification[];
+	  prevGoalsRef: React.MutableRefObject<Record<number, { home: number; away: number; status: number }>>;
+	  addGoalNotification: (notification: GoalNotification) => void;
+	  clearGoalNotification: (id: string) => void;
+	  dismissFlash: (matchCode: number) => void;
+	}
 
 /**
  * Goal-related side-effects: ephemeral flash highlight on the match
@@ -109,12 +109,12 @@ export function useGoalDetection(): UseGoalDetectionResult {
     setGoalNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
-  return {
-    goalFlashMap,
-    goalNotifications,
-    prevGoalsMap: prevGoalsMap.current,
-    addGoalNotification,
-    clearGoalNotification,
-    dismissFlash,
-  };
+	  return {
+	    goalFlashMap,
+	    goalNotifications,
+	    prevGoalsRef: prevGoalsMap,
+	    addGoalNotification,
+	    clearGoalNotification,
+	    dismissFlash,
+	  };
 }

@@ -131,39 +131,60 @@ export default function AdminMLMonitoringPage() {
           sub={latestShadow?.bestModel ? `Best: ${latestShadow.bestModel}` : 'shadow yok'} />
       </div>
 
-      {/* Per-Model Champion Cards */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-indigo-400 to-purple-500" />
-          <h3 className="text-sm font-bold text-gray-800">🏆 Model Bazında Champion Başarısı</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {latest && (
-            <ModelChampionCard
-              name="GBDT"
-              icon="🌳"
-              currentBrier={latest.gbdtBrier ?? null}
-              trendSeries={series.map(s => ({ date: s.date, brier: s.gbdtBrier }))}
-            />
-          )}
-          {latest && (
-            <ModelChampionCard
-              name="XGBoost"
-              icon="⚡"
-              currentBrier={latest.xgbBrier ?? null}
-              trendSeries={series.map(s => ({ date: s.date, brier: s.xgbBrier }))}
-            />
-          )}
-          {latest && (
-            <ModelChampionCard
-              name="InPlay 5m"
-              icon="⚽"
-              currentBrier={latest.inPlayBrier ?? null}
-              trendSeries={series.map(s => ({ date: s.date, brier: s.inPlayBrier }))}
-            />
-          )}
-        </div>
-      </div>
+	      {/* Per-Model Champion Cards */}
+	      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+	        <div className="flex items-center gap-2 mb-3">
+	          <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-indigo-400 to-purple-500" />
+	          <h3 className="text-sm font-bold text-gray-800">🏆 6-Model Başarı Karşılaştırması</h3>
+	          <span className="text-[10px] text-gray-400 ml-auto">Brier: düşük = iyi</span>
+	        </div>
+	        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-2">
+	          {latest && (
+	            <MiniModelCard name="Kural Bazlı" icon="🧠" brier={null} desc="12 faktör heuristic (Brier hesaplanmaz)" />
+	          )}
+	          {latest && (
+	            <MiniModelCard name="Poisson" icon="📊" brier={null} desc="Dixon-Coles (Brier hesaplanmaz)" />
+	          )}
+	          {latest && (
+	            <MiniModelCard name="Elo" icon="⚖️" brier={null} desc="Elo rating (Brier hesaplanmaz)" />
+	          )}
+	          {latest && (
+	            <MiniModelCard name="GBDT" icon="🌳" brier={latest.gbdtBrier ?? null} desc="Gradient Boosted" />
+	          )}
+	          {latest && (
+	            <MiniModelCard name="XGBoost" icon="⚡" brier={latest.xgbBrier ?? null} desc="Champion XGB" />
+	          )}
+	          {latest && (
+	            <MiniModelCard name="InPlay5m" icon="⚽" brier={latest.inPlayBrier ?? null} desc="5-dk horizon" />
+	          )}
+	        </div>
+	        <div className="text-[10px] text-gray-400 mt-2 text-center">
+	          Kural Bazlı/Poisson/Elo için henüz Brier metriği hesaplanmıyor (ensemble weight için unranked 0.20 kullanılır).
+	          ML modelleri (GBDT/XGB/InPlay) için champion Brier takip edilir.
+	        </div>
+	      </div>
+
+	      {/* Ensemble Weight Status */}
+	      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+	        <div className="flex items-center gap-2 mb-3">
+	          <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-amber-400 to-orange-500" />
+	          <h3 className="text-sm font-bold text-gray-800">⚖️ Ensemble Weight Dağılımı</h3>
+	          <span className="text-[10px] text-gray-400 ml-auto">Brier-tier bazlı dinamik ağırlık</span>
+	        </div>
+	        <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-center">
+	          {['Kural', 'Poisson', 'Elo', 'ML', 'Takım', 'InPlay'].map((name, i) => (
+	            <div key={name} className="p-2 rounded-lg bg-gray-50 border border-gray-100">
+	              <div className="text-[9px] font-semibold text-gray-500 uppercase">{name}</div>
+	              <div className="text-lg font-black text-indigo-600">—</div>
+	              <div className="text-[9px] text-gray-400">weight</div>
+	            </div>
+	          ))}
+	        </div>
+	        <div className="text-[10px] text-gray-400 mt-2 text-center">
+	          Canlı ağırlıklar {` > `} Admin → ML & Modeller → Weight Router sayfasında görüntülenir.
+	          Her model Brier tier'ına göre: &lt;0.18→1.0, 0.18-0.25→0.75, 0.25-0.32→0.50, 0.32-0.40→0.25, &gt;0.40→0.0.
+	        </div>
+	      </div>
 
       {/* Brier Score Trend Chart */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
@@ -351,6 +372,18 @@ function BrierChart({ series }: { series: MetricsPoint[] }) {
       </defs>
       <line x1={padL} x2={W - padR} y1={yFor(0.2)} y2={yFor(0.2)} stroke="#10b981" strokeWidth={1} strokeDasharray="4 4" opacity={0.5} />
       <text x={W - padR - 4} y={yFor(0.2) - 4} fontSize={8} fill="#10b981" textAnchor="end" fontWeight="bold">hedef 0.20</text>
-    </svg>
-  );
-}
+	    </svg>
+	  );
+	}
+	
+	function MiniModelCard({ name, icon, brier, desc }: { name: string; icon: string; brier: number | null; desc: string }) {
+	  const color = brier == null ? '#6b7280' : brier < 0.18 ? '#10b981' : brier < 0.25 ? '#22c55e' : brier < 0.32 ? '#f59e0b' : '#ef4444';
+	  return (
+	    <div className="rounded-lg border border-gray-100 p-2 text-center bg-white hover:shadow-sm transition-shadow">
+	      <div className="text-xl mb-0.5">{icon}</div>
+	      <div className="text-[10px] font-bold text-gray-800">{name}</div>
+	      <div className="text-xs font-black" style={{ color }}>{brier != null ? brier.toFixed(4) : '—'}</div>
+	      <div className="text-[8px] text-gray-400 mt-0.5">{desc}</div>
+	    </div>
+	  );
+	}

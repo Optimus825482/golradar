@@ -25,14 +25,15 @@ import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
 import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
 import { computeEnsembleWeights } from './ml/weightTuner';
 import { getChampionBrier } from './ml/modelRouter';
-import { estimateXgFromShots } from './estimateXg';
-// teamHistoryBackfill pulls in sofascore.ts (uses child_process via
-// Python bridge) — keep it out of the client bundle by deferring
-// the import to call time.
-import { loadXgbChampion } from "./ml/modelRouter";
-import { predictXgb, type XgbModel } from "./ml/xgbLoader";
-import { logError } from '@/lib/devLog';
-import { brierToConfidence, UNRANKED_MODEL_BRIER } from '@/config';
+	import { estimateXgFromShots } from './estimateXg';
+	// teamHistoryBackfill pulls in sofascore.ts (uses child_process via
+	// Python bridge) — keep it out of the client bundle by deferring
+	// the import to call time.
+	import { loadXgbChampion } from "./ml/modelRouter";
+	import { predictXgb, type XgbModel } from "./ml/xgbLoader";
+	import { logError } from '@/lib/devLog';
+	import { brierToConfidence, UNRANKED_MODEL_BRIER } from '@/config';
+	import { FEATURE_NAMES } from './featureEngineering';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -210,15 +211,17 @@ export async function predictEnsemble(
   }> = [];
   let mlModelName = "GBDT (built-in)";
 
-  // Extract features lazily, caching the result for multiple ML model calls
-  let mlFeaturesCache: { features: MatchFeatures; featureArray: number[] } | null = null;
-  async function getMlFeaturesCached(): Promise<{ features: MatchFeatures; featureArray: number[] }> {
-    if (mlFeaturesCache) return mlFeaturesCache;
-    const features = await extractFeatures(input);
-    const featureArray = featuresToArray(features);
-    mlFeaturesCache = { features, featureArray };
-    return mlFeaturesCache;
-  }
+	  // Extract features lazily, caching the result for multiple ML model calls
+	  let mlFeaturesCache: Promise<{ features: MatchFeatures; featureArray: number[] }> | null = null;
+	  async function getMlFeaturesCached(): Promise<{ features: MatchFeatures; featureArray: number[] }> {
+	    if (mlFeaturesCache) return mlFeaturesCache;
+	    mlFeaturesCache = (async () => {
+	      const features = await extractFeatures(input);
+	      const featureArray = featuresToArray(features);
+	      return { features, featureArray };
+	    })();
+	    return mlFeaturesCache;
+	  }
 
   try {
     let mlModel: XgbModel | null = null;
@@ -256,11 +259,11 @@ export async function predictEnsemble(
         .slice(0, 5);
       const factorImportance =
         mlChampionBrier != null ? Math.max(0.05, brierToConfidence(mlChampionBrier)) : 0.3;
-      mlTopFactors = sorted.map((s) => ({
-        feature: `f${s.index}`,
-        importance: Math.round(factorImportance * 1000) / 1000,
-        value: featureArray[s.index] ?? 0,
-      }));
+	      mlTopFactors = sorted.map((s) => ({
+	        feature: FEATURE_NAMES[s.index] ?? `f${s.index}`,
+	        importance: Math.round(factorImportance * 1000) / 1000,
+	        value: featureArray[s.index] ?? 0,
+	      }));
     } else {
       // Fall back to built-in GBDT
       const builtin = loadModel();

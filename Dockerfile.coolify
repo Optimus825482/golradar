@@ -24,10 +24,44 @@ ENV NODE_ENV=production
 ENV PORT=3012
 ENV HOSTNAME=0.0.0.0
 
-RUN apk add --no-cache openssl-dev ca-certificates wget curl
+# Python + Node + Prisma için gerekli paketler
+# libstdc++: curl_cffi prebuilt wheels için gerekli
+# cargo: Scrapling C extension compile için
+RUN apk add --no-cache \
+      openssl-dev \
+      ca-certificates \
+      wget curl \
+      nodejs \
+      python3 \
+      py3-pip \
+      gcc \
+      musl-dev \
+      libstdc++ \
+      cargo
+
+# Pre-install Scrapling + curl_cffi at image-build time
+# Python bridge (goaloo.ts, netscores.ts) için gerekli
+RUN pip3 install --no-cache-dir --break-system-packages \
+      'urllib3>=2,<3' \
+      'certifi>=2024' \
+      'idna>=3.6' \
+      'requests>=2.31' \
+      'charset-normalizer>=3' \
+      && pip3 install --no-cache-dir --break-system-packages \
+      'scrapling>=0.4' \
+      'curl_cffi>=0.7' \
+      'orjson>=3.10' \
+      'lxml>=5' \
+      'w3lib>=2' \
+      'tld>=0.13' \
+      'tldextract>=5' \
+      'datafc>=2.7,<3' \
+      'httpx>=0.27'
 
 # Next.js standalone output
 COPY --from=builder /app/.next/standalone /app
+COPY --from=builder /app/.next/static /app/.next/static
+COPY --from=builder /app/public /app/public
 COPY --from=builder /app/prisma /app/prisma
 COPY --from=builder /app/node_modules/.prisma /app/node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma /app/node_modules/@prisma

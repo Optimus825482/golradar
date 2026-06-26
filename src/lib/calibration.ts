@@ -189,84 +189,116 @@ export function clearIsotonicCache(): void {
   cachedIsotonic = null;
 }
 
-/** Optimize sigmoid params from PredictionLog table, persist to SystemConfig. */
-export async function autoCalibrateFromDB(): Promise<{
-  x0: number;
-  k: number;
-  L: number;
-  brierBefore: number;
-  brierAfter: number;
-} | null> {
-  const logs = await db.predictionLog.findMany({
-    where: { goalScored: { not: null } },
-    select: { rawScore: true, calibratedP: true, goalScored: true },
-    orderBy: { createdAt: "desc" },
-    take: 10000,
-  });
-
-  if (logs.length < 50) return null;
-
-  const currentBrier =
-    logs.reduce(
-      (s, r) => s + Math.pow(r.calibratedP - (r.goalScored ? 1 : 0), 2),
-      0,
-    ) / logs.length;
-
-  // Faz 2 — L grid search'a dahil edildi. Grid: x0∈[40..85] step 2,
-  // k∈[0.020..0.120] step 0.002, L∈[0.80..0.99] step 0.02.
-  let bestX0 = CALIBRATION_PARAMS.x0;
-  let bestK = CALIBRATION_PARAMS.k;
-  let bestL = CALIBRATION_PARAMS.L;
-  let bestBrier = currentBrier;
-
-  for (let x0 = 40; x0 <= 85; x0 += 2) {
-    for (let kRaw = 20; kRaw <= 120; kRaw += 2) {
-      const k = kRaw / 1000;
-      for (let lRaw = 80; lRaw <= 99; lRaw += 2) {
-        const L = lRaw / 100;
-        let sum = 0;
-        for (const r of logs) {
-          const p = L / (1 + Math.exp(-k * (r.rawScore - x0)));
-          sum += Math.pow(p - (r.goalScored ? 1 : 0), 2);
-        }
-        const brier = sum / logs.length;
-        if (brier < bestBrier) {
-          bestBrier = brier;
-          bestX0 = x0;
-          bestK = k;
-          bestL = L;
-        }
-      }
-    }
-  }
-
-  // Only apply if meaningful improvement (>2% relative)
-  if (bestBrier < currentBrier * 0.98) {
-    CALIBRATION_PARAMS.x0 = bestX0;
-    CALIBRATION_PARAMS.k = bestK;
-    CALIBRATION_PARAMS.L = bestL;
-    try {
-      await persistParamsToDB('autoCalibrateFromDB');
-    } catch (e) {
-      logError('calibration', 'persist failed:', e);
-    }
-    console.log(
-      `[Calibration] Optimized: x0=${bestX0}, k=${bestK.toFixed(4)}, L=${bestL.toFixed(2)}, Brier ${currentBrier.toFixed(4)} → ${bestBrier.toFixed(4)}`,
-    );
-    return {
-      x0: bestX0,
-      k: bestK,
-      L: bestL,
-      brierBefore: currentBrier,
-      brierAfter: bestBrier,
-    };
-  }
-
-  console.log(
-    `[Calibration] No improvement needed (Brier ${currentBrier.toFixed(4)}, best ${bestBrier.toFixed(4)})`,
-  );
-  return null;
-}
+	/** Optimize sigmoid params from PredictionLog table, persist to SystemConfig. */
+	export async function autoCalibrateFromDB(): Promise<{
+	  x0: number;
+	  k: number;
+	  L: number;
+	  brierBefore: number;
+	  brierAfter: number;
+	} | null> {
+	  const logs = await db.predictionLog.findMany({
+	    where: { goalScored: { not: null } },
+	    select: { rawScore: true, calibratedP: true, goalScored: true },
+	    orderBy: { createdAt: "desc" },
+	    take: 10000,
+	  });
+	
+	  if (logs.length < 50) return null;
+	
+	  // Train/validation split: 80% train, 20% validation (zaman sıralı)
+	  const midpoint = Math.floor(logs.length * 0.8);
+	  const trainLogs = logs.slice(0, midpoint);
+	  const valLogs = logs.slice(midpoint);
+	
+	  const currentBrier =
+	    trainLogs.reduce(
+	      (s, r) => s + Math.pow(r.calibratedP - (r.goalScored ? 1 : 0), 2),
+	      0,
+	    ) / trainLogs.length;
+	
+	  // Faz 2 — L grid search'a dahil edildi. Grid: x0∈[40..85] step 2,
+	  // k∈[0.020..0.120] step 0.002, L∈[0.80..0.99] step 0.02.
+	  // ── İki aşamalı grid search ──
+	  // Aşama 1: kaba grid (step 10/10/5) en iyi bölgeyi bul
+	  // Aşama 2: ince grid (step 2/2/1) en iyi bölgede
+	  let bestX0 = CALIBRATION_PARAMS.x0;
+	  let bestK = CALIBRATION_PARAMS.k;
+	  let bestL = CALIBRATION_PARAMS.L;
+	  let bestTrainBrier = currentBrier;
+	  let bestValBrier = currentBrier;
+	
+	  for (const phase of ['coarse', 'fine'] as const) {
+	    const x0Step = phase === 'coarse' ? 10 : 2;
+	    const kStep = phase === 'coarse' ? 0.010 : 0.002;
+	    const lStep = phase === 'coarse' ? 0.05 : 0.01;
+	
+	    const x0Range = phase === 'coarse'
+	      ? { min: 40, max: 85 }
+	      : { min: Math.max(40, bestX0 - x0Step * 2), max: Math.min(85, bestX0 + x0Step * 2) };
+	    const kRange = phase === 'coarse'
+	      ? { min: 0.020, max: 0.120 }
+	      : { min: Math.max(0.020, bestK - kStep * 10), max: Math.min(0.120, bestK + kStep * 10) };
+	    const lRange = phase === 'coarse'
+	      ? { min: 0.80, max: 0.99 }
+	      : { min: Math.max(0.80, bestL - lStep * 3), max: Math.min(0.99, bestL + lStep * 3) };
+	
+	    for (let x0 = x0Range.min; x0 <= x0Range.max; x0 += x0Step) {
+	      for (let k = kRange.min; k <= kRange.max + kStep / 2; k += kStep) {
+	        for (let l = lRange.min; l <= lRange.max + lStep / 2; l += lStep) {
+	          const L = Math.round(l * 100) / 100;
+	          let sum = 0;
+	          for (const r of trainLogs) {
+	            const p = L / (1 + Math.exp(-k * (r.rawScore - x0)));
+	            sum += Math.pow(p - (r.goalScored ? 1 : 0), 2);
+	          }
+	          const brier = sum / trainLogs.length;
+	          if (brier < bestTrainBrier) {
+	            bestTrainBrier = brier;
+	            bestX0 = x0;
+	            bestK = k;
+	            bestL = L;
+	          }
+	        }
+	      }
+	    }
+	  }
+	
+	  // Evaluate best params on validation set
+	  let valSum = 0;
+	  for (const r of valLogs) {
+	    const p = bestL / (1 + Math.exp(-bestK * (r.rawScore - bestX0)));
+	    valSum += Math.pow(p - (r.goalScored ? 1 : 0), 2);
+	  }
+	  bestValBrier = valSum / valLogs.length;
+	
+	  // Only apply if meaningful improvement (>2% relative on validation)
+	  if (bestValBrier < currentBrier * 0.98) {
+	    CALIBRATION_PARAMS.x0 = bestX0;
+	    CALIBRATION_PARAMS.k = bestK;
+	    CALIBRATION_PARAMS.L = bestL;
+	    try {
+	      await persistParamsToDB('autoCalibrateFromDB');
+	    } catch (e) {
+	      logError('calibration', 'persist failed:', e);
+	    }
+	    console.log(
+	      `[Calibration] Optimized: x0=${bestX0}, k=${bestK.toFixed(4)}, L=${bestL.toFixed(2)}, TrainBrier ${currentBrier.toFixed(4)} → ValBrier ${bestValBrier.toFixed(4)}`,
+	    );
+	    return {
+	      x0: bestX0,
+	      k: bestK,
+	      L: bestL,
+	      brierBefore: currentBrier,
+	      brierAfter: bestValBrier,
+	    };
+	  }
+	
+	  console.log(
+	    `[Calibration] No improvement needed (TrainBrier ${currentBrier.toFixed(4)}, ValBrier ${bestValBrier.toFixed(4)})`,
+	  );
+	  return null;
+	}
 
 export function calibrateScore(rawScore: number): number {
   // Prefer isotonic (PAVA) if fitted; fall back to sigmoid.

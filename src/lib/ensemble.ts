@@ -378,25 +378,22 @@ export async function predictEnsemble(
     hasPressureHistory: hasHistory,
   });
 
-  // ── Weighted ensemble blend ──
-  // Normalize ALL weights (including inplay and teamStrength) to sum to 1.0
-  const allWeights = [
-    weights.ruleBased,
-    weights.poisson,
-    weights.elo,
-    weights.ml,
-    weights.teamStrength,
-    weights.inplay,
-  ];
-  const totalWeight = allWeights.reduce((a, b) => a + b, 0);
-  const norm = (w: number) => totalWeight > 0 ? w / totalWeight : 0;
-  const ensembleP =
-    ruleBasedP * norm(weights.ruleBased) +
-    poissonP * norm(weights.poisson) +
-    eloP * norm(weights.elo) +
-    mlP * norm(weights.ml) +
-    teamStrengthP * norm(weights.teamStrength) +
-    inPlayP * norm(weights.inplay);
+	  // ── Weighted ensemble blend ──
+	  // Yeni: sadece prediction > 0 olan modeller normalize edilir.
+	  // 0 çıktı üreten modeller (ör: inPlayP=0, teamStrengthP=0) ağırlık
+	  // tüketmez, böylece aktif modeller seyreltilmez.
+	  const activeModels: { weight: number; pred: number }[] = [];
+	  if (ruleBasedP > 0) activeModels.push({ weight: weights.ruleBased, pred: ruleBasedP });
+	  if (poissonP > 0) activeModels.push({ weight: weights.poisson, pred: poissonP });
+	  if (eloP > 0) activeModels.push({ weight: weights.elo, pred: eloP });
+	  if (mlP > 0) activeModels.push({ weight: weights.ml, pred: mlP });
+	  if (teamStrengthP > 0) activeModels.push({ weight: weights.teamStrength, pred: teamStrengthP });
+	  if (inPlayP > 0) activeModels.push({ weight: weights.inplay, pred: inPlayP });
+
+	  const totalActiveWeight = activeModels.reduce((s, m) => s + m.weight, 0);
+	  const ensembleP = totalActiveWeight > 0
+	    ? activeModels.reduce((s, m) => s + m.pred * (m.weight / totalActiveWeight), 0)
+	    : ruleBasedP; // fallback: hiçbir model aktif değilse rule-based kullan
 
   // ── Model agreement (excluding zero predictions) ──
   const allPredictions = [ruleBasedP, poissonP, eloP, mlP].filter((p) => p > 0.01);

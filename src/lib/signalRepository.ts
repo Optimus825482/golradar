@@ -587,13 +587,24 @@ export async function calculateSignalStats(
     };
   });
 
-  const brierScore = resolved.length > 0
-    ? resolved.reduce((sum, s) => {
-        const p = s.calibratedP;
-        const o = s.goalHappened === true ? 1 : 0;
-        return sum + (p - o) ** 2;
-      }, 0) / resolved.length
-    : 0;
+	  const brierScore = resolved.length > 0
+	    ? (() => {
+	        // Zaman ağırlıklı Brier: eski sinyaller düşük ağırlık
+	        // 7 gün half-life ile üstel decay
+	        const now = Date.now();
+	        let weightedSum = 0;
+	        let totalWeight = 0;
+	        for (const s of resolved) {
+	          const daysAgo = (now - (s.signalTimestamp || now)) / (24 * 60 * 60 * 1000);
+	          const weight = Math.exp(-daysAgo / 7);
+	          const p = s.calibratedP;
+	          const o = s.goalHappened === true ? 1 : 0;
+	          weightedSum += weight * (p - o) ** 2;
+	          totalWeight += weight;
+	        }
+	        return totalWeight > 0 ? weightedSum / totalWeight : 0;
+	      })()
+	    : 0;
 
   const avgPredictedP = resolved.length > 0
     ? resolved.reduce((sum, s) => sum + s.calibratedP, 0) / resolved.length

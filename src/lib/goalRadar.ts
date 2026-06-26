@@ -146,34 +146,26 @@ export function calculateGoalProbability(
   const homeSotRate = (homeSotCount / Math.max(1, minNum)) * 15;
   const awaySotRate = (awaySotCount / Math.max(1, minNum)) * 15;
 
-  if (shotsOnTarget?.home != null && shotsOnTarget.home >= 1) {
-    let pts = Math.min(6, Math.round(homeSotRate * 2.0));
-    if (xg.home > 0 && shotsOnTarget.home > 0) {
-      const xgPerShot = xg.home / shotsOnTarget.home;
-      if (xgPerShot > 0.12) pts += Math.min(6, Math.round(xgPerShot * 18));
-    }
-    if (homeSotRate >= 1.5)
-      pts += Math.min(4, Math.round((homeSotRate - 1.0) * 3));
-    homeScore += pts;
-    if (pts >= 5)
-      homeFactors.push(
-        `${shotsOnTarget.home} isabetli şut (xGOT: ${homeSotRate.toFixed(1)}/15dk)`,
-      );
-  }
-  if (shotsOnTarget?.away != null && shotsOnTarget.away >= 1) {
-    let pts = Math.min(6, Math.round(awaySotRate * 2.0));
-    if (xg.away > 0 && shotsOnTarget.away > 0) {
-      const xgPerShot = xg.away / shotsOnTarget.away;
-      if (xgPerShot > 0.12) pts += Math.min(6, Math.round(xgPerShot * 18));
-    }
-    if (awaySotRate >= 1.5)
-      pts += Math.min(4, Math.round((awaySotRate - 1.0) * 3));
-    awayScore += pts;
-    if (pts >= 5)
-      awayFactors.push(
-        `${shotsOnTarget.away} isabetli şut (xGOT: ${awaySotRate.toFixed(1)}/15dk)`,
-      );
-  }
+	if (shotsOnTarget?.home != null && shotsOnTarget.home >= 1) {
+	    let pts = Math.min(6, Math.round(homeSotRate * 2.0));
+	    if (homeSotRate >= 1.5)
+	      pts += Math.min(4, Math.round((homeSotRate - 1.0) * 3));
+	    homeScore += pts;
+	    if (pts >= 5)
+	      homeFactors.push(
+	        `${shotsOnTarget.home} isabetli şut (${homeSotRate.toFixed(1)}/15dk)`,
+	      );
+	  }
+	  if (shotsOnTarget?.away != null && shotsOnTarget.away >= 1) {
+	    let pts = Math.min(6, Math.round(awaySotRate * 2.0));
+	    if (awaySotRate >= 1.5)
+	      pts += Math.min(4, Math.round((awaySotRate - 1.0) * 3));
+	    awayScore += pts;
+	    if (pts >= 5)
+	      awayFactors.push(
+	        `${shotsOnTarget.away} isabetli şut (${awaySotRate.toFixed(1)}/15dk)`,
+	      );
+	  }
 
   // Factor 4: Attack accumulation (consolidated: F4 + F11)
   // Replaces: old F4 (xG accumulation) + old F11 (xG dominance ratio)
@@ -309,108 +301,96 @@ export function calculateGoalProbability(
     }
   }
 
-  // Factor 8: Minute context
-  const hasRealMinute = /\d/.test(minute);
-  let minuteMultiplier = 1.0;
-  if (hasRealMinute) {
-    // getSmartF8Adjustment artık async (DB-backed). Sync hot-path'te
-    // (calculateGoalProbability) multiplier default 1.0 bırakılır; async
-    // katman (admin route + ensemble pipeline) calibrateF8'i kendi başına
-    // çağırır ve DB'den gelen profile göre düzeltir.
-    if ((minNum >= 1 && minNum <= 5) || (minNum >= 46 && minNum <= 50))
-      minuteMultiplier = 0.7;
-    else if (minNum >= 35 && minNum <= 45) minuteMultiplier = 1.08;
-    else if (minNum >= 60 && minNum < 86)
-      minuteMultiplier = 1.05 + (minNum - 60) * 0.002;
-    else if (minNum >= 86) minuteMultiplier = 1.18;
-    else minuteMultiplier = 1.0;
-  }
+	// Factor 8: Minute context — kalibre edilmiş
+	  const hasRealMinute = /\d/.test(minute);
+	  let minuteMultiplier = 1.0;
+	  if (hasRealMinute) {
+	    // Smart calibration: calibrateF8Sync ile lig bazlı ayarlı çarpan
+	    // Hardcoded değerler (0.70/1.08/1.18) ARKADAKİ reference değerlerle
+	    // yer değiştirdi: 0.85/1.15/1.30. calibrateF8Sync lig ortalamasına
+	    // göre bunları ayarlar (ör: Eredivisie erken gol → dampener 0.92,
+	    // Serie A geç gol → danger boost 1.38).
+	    try {
+	      const cal = calibrateF8Sync(leagueId ?? null, _calMode);
+	      const dangerStart = 86 + cal.dangerZoneShift;
+	      const halftimeStart = 35 + cal.halftimeSurgeShift;
+	      const dampenerEnd1H = 5 + cal.dampenerZoneShift;
+	      const dampenerStart2H = 46;
+	      const dampenerEnd2H = 50 + cal.dampenerZoneShift;
+	
+	      if ((minNum >= 1 && minNum <= dampenerEnd1H) || (minNum >= dampenerStart2H && minNum <= dampenerEnd2H))
+	        minuteMultiplier = cal.calibratedDampener;
+	      else if (minNum >= halftimeStart && minNum <= 45)
+	        minuteMultiplier = 1.15;
+	      else if (minNum >= 60 && minNum < dangerStart)
+	        minuteMultiplier = 1.10 + (minNum - 60) * 0.004;
+	      else if (minNum >= dangerStart)
+	        minuteMultiplier = cal.calibratedDangerBoost;
+	      else
+	        minuteMultiplier = 1.0;
+	    } catch (e) {
+	      logError('goalRadar', 'F8 calibration failed, using defaults:', e);
+	      if ((minNum >= 1 && minNum <= 5) || (minNum >= 46 && minNum <= 50))
+	        minuteMultiplier = 0.85;
+	      else if (minNum >= 35 && minNum <= 45) minuteMultiplier = 1.15;
+	      else if (minNum >= 60 && minNum < 86)
+	        minuteMultiplier = 1.10 + (minNum - 60) * 0.004;
+	      else if (minNum >= 86) minuteMultiplier = 1.30;
+	      else minuteMultiplier = 1.0;
+	    }
+	  }
 
-  // Factor 9: Corner + SOT compound
-  const corners = stats.corners;
-  const homeCornerRate = ((corners?.home ?? 0) / Math.max(1, minNum)) * 15;
-  const awayCornerRate = ((corners?.away ?? 0) / Math.max(1, minNum)) * 15;
-  const secondHalfBoost = minNum >= 45 ? 1.2 : 1.0;
-  if (corners?.home != null && homeCornerRate >= 1.5) {
-    let pts = Math.min(8, Math.round(homeCornerRate * 2.5 * secondHalfBoost));
-    if (homeShotsTotal > 0 && homeSotCount / homeShotsTotal > 0.5) pts += 2;
-    homeScore += pts;
-    homeFactors.push(
-      `Korner ${homeCornerRate.toFixed(1)}/15dk${minNum >= 45 ? " (2Y)" : ""}`,
-    );
-  }
-  if (corners?.away != null && awayCornerRate >= 1.5) {
-    let pts = Math.min(8, Math.round(awayCornerRate * 2.5 * secondHalfBoost));
-    if (awayShotsTotal > 0 && awaySotCount / awayShotsTotal > 0.5) pts += 2;
-    awayScore += pts;
-    awayFactors.push(
-      `Korner ${awayCornerRate.toFixed(1)}/15dk${minNum >= 45 ? " (2Y)" : ""}`,
-    );
-  }
+	// Factor 9: Corner + SOT compound + set-piece rate
+	  const corners = stats.corners;
+	  const homeCornerRate = ((corners?.home ?? 0) / Math.max(1, minNum)) * 15;
+	  const awayCornerRate = ((corners?.away ?? 0) / Math.max(1, minNum)) * 15;
+	  const secondHalfBoost = minNum >= 45 ? 1.2 : 1.0;
+	  if (corners?.home != null && homeCornerRate >= 1.5) {
+	    let pts = Math.min(8, Math.round(homeCornerRate * 2.5 * secondHalfBoost));
+	    // Set-piece oranı bonus: corners/attacks oranı yüksekse takım set-piece oynuyordur
+	    const homeAttacks = stats.attacks?.home ?? 1;
+	    const homeSpRate = (corners.home) / Math.max(1, homeAttacks);
+	    if (homeSpRate > 0.15) pts += Math.min(4, Math.round(homeSpRate * 20));
+	    if (homeShotsTotal > 0 && homeSotCount / homeShotsTotal > 0.4) pts += 4;
+	    homeScore += pts;
+	    homeFactors.push(
+	      `Korner ${homeCornerRate.toFixed(1)}/15dk${minNum >= 45 ? " (2Y)" : ""}`,
+	    );
+	  }
+	  if (corners?.away != null && awayCornerRate >= 1.5) {
+	    let pts = Math.min(8, Math.round(awayCornerRate * 2.5 * secondHalfBoost));
+	    const awayAttacks = stats.attacks?.away ?? 1;
+	    const awaySpRate = (corners.away) / Math.max(1, awayAttacks);
+	    if (awaySpRate > 0.15) pts += Math.min(4, Math.round(awaySpRate * 20));
+	    if (awayShotsTotal > 0 && awaySotCount / awayShotsTotal > 0.4) pts += 4;
+	    awayScore += pts;
+	    awayFactors.push(
+	      `Korner ${awayCornerRate.toFixed(1)}/15dk${minNum >= 45 ? " (2Y)" : ""}`,
+	    );
+	  }
 
-  // Factor 10: xG spike detection
-  if (pressureHistory && pressureHistory.length >= 2) {
-    const current = pressureHistory[pressureHistory.length - 1];
-    const lookback = Math.min(4, pressureHistory.length - 1);
-    const previous = pressureHistory[pressureHistory.length - 1 - lookback];
-    const currentHomeXg =
-      current.stats.xg?.home ??
-      estimateXgFromShots(current.stats, "home", minNum);
-    const prevHomeXg =
-      previous.stats.xg?.home ??
-      estimateXgFromShots(previous.stats, "home", minNum);
-    const currentAwayXg =
-      current.stats.xg?.away ??
-      estimateXgFromShots(current.stats, "away", minNum);
-    const prevAwayXg =
-      previous.stats.xg?.away ??
-      estimateXgFromShots(previous.stats, "away", minNum);
-    const homeXgDelta = Math.max(0, currentHomeXg - prevHomeXg),
-      awayXgDelta = Math.max(0, currentAwayXg - prevAwayXg);
-    const homeDeltaInfo = computeXgDelta(
-      current.stats,
-      previous.stats,
-      "home",
-      minNum,
-    );
-    const awayDeltaInfo = computeXgDelta(
-      current.stats,
-      previous.stats,
-      "away",
-      minNum,
-    );
-    const effectiveHomeDelta = homeDeltaInfo.isSignificant ? homeXgDelta : 0;
-    const effectiveAwayDelta = awayDeltaInfo.isSignificant ? awayXgDelta : 0;
-    if (effectiveHomeDelta >= 0.1) {
-      const pts = Math.min(10, Math.round(effectiveHomeDelta * 40));
-      homeScore += pts;
-      homeFactors.push(`xG sıçraması +${effectiveHomeDelta.toFixed(2)}`);
-    }
-    if (effectiveAwayDelta >= 0.1) {
-      const pts = Math.min(10, Math.round(effectiveAwayDelta * 40));
-      awayScore += pts;
-      awayFactors.push(`xG sıçraması +${effectiveAwayDelta.toFixed(2)}`);
-    }
-  }
+	// Factor 10: (F10 → F4'e entegre edildi — silindi)
+	  // xG spike detection kaldırıldı; xG accumulation (F4) zaten
+	  // hem birikim hem hız bileşenini kapsıyor. Çift sayım önlendi.
 
-  // Factor 11: xG dominance ratio
-  const totalXg = xg.home + xg.away;
-  if (totalXg > 0.5) {
-    const homeXgRatio = xg.home / totalXg,
-      awayXgRatio = xg.away / totalXg;
-    if (homeXgRatio > 0.65 && xg.home > 0.4) {
-      const pts = Math.min(8, Math.round((homeXgRatio - 0.5) * 30));
-      homeScore += pts;
-      if (pts >= 4)
-        homeFactors.push(`xG üstünlük %${Math.round(homeXgRatio * 100)}`);
-    }
-    if (awayXgRatio > 0.65 && xg.away > 0.4) {
-      const pts = Math.min(8, Math.round((awayXgRatio - 0.5) * 30));
-      awayScore += pts;
-      if (pts >= 4)
-        awayFactors.push(`xG üstünlük %${Math.round(awayXgRatio * 100)}`);
-    }
-  }
+	// Factor 11: xG dominance ratio
+	  const totalXg = xg.home + xg.away;
+	  if (totalXg > 0.5) {
+	    const homeXgRatio = xg.home / totalXg,
+	      awayXgRatio = xg.away / totalXg;
+	    if (homeXgRatio > 0.70 && xg.home > 0.4) {
+	      const pts = Math.min(8, Math.round((homeXgRatio - 0.5) * 30));
+	      homeScore += pts;
+	      if (pts >= 4)
+	        homeFactors.push(`xG üstünlük %${Math.round(homeXgRatio * 100)}`);
+	    }
+	    if (awayXgRatio > 0.70 && xg.away > 0.4) {
+	      const pts = Math.min(8, Math.round((awayXgRatio - 0.5) * 30));
+	      awayScore += pts;
+	      if (pts >= 4)
+	        awayFactors.push(`xG üstünlük %${Math.round(awayXgRatio * 100)}`);
+	    }
+	  }
 
   // Factor 12: Composite Threat (consolidated from old F12 80-pt formula → 30-pt)
   // Removes double-counting: ShotQ already in F3, Momentum in F6, SetPieces in F9
@@ -539,18 +519,18 @@ export function calculateGoalProbability(
       ) / older.length;
     const homeXgFlowTrend = recentHomeXg - olderHomeXg,
       awayXgFlowTrend = recentAwayXg - olderAwayXg;
-    if (homeXgFlowTrend > 0.05) {
-      const pts = Math.min(6, Math.round(homeXgFlowTrend * 20));
-      homeScore += pts;
-      if (pts >= 3)
-        homeFactors.push(`xG yükselişi +${homeXgFlowTrend.toFixed(2)}`);
-    }
-    if (awayXgFlowTrend > 0.05) {
-      const pts = Math.min(6, Math.round(awayXgFlowTrend * 20));
-      awayScore += pts;
-      if (pts >= 3)
-        awayFactors.push(`xG yükselişi +${awayXgFlowTrend.toFixed(2)}`);
-    }
+	    if (homeXgFlowTrend > 0.05) {
+	      const pts = Math.min(4, Math.round(homeXgFlowTrend * 15));
+	      homeScore += pts;
+	      if (pts >= 3)
+	        homeFactors.push(`xG yükselişi +${homeXgFlowTrend.toFixed(2)}`);
+	    }
+	    if (awayXgFlowTrend > 0.05) {
+	      const pts = Math.min(4, Math.round(awayXgFlowTrend * 15));
+	      awayScore += pts;
+	      if (pts >= 3)
+	        awayFactors.push(`xG yükselişi +${awayXgFlowTrend.toFixed(2)}`);
+	    }
   }
 
 
@@ -589,26 +569,31 @@ export function calculateGoalProbability(
       awayDADelta >= 2 &&
       awayCornerDelta >= 1 &&
       (awaySOTDelta >= 1 || awayBlkDelta >= 1);
-    if (homeSequence) {
-      const seqBoost = Math.round(homeScore * 0.4);
-      homeScore += seqBoost;
-      homeFactors.push(`Tehlikeli sıralı atak! (+${seqBoost})`);
-    }
-    if (awaySequence) {
-      const seqBoost = Math.round(awayScore * 0.4);
-      awayScore += seqBoost;
-      awayFactors.push(`Tehlikeli sıralı atak! (+${seqBoost})`);
-    }
-    if ((awaySOTDelta >= 1 || awayCornerDelta >= 1) && homeDADelta >= 3) {
-      const resetBoost = Math.round(homeScore * 0.3);
-      homeScore += resetBoost;
-      if (resetBoost >= 3) homeFactors.push(`Karşı baskı +${resetBoost}`);
-    }
-    if ((homeSOTDelta >= 1 || homeCornerDelta >= 1) && awayDADelta >= 3) {
-      const resetBoost = Math.round(awayScore * 0.3);
-      awayScore += resetBoost;
-      if (resetBoost >= 3) awayFactors.push(`Karşı baskı +${resetBoost}`);
-    }
+	  if (homeSequence) {
+	      const seqBoost = Math.min(15, Math.round(homeScore * 0.4));
+	      homeScore += seqBoost;
+	      homeFactors.push(`Tehlikeli sıralı atak! (+${seqBoost})`);
+	    }
+	    if (awaySequence) {
+	      const seqBoost = Math.min(15, Math.round(awayScore * 0.4));
+	      awayScore += seqBoost;
+	      awayFactors.push(`Tehlikeli sıralı atak! (+${seqBoost})`);
+	    }
+	    // Karşı baskı (counter-press): sadece takım topu kaptıktan sonra
+	    // hızlı hücum yapıyorsa. Gerçek kontra-atak pattern'i:
+	    // kendi SOT/corner artarken rakip possession düşüyorsa.
+	    const homePossDrop = (first.stats.possession?.away ?? 50) - (last.stats.possession?.away ?? 50);
+	    const awayPossDrop = (first.stats.possession?.home ?? 50) - (last.stats.possession?.home ?? 50);
+	    if (homeDADelta >= 3 && homePossDrop > 10 && awaySOTDelta >= 1) {
+	      const resetBoost = Math.min(10, Math.round(homeScore * 0.15));
+	      homeScore += resetBoost;
+	      if (resetBoost >= 3) homeFactors.push(`Kontra atak +${resetBoost}`);
+	    }
+	    if (awayDADelta >= 3 && awayPossDrop > 10 && homeSOTDelta >= 1) {
+	      const resetBoost = Math.min(10, Math.round(awayScore * 0.15));
+	      awayScore += resetBoost;
+	      if (resetBoost >= 3) awayFactors.push(`Kontra atak +${resetBoost}`);
+	    }
     const firstHomePoss = first.stats.possession?.home ?? 50,
       lastHomePoss = last.stats.possession?.home ?? 50;
     const possSwingHome = lastHomePoss - firstHomePoss,
@@ -806,14 +791,16 @@ export function calculateGoalProbability(
     }
   }
 
-  // Poisson anchor
-  {
-    const homeLambda = xg.home / Math.max(1, minNum),
-      awayLambda = xg.away / Math.max(1, minNum);
-    const homePoissonP = 1 - Math.exp(-homeLambda * (90 - minNum));
-    const awayPoissonP = 1 - Math.exp(-awayLambda * (90 - minNum));
-    const homePoissonPts = Math.round(homePoissonP * 100 * 0.2),
-      awayPoissonPts = Math.round(awayPoissonP * 100 * 0.2);
+	  // Poisson anchor
+	  {
+	    const homeLambda = xg.home / Math.max(1, minNum),
+	      awayLambda = xg.away / Math.max(1, minNum);
+	    const remainingMin = Math.max(1, 90 - minNum); // 90+ dk'da negatif olmasın
+	    const homePoissonP = 1 - Math.exp(-homeLambda * remainingMin);
+	    const awayPoissonP = 1 - Math.exp(-awayLambda * remainingMin);
+	    const poissonWeight = 0.15 + (minNum / 90) * 0.25; // 0.15 → 0.40 arası dinamik
+	    const homePoissonPts = Math.round(homePoissonP * 100 * poissonWeight),
+	      awayPoissonPts = Math.round(awayPoissonP * 100 * poissonWeight);
     if (homePoissonPts >= 2) {
       homeScore += Math.min(10, homePoissonPts);
       if (homePoissonPts >= 5)
@@ -990,19 +977,18 @@ export function calculateGoalProbability(
   );
   let finalScore = Math.max(finalHomeScore, finalAwayScore);
 
-  // 5-minute goal probability (hoisted — referenced by P0.5 below)
-  let goalProbability5min = 0;
-  try {
-    const homeXgRate = xg.home / Math.max(1, minNum),
-      awayXgRate = xg.away / Math.max(1, minNum);
-    const totalXgRate = homeXgRate + awayXgRate;
-    const lambda5min = totalXgRate * 5;
-    goalProbability5min = 1 - Math.exp(-lambda5min);
-    const minuteScale =
-      minNum <= 15 ? 0.7 : minNum <= 45 ? 1.0 : minNum <= 75 ? 1.15 : 1.35;
-    goalProbability5min *= minuteScale;
-    goalProbability5min = Math.min(0.95, goalProbability5min);
-  } catch (e) { logError('goalRadar', e); /* fallback */ }
+	  // 5-minute goal probability — homojen Poisson
+	  // minuteScale KALDIRILDI: F8 zaten score'u dakikaya göre ayarlıyor.
+	  // Çift çarpan (F8 + minuteScale) gereksiz şişirme yapıyordu.
+	  let goalProbability5min = 0;
+	  try {
+	    const homeXgRate = xg.home / Math.max(1, minNum),
+	      awayXgRate = xg.away / Math.max(1, minNum);
+	    const totalXgRate = homeXgRate + awayXgRate;
+	    const lambda5min = totalXgRate * 5;
+	    goalProbability5min = 1 - Math.exp(-lambda5min);
+	    goalProbability5min = Math.min(0.95, goalProbability5min);
+	  } catch (e) { logError('goalRadar', e); /* fallback */ }
 
   // P0.5: Critical multi-confirmation gate — score ≥80 is necessary but
   // insufficient. Requires ≥2 of 4 independent confirms to prevent
@@ -1131,22 +1117,24 @@ export function calculateGoalProbability(
   }
 
 
-  // Trend-adjusted threshold: if momentum is rising, accept signals
-  // with slightly lower 5-min prob (0.20 vs 0.25). Preserves "warning"
-  // signals at score 55-69 with rising momentum — these historically
-  // precede the actual goal by 2-4 minutes.
-  const isMomentumRising = homeFactors.length + awayFactors.length >= 3;
-  const effectiveThreshold = isMomentumRising ? MIN_PROB_FOR_SIGNAL : SIGNAL_5MIN_THRESHOLD;
-
-  if (goalProbability5min < effectiveThreshold && level !== "critical") {
-    level = "low";
-    side = null;
-    if (finalScore < RADAR_THRESHOLD) {
-      finalScore = Math.min(finalScore, 59);
-      finalHomeScore = Math.min(finalHomeScore, 59);
-      finalAwayScore = Math.min(finalAwayScore, 59);
-    }
-  }
+	  // Trend-adjusted threshold: if momentum is rising, accept signals
+	  // with slightly lower 5-min prob (0.20 vs 0.25). Preserves "warning"
+	  // signals at score 55-69 with rising momentum — these historically
+	  // precede the actual goal by 2-4 minutes.
+	  const isMomentumRising = homeFactors.length + awayFactors.length >= 3;
+	  const effectiveThreshold = isMomentumRising ? MIN_PROB_FOR_SIGNAL : SIGNAL_5MIN_THRESHOLD;
+	  // Critical seviye için ayrı düşük eşik (0.15). Tamamen muaf DEĞİL.
+	  const gateThreshold = level === "critical" ? 0.15 : effectiveThreshold;
+	
+	  if (goalProbability5min < gateThreshold) {
+	    level = "low";
+	    side = null;
+	    if (finalScore < RADAR_THRESHOLD) {
+	      finalScore = Math.min(finalScore, 59);
+	      finalHomeScore = Math.min(finalHomeScore, 59);
+	      finalAwayScore = Math.min(finalAwayScore, 59);
+	    }
+	  }
 
   const allFactors = [
     ...new Set([...sharedFactors, ...homeFactors, ...awayFactors, ...postFactors]),

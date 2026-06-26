@@ -18,23 +18,38 @@
 // When the API provides xG (stats.xg.home/away), those values are
 // used directly — this fallback only fires when API xG is absent.
 
-import type { MatchStats } from './nesineTypes';
-
-// ── Per-shot xG coefficients (research-calibrated) ────────────────
-// Sources: StatsBomb open data, Understat, Opta analyst
-// Open-play shot: ~0.09 across all leagues
-const SHOT_COEFFS = {
-  onTarget:   0.085,  // SOT: best proxy (includes box + long range)
-  offTarget:  0.030,  // Mostly long-range wild hits
-  blocked:    0.025,  // Deflection → goal still possible but low
-} as const;
-
-// Corner-derived chance on-target (average ~0.14 per corner)
-// Second-half corners > first half (fatigue, set-piece focus)
-const CORNER_WEIGHT = {
-  firstHalf:    0.14,  // min 1-45
-  secondHalf:   0.20,  // min 46-90+
-} as const;
+	import type { MatchStats } from './nesineTypes';
+	import { getXgCoefficients, type XgLeagueCoefficients } from './smartCalibration';
+	
+	// ── Per-shot xG coefficients (research-calibrated) ────────────────
+	// Sources: StatsBomb open data, Understat, Opta analyst
+	// Open-play shot: ~0.09 across all leagues
+	// Bu sabitler getXgCoefficients(leagueId) ile geçersiz kılınabilir.
+	const SHOT_COEFFS = {
+	  onTarget:   0.085,  // SOT: best proxy (includes box + long range)
+	  offTarget:  0.030,  // Mostly long-range wild hits
+	  blocked:    0.025,  // Deflection → goal still possible but low
+	} as const;
+	
+	// Corner-derived chance on-target (average ~0.14 per corner)
+	// Second-half corners > first half (fatigue, set-piece focus)
+	const CORNER_WEIGHT = {
+	  firstHalf:    0.14,  // min 1-45
+	  secondHalf:   0.20,  // min 46-90+
+	} as const;
+	
+	/**
+	 * Liga göre ayarlanmış şut katsayılarını döndürür.
+	 * Smart calibration'dan gelen lig profiline göre SOT→xG katsayısı ayarlanır.
+	 */
+	function getCoefs(leagueId?: number | null): { shot: { onTarget: number; offTarget: number; blocked: number }; corner: { firstHalf: number; secondHalf: number } } {
+	  if (!leagueId) return { shot: { ...SHOT_COEFFS }, corner: { ...CORNER_WEIGHT } };
+	  const lc = getXgCoefficients(leagueId);
+	  return {
+	    shot: { onTarget: lc.onTarget, offTarget: lc.offTarget, blocked: lc.blocked },
+	    corner: { firstHalf: lc.cornerFirstHalf, secondHalf: lc.cornerSecondHalf },
+	  };
+	}
 
 // ── Context quality factors ───────────────────────────────────────
 // Pressure-based modifier (team building up chances well = better quality)
@@ -135,36 +150,40 @@ export function estimateShotQuality(
 }
 
 // ── Main estimator: club-level xG from match stats ────────────────
-export function estimateXgFromShots(
-  stats: MatchStats,
-  side: 'home' | 'away',
-  minute: number = 45,
-  oddsCalibration: number = 0, // from odds movement boost (0-10 scale)
-): number {
-  // 1. Use API xG directly if available
-  const apiXg = side === 'home' ? stats.xg?.home : stats.xg?.away;
-  if (apiXg != null && apiXg > 0) return apiXg;
+	export function estimateXgFromShots(
+	  stats: MatchStats,
+	  side: 'home' | 'away',
+	  minute: number = 45,
+	  oddsCalibration: number = 0, // from odds movement boost (0-10 scale)
+	  leagueId?: number | null,
+	): number {
+	  // 0. League-adjusted coefficients
+	  const coefs = getCoefs(leagueId);
+	
+	  // 1. Use API xG directly if available
+	  const apiXg = side === 'home' ? stats.xg?.home : stats.xg?.away;
+	  if (apiXg != null && apiXg > 0) return apiXg;
+	
+	  // 2. Shot counts
+	  const sot    = stats.shots_on_target?.[side] ?? 0;
+	  const total  = stats.shots_total?.[side] ?? 0;
+	  const blocked = stats.shots_blocked?.[side] ?? 0;
+	  const offTarget = Math.max(0, total - sot - blocked);
+	  const corners  = stats.corners?.[side] ?? 0;
+	  const da       = stats.dangerous_attacks?.[side] ?? 0;
+	
+	  // 3. Shot quality modifier
+	  const quality = estimateShotQuality(stats, side, minute);
+	
+	  // 4. Per-shot xG (research-calibrated, league-adjusted)
+	  let xg =
+	    sot * coefs.shot.onTarget +
+	    offTarget * coefs.shot.offTarget +
+	    blocked * coefs.shot.blocked;
 
-  // 2. Shot counts
-  const sot    = stats.shots_on_target?.[side] ?? 0;
-  const total  = stats.shots_total?.[side] ?? 0;
-  const blocked = stats.shots_blocked?.[side] ?? 0;
-  const offTarget = Math.max(0, total - sot - blocked);
-  const corners  = stats.corners?.[side] ?? 0;
-  const da       = stats.dangerous_attacks?.[side] ?? 0;
-
-  // 3. Shot quality modifier
-  const quality = estimateShotQuality(stats, side, minute);
-
-  // 4. Per-shot xG (research-calibrated)
-  let xg =
-    sot * SHOT_COEFFS.onTarget +
-    offTarget * SHOT_COEFFS.offTarget +
-    blocked * SHOT_COEFFS.blocked;
-
-  // 5. Corner contribution (independent of shot coefficient)
-  const isSecondHalf = minute >= 46;
-  const cornerBonus = (isSecondHalf ? CORNER_WEIGHT.secondHalf : CORNER_WEIGHT.firstHalf) * corners;
+	  // 5. Corner contribution (independent of shot coefficient, league-adjusted)
+	  const isSecondHalf = minute >= 46;
+	  const cornerBonus = (isSecondHalf ? coefs.corner.secondHalf : coefs.corner.firstHalf) * corners;
   xg += cornerBonus;
 
   // 6. Apply shot quality modifier
@@ -189,17 +208,18 @@ export function estimateXgFromShots(
 }
 
 // ── Two-sided wrapper (convenience, replaces 4 separate calls) ────
-export function estimateXgFromShotsBoth(
-  stats: MatchStats,
-  minute: number = 45,
-  homeOddsCal: number = 0,
-  awayOddsCal: number = 0,
-): { home: number; away: number } {
-  return {
-    home: estimateXgFromShots(stats, 'home', minute, homeOddsCal),
-    away: estimateXgFromShots(stats, 'away', minute, awayOddsCal),
-  };
-}
+	export function estimateXgFromShotsBoth(
+	  stats: MatchStats,
+	  minute: number = 45,
+	  homeOddsCal: number = 0,
+	  awayOddsCal: number = 0,
+	  leagueId?: number | null,
+	): { home: number; away: number } {
+	  return {
+	    home: estimateXgFromShots(stats, 'home', minute, homeOddsCal, leagueId),
+	    away: estimateXgFromShots(stats, 'away', minute, awayOddsCal, leagueId),
+	  };
+	}
 
 // ── Penetration rate: new DA relative to opponent's DA ─────────────
 // Measures how much a team is breaking through opponent's press

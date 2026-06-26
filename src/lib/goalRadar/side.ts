@@ -8,6 +8,9 @@
 // Tek semantik (Faz 7 PR'ında belirlendi): score >= 60 ya da sustained
 // (40-59) + son 3 pressure spike >= 2 → o taraf "on". İki taraf true
 // ise "both", hiçbiri değil ise "null".
+//
+// Faz 10 (iyileştirme): artık threshold-based değil, homeScore/awayScore
+// oranına dayalı. Böylece 100 puanlık skor bilgisinin tamamı kullanılır.
 
 import type { PressureSnapshotLite } from './types';
 import type { MatchStats } from '../nesineTypes';
@@ -18,12 +21,24 @@ import { RADAR_THRESHOLD, SUSTAINED_THRESHOLD } from '@/config';
 const SPIKE_THRESHOLD = 55;
 const SPIKE_MIN_COUNT = 2;
 
-// ── determineSide: score + son 3 pressure spike ──────────────────
+// ── determineSide: skor oranı + pressure spike ──────────────────
 export function determineSide(
   homeScore: number,
   awayScore: number,
   pressureHistory?: PressureSnapshotLite[],
 ): "home" | "away" | "both" | null {
+  const totalScore = homeScore + awayScore;
+  if (totalScore < SUSTAINED_THRESHOLD) return null;
+
+  // Yeni: oran-based belirleme — homeScore/awayScore dağılımını kullan
+  const homeRatio = homeScore / Math.max(1, totalScore);
+  const awayRatio = 1 - homeRatio;
+
+  // Eşikler: 0.62/0.38 — baskın tarafı tespit et
+  if (homeRatio > 0.62 && homeScore >= RADAR_THRESHOLD) return "home";
+  if (awayRatio > 0.62 && awayScore >= RADAR_THRESHOLD) return "away";
+
+  // Sustained pressure spike (eski logic koru)
   const last3 = pressureHistory?.slice(-3) ?? [];
   const homeSustained =
     homeScore >= SUSTAINED_THRESHOLD && homeScore < RADAR_THRESHOLD;
@@ -34,18 +49,22 @@ export function determineSide(
   const awaySpike =
     last3.filter((s) => s.awayPressure > SPIKE_THRESHOLD).length >= SPIKE_MIN_COUNT;
   const homeOn =
-    homeScore >= RADAR_THRESHOLD || (homeSustained && homeSpike);
+    (homeRatio > 0.55 && homeSustained && homeSpike);
   const awayOn =
-    awayScore >= RADAR_THRESHOLD || (awaySustained && awaySpike);
+    (awayRatio > 0.55 && awaySustained && awaySpike);
+
+  // Her iki taraf da eşit derecede yüksekse "both"
+  if (homeScore >= RADAR_THRESHOLD && awayScore >= RADAR_THRESHOLD && Math.abs(homeRatio - 0.5) < 0.12) return "both";
   if (homeOn && awayOn) return "both";
   if (homeOn) return "home";
   if (awayOn) return "away";
+
+  // Hiçbiri net değilse null — sinyal üretilmez
   return null;
 }
 
 // ── determineSideByStats: ensemble heuristic ──────────────────────
-// Eski kod: dangerous_attacks + SoT×2 composite pressure, 1.5× ratio
-// → tek taraf, > 3 + > 3 → both.
+// Yeni: skor oranına dayalı — ensemble'dan gelen score bilgisini kullan
 export function determineSideByStats(
   stats: MatchStats,
 ): "home" | "away" | "both" | null {
@@ -60,8 +79,13 @@ export function determineSideByStats(
   const awayPressure =
     getStat("dangerous_attacks", "away") +
     getStat("shots_on_target", "away") * 2;
-  if (homePressure > awayPressure * 1.5) return "home";
-  if (awayPressure > homePressure * 1.5) return "away";
+
+  const totalPressure = homePressure + awayPressure;
+  if (totalPressure < 3) return null;
+
+  const homeRatio = homePressure / Math.max(1, totalPressure);
+  if (homeRatio > 0.62) return "home";
+  if (homeRatio < 0.38) return "away";
   if (homePressure > 3 && awayPressure > 3) return "both";
   return null;
 }

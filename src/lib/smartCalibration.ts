@@ -746,6 +746,47 @@ export async function getSmartF8Adjustment(
     homeScoreAdj,
     awayScoreAdj,
     factorDescription,
-    calibration: cal,
-  };
-}
+	    calibration: cal,
+	  };
+	}
+	
+	// ════════════════════════════════════════════════════════════════
+	// LEAGUE-AWARE xG COEFFICIENTS
+	// ════════════════════════════════════════════════════════════════
+	// Farklı liglerde şut kalitesi ve bitirme yüzdesi farklıdır.
+	// Erken gol ligleri (Eredivisie): daha yüksek SOT→xG dönüşümü
+	// Geç gol ligleri (Serie A): daha düşük SOT→xG dönüşümü
+	
+	export interface XgLeagueCoefficients {
+	  onTarget: number;
+	  offTarget: number;
+	  blocked: number;
+	  cornerFirstHalf: number;
+	  cornerSecondHalf: number;
+	}
+	
+	const XG_COEFF_DEFAULTS: XgLeagueCoefficients = {
+	  onTarget: 0.085,
+	  offTarget: 0.030,
+	  blocked: 0.025,
+	  cornerFirstHalf: 0.14,
+	  cornerSecondHalf: 0.20,
+	};
+	
+	export function getXgCoefficients(leagueId: number | null): XgLeagueCoefficients {
+	  const profiles = loadLeagueProfilesSyncDefaults();
+	  const profile = leagueId && profiles.has(leagueId) ? profiles.get(leagueId)! : null;
+	  if (!profile) return { ...XG_COEFF_DEFAULTS };
+	
+	  const avgMin = profile.avgGoalMinute;
+	  const deviationFromAvg = (20.0 - avgMin) / 5;
+	  const adjustment = deviationFromAvg * 0.01;
+	
+	  return {
+	    onTarget: Math.max(0.065, Math.min(0.105, XG_COEFF_DEFAULTS.onTarget + adjustment)),
+	    offTarget: Math.max(0.020, Math.min(0.040, XG_COEFF_DEFAULTS.offTarget + adjustment * 0.3)),
+	    blocked: Math.max(0.015, Math.min(0.035, XG_COEFF_DEFAULTS.blocked + adjustment * 0.2)),
+	    cornerFirstHalf: XG_COEFF_DEFAULTS.cornerFirstHalf,
+	    cornerSecondHalf: XG_COEFF_DEFAULTS.cornerSecondHalf,
+	  };
+	}

@@ -47,6 +47,7 @@ export default function AdminMLPage() {
   const [status, setStatus] = useState<MLStatus | null>(null);
   const [weights, setWeights] = useState<ModelWeight[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Map<string, boolean>>(new Map()); // key = "name@version"
 
   const load = () => {
     Promise.all([
@@ -75,20 +76,61 @@ export default function AdminMLPage() {
 	    else if (typeof window !== 'undefined') window.alert(data.error || 'İşlem başarısız');
 	  };
 
-	  const deleteArtifact = async (name: string, version: string, isChampion: boolean = false) => {
-	    if (isChampion) {
-	      window.alert('⭐ Champion model silinemez. Önce başka bir sürümü champion yapın (Promote).');
-	      return;
-	    }
-	    if (typeof window !== 'undefined' && !window.confirm(`${name}@${version} silinsin mi? Bu işlem geri alınamaz.`)) return;
-	    const res = await authFetch('/api/admin/ml/artifact', {
-	      method: 'DELETE',
-	      body: JSON.stringify({ name, version }),
-	    });
-	    const data = await res.json();
-	    if (data.ok) { load(); }
-	    else window.alert(data.error || 'Silme başarısız');
-	  };
+		  const deleteArtifact = async (name: string, version: string, isChampion: boolean = false) => {
+		    if (isChampion) {
+		      window.alert('⭐ Champion model silinemez. Önce başka bir sürümü champion yapın (Promote).');
+		      return;
+		    }
+		    if (typeof window !== 'undefined' && !window.confirm(`${name}@${version} silinsin mi? Bu işlem geri alınamaz.`)) return;
+		    const res = await authFetch('/api/admin/ml/artifact', {
+		      method: 'DELETE',
+		      body: JSON.stringify({ name, version }),
+		    });
+		    const data = await res.json();
+		    if (data.ok) { load(); }
+		    else window.alert(data.error || 'Silme başarısız');
+		  };
+
+		  const toggleSelect = (key: string) => {
+		    setSelected(prev => {
+		      const next = new Map(prev);
+		      if (next.has(key)) next.delete(key); else next.set(key, true);
+		      return next;
+		    });
+		  };
+
+		  const selectAllShadows = () => {
+		    setSelected(prev => {
+		      const next = new Map(prev);
+		      for (const a of artifacts) {
+		        if (!a.isChampion) next.set(`${a.name}@${a.version}`, true);
+		      }
+		      return next;
+		    });
+		  };
+
+		  const clearSelection = () => setSelected(new Map());
+
+		  const deleteSelected = async () => {
+		    const count = selected.size;
+		    if (count === 0) return;
+		    if (typeof window !== 'undefined' && !window.confirm(`${count} artifact silinsin mi? Bu işlem geri alınamaz.`)) return;
+		    let ok = 0, fail = 0;
+		    for (const [key] of selected) {
+		      const [name, ...verParts] = key.split('@');
+		      const version = verParts.join('@');
+		      const champion = artifacts.find(a => a.name === name && a.version === version && a.isChampion);
+		      if (champion) { fail++; continue; }
+		      const res = await authFetch('/api/admin/ml/artifact', {
+		        method: 'DELETE',
+		        body: JSON.stringify({ name, version }),
+		      }).catch(() => null);
+		      if (res?.ok) ok++; else fail++;
+		    }
+		    setSelected(new Map());
+		    load();
+		    window.alert(`✓ ${ok} silindi, ${fail} başarısız`);
+		  };
 
   useEffect(() => {
     load();
@@ -305,39 +347,61 @@ export default function AdminMLPage() {
               </>
             )}
 
-	            {shadows.length > 0 && (
-	              <div className="px-4 py-3 border-t border-gray-100">
-	                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
-	                  Shadow Modelleri ({shadows.length})
-	                </div>
-	                <div className="space-y-1">
-	                  {shadows.sort((a, b) => (b.metrics.brier ?? 999) - (a.metrics.brier ?? 999)).map(s => (
-	                    <div key={s.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-[11px] group">
-	                      <div className="flex items-center gap-2">
-	                        <span className="font-mono text-gray-700 font-semibold">v{s.version}</span>
-	                        <span className="text-gray-400">·</span>
-	                        <span className="text-gray-500">{fmtDate(s.createdAt)}</span>
-	                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-	                          (s.metrics.brier ?? 999) < 0.2 ? 'bg-emerald-100 text-emerald-700' :
-	                          (s.metrics.brier ?? 999) < 0.3 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
-	                        }`}>
-	                          Brier {s.metrics.brier?.toFixed(4) ?? '?'}
-	                        </span>
-	                        <span className="text-gray-400 font-mono">{((s.metrics.accuracy ?? 0) * 100).toFixed(1)}%</span>
-	                      </div>
-	                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-	                        <button onClick={() => weightAction(name, s.version, 'promote')}
-	                          className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-bold">
-	                          ⭐ Promote
-	                        </button>
-	                        <button onClick={() => deleteArtifact(name, s.version)}
-	                          className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 font-bold border border-red-200">
-	                          🗑️
-	                        </button>
-	                      </div>
-	                    </div>
-	                  ))}
-	                </div>
+            {shadows.length > 0 && (
+              <div className="px-4 py-3 border-t border-gray-100">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                    Shadow Modelleri ({shadows.length})
+                  </div>
+                  <div className="flex gap-1">
+                    <button onClick={selectAllShadows}
+                      className="text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 font-semibold">
+                      Tümünü Seç
+                    </button>
+                    <button onClick={clearSelection}
+                      className="text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 font-semibold">
+                      Temizle
+                    </button>
+                    <button onClick={deleteSelected} disabled={selected.size === 0}
+                      className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 font-bold disabled:opacity-50 disabled:cursor-not-allowed">
+                      🗑️ Seçilenleri Sil ({selected.size})
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  {shadows.sort((a, b) => (b.metrics.brier ?? 999) - (a.metrics.brier ?? 999)).map(s => {
+                    const key = `${s.name}@${s.version}`;
+                    const isSelected = selected.has(key);
+                    return (
+                      <div key={s.id} className={`flex items-center justify-between rounded-lg px-3 py-2 text-[11px] cursor-pointer transition-colors ${
+                        isSelected ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-transparent hover:border-gray-200'
+                      }`} onClick={() => toggleSelect(key)}>
+                        <div className="flex items-center gap-2">
+                          <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(key)}
+                            className="w-3.5 h-3.5 rounded border-gray-300 text-red-500 focus:ring-red-300 cursor-pointer" />
+                          <span className="font-mono text-gray-700 font-semibold">v{s.version}</span>
+                          <span className="text-gray-400">·</span>
+                          <span className="text-gray-500">{fmtDate(s.createdAt)}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                            (s.metrics.brier ?? 999) < 0.2 ? 'bg-emerald-100 text-emerald-700' :
+                            (s.metrics.brier ?? 999) < 0.3 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            Brier {s.metrics.brier?.toFixed(4) ?? '?'}
+                          </span>
+                          <span className="text-gray-400 font-mono">{((s.metrics.accuracy ?? 0) * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="flex gap-1">
+                          {!s.isChampion && (
+                            <button onClick={(e) => { e.stopPropagation(); weightAction(s.name, s.version, 'promote'); }}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-bold">
+                              ⭐ Promote
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 	                {shadows.length > 5 && (
 	                  <div className="text-[10px] text-gray-400 text-center mt-2">
 	                    Toplam {shadows.length} shadow — Brier yüksek olanlar silinebilir

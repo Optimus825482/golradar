@@ -1,43 +1,31 @@
-// ── Admin: ML Training Data Export Trigger ────────────────────────
-// Manually kicks off a training-data export. The scheduler runs
-// this automatically once a day; the endpoint exists for ops use.
-//
-// NOTE: Production should guard this with an admin auth check
-// (session role or API key). Kept open in dev for observability.
-
 import { NextResponse } from 'next/server';
 import { triggerExportNow } from '@/lib/ml/trainingScheduler';
 import type { TrainingHorizon } from '@/lib/ml/exportTrainingData';
 import { adminRoute } from '@/lib/adminRoute';
+import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
 const VALID_HORIZONS: TrainingHorizon[] = [5, 10, 15];
 
-// GET /api/admin/ml/export — list available training datasets (read-only)
+// GET /api/admin/ml/export — list available training datasets from DB
 export const GET = adminRoute(async () => {
-  const { readdirSync } = await import('fs');
-  const { join } = await import('path');
-  const dir = join(process.cwd(), 'data', 'ml-training');
-  let datasets: Array<{ horizon: number; path: string; date: string; sizeBytes: number }> = [];
-  try {
-    const { statSync } = await import('fs');
-    const files = readdirSync(dir)
-      .filter(f => f.endsWith('.jsonl'))
-      .sort()
-      .reverse();
-    datasets = files.map((f) => {
-      const m = f.match(/^(\d+)min-(\d{8})\.jsonl$/);
-      return {
-        horizon: m ? parseInt(m[1], 10) : 0,
-        date: m ? `${m[2].slice(0, 4)}-${m[2].slice(4, 6)}-${m[2].slice(6, 8)}` : '',
-        path: join('data', 'ml-training', f),
-        sizeBytes: statSync(join(dir, f)).size,
-      };
-    });
-  } catch {
-    // dir may not exist yet — return empty list
-  }
+  const rows = await db.trainingDataset.findMany({
+    select: { id: true, horizonMin: true, rowCount: true, path: true, status: true, errorMsg: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+  const datasets = rows.map(r => ({
+    id: r.id,
+    horizon: r.horizonMin,
+    rowCount: r.rowCount,
+    path: r.path,
+    sizeBytes: 0, // not stored in DB
+    status: r.status,
+    date: r.createdAt?.toISOString().slice(0, 10) ?? '',
+    createdAt: r.createdAt?.toISOString() ?? null,
+    errorMsg: r.errorMsg,
+  }));
   return NextResponse.json({ datasets });
 });
 

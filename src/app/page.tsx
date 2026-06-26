@@ -539,10 +539,11 @@ export default function OptimusGolRadariPage() {
 	    return map
 	  }, [matches, allPressureData])
 
-  // Signal posting — isolated in its own effect so fetch calls don't
-  // fire inside a useMemo (React anti-pattern). A ref tracks which
-  // match+side+minute combos have already been posted to prevent
-  // duplicate signals on re-render.
+	  // Signal posting — isolated in its own effect so fetch calls don't
+	  // fire inside a useMemo (React anti-pattern). A ref tracks which
+	  // match+side+minute combos have already been posted to prevent
+	  // duplicate signals on re-render.
+	  const postedSignalsRef = useRef<Set<string>>(new Set())
 	  useEffect(() => {
 	    const posted = postedSignalsRef.current
 	    for (const [code, prob] of goalProbabilities) {

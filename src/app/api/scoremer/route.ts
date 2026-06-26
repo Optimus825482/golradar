@@ -60,13 +60,36 @@ async function findMatchViaTeamPage(
 
 // GET /api/scoremer?action=mapping|details|matches&...
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const action = searchParams.get("action") || "details";
+  return handleScoremerRequest(request, false);
+}
+
+// POST /api/scoremer — body ile mapping için (header 431 hatasını önler)
+export async function POST(request: Request) {
+  return handleScoremerRequest(request, true);
+}
+
+async function handleScoremerRequest(request: Request, isPost: boolean) {
+  let action: string;
+  let matchesJson: string | null = null;
+  const url = new URL(request.url);
+  const searchParams = url.searchParams;
+
+  if (isPost) {
+    const body = await request.json().catch(() => ({}));
+    action = body.action || "details";
+    if (action === "mapping" && body.matches) {
+      matchesJson = JSON.stringify(body.matches);
+    }
+  } else {
+    action = searchParams.get("action") || "details";
+    if (action === "mapping") {
+      matchesJson = searchParams.get("matches");
+    }
+  }
 
   // ── Action: mapping — build Nesine→Scoremer mapping ──
   if (action === "mapping") {
     try {
-      const matchesJson = searchParams.get("matches");
       if (!matchesJson) {
         return NextResponse.json(
           { error: "matches parameter required for mapping" },

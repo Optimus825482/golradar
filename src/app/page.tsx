@@ -355,7 +355,11 @@ export default function OptimusGolRadariPage() {
           away: m.away,
           time: m.time,
         }))
-        const resp = await fetch(`/api/scoremer?action=mapping&matches=${encodeURIComponent(JSON.stringify(matchList))}`)
+	        const resp = await fetch('/api/scoremer', {
+	          method: 'POST',
+	          headers: { 'Content-Type': 'application/json' },
+	          body: JSON.stringify({ action: 'mapping', matches: matchList }),
+	        })
         if (resp.ok) {
           const data = await resp.json()
           const map: Record<number, string> = {}

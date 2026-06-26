@@ -147,73 +147,73 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         if "features" not in df.columns or "label" not in df.columns:
             raise ValueError(f"dataset missing required columns: {df.columns.tolist()}")
 
-	X = np.array(df["features"].tolist(), dtype=np.float32)
-	        y = np.array(df["label"].tolist(), dtype=np.int32)
+        X = np.array(df["features"].tolist(), dtype=np.float32)
+        y = np.array(df["label"].tolist(), dtype=np.int32)
 
-	        n_pos = int(y.sum())
-	        n_neg = int(len(y) - n_pos)
+        n_pos = int(y.sum())
+        n_neg = int(len(y) - n_pos)
 
-	        if n_pos == 0 or n_neg == 0:
-	            raise ValueError(
-	                f"dataset has only one label class: {n_pos} positives, {n_neg} negatives. "
-	                "Need at least a few goals in the training window."
-	            )
+        if n_pos == 0 or n_neg == 0:
+            raise ValueError(
+                f"dataset has only one label class: {n_pos} positives, {n_neg} negatives. "
+                "Need at least a few goals in the training window."
+            )
 
-	        # Stratified split — fall back to random split if too few positives
-	        test_size = req.test_size
-	        min_test_pos = max(1, int(n_pos * test_size * 0.5))
-	        if n_pos >= 4 and n_neg >= 4:
-	            Xtr, Xte, ytr, yte = train_test_split(
-	                X, y, test_size=test_size, stratify=y, random_state=req.random_state
-	            )
-	        else:
-	            Xtr, Xte, ytr, yte = train_test_split(
-	                X, y, test_size=test_size, random_state=req.random_state
-	            )
+        # Stratified split — fall back to random split if too few positives
+        test_size = req.test_size
+        min_test_pos = max(1, int(n_pos * test_size * 0.5))
+        if n_pos >= 4 and n_neg >= 4:
+            Xtr, Xte, ytr, yte = train_test_split(
+                X, y, test_size=test_size, stratify=y, random_state=req.random_state
+            )
+        else:
+            Xtr, Xte, ytr, yte = train_test_split(
+                X, y, test_size=test_size, random_state=req.random_state
+            )
 
-	        # Compute base_score from training label distribution
-	        # (default 0.5 causes the model to predict 0.5 for everything)
-	        pos_rate = float(ytr.mean())
-	        base_score = max(0.01, min(0.99, pos_rate))
-	        print(f"[trainer] {req.name}@{req.version}: n={len(df)}, pos_rate={pos_rate:.3f}, base_score={base_score:.3f}, features={X.shape[1]}")
+        # Compute base_score from training label distribution
+        # (default 0.5 causes the model to predict 0.5 for everything)
+        pos_rate = float(ytr.mean())
+        base_score = max(0.01, min(0.99, pos_rate))
+        print(f"[trainer] {req.name}@{req.version}: n={len(df)}, pos_rate={pos_rate:.3f}, base_score={base_score:.3f}, features={X.shape[1]}")
 
-	        # Train XGBoost with better base_score and early stopping
-	        model = xgb.XGBClassifier(
-	            n_estimators=req.n_estimators,
-	            max_depth=req.max_depth,
-	            learning_rate=req.learning_rate,
-	            subsample=req.subsample,
-	            colsample_bytree=req.colsample_bytree,
-	            reg_lambda=req.reg_lambda,
-	            reg_alpha=req.reg_alpha,
-	            objective="binary:logistic",
-	            eval_metric=["logloss", "error", "auc"],
-	            early_stopping_rounds=req.early_stopping_rounds,
-	            random_state=req.random_state,
-	            base_score=base_score,
-	            n_jobs=-1,
-	        )
+        # Train XGBoost with better base_score
+        model = xgb.XGBClassifier(
+            n_estimators=req.n_estimators,
+            max_depth=req.max_depth,
+            learning_rate=req.learning_rate,
+            subsample=req.subsample,
+            colsample_bytree=req.colsample_bytree,
+            reg_lambda=req.reg_lambda,
+            reg_alpha=req.reg_alpha,
+            objective="binary:logistic",
+            eval_metric=["logloss", "error", "auc"],
+            early_stopping_rounds=req.early_stopping_rounds,
+            random_state=req.random_state,
+            base_score=base_score,
+            n_jobs=-1,
+        )
         model.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=False)
 
-	# Predict + metrics
-	        p = model.predict_proba(Xte)[:, 1]
-	        p_clipped = np.clip(p, 1e-9, 1 - 1e-9)
-	        brier = brier_score_loss(yte, p)
-	        ll = log_loss(yte, p_clipped)
-	        acc = accuracy_score(yte, (p > 0.5).astype(int))
-	        try:
-	            auc = roc_auc_score(yte, p)
-	        except ValueError:
-	            auc = 0.5  # single class in test set
-	        # Calibration error (10-bin ECE)
-	        cal_err = _expected_calibration_error(yte, p, n_bins=10)
+        # Predict + metrics
+        p = model.predict_proba(Xte)[:, 1]
+        p_clipped = np.clip(p, 1e-9, 1 - 1e-9)
+        brier = brier_score_loss(yte, p)
+        ll = log_loss(yte, p_clipped)
+        acc = accuracy_score(yte, (p > 0.5).astype(int))
+        try:
+            auc = roc_auc_score(yte, p)
+        except ValueError:
+            auc = 0.5  # single class in test set
+        # Calibration error (10-bin ECE)
+        cal_err = _expected_calibration_error(yte, p, n_bins=10)
 
-	        # Feature importance (top 5)
-	        importance = model.feature_importances_
-	        top5_idx = importance.argsort()[-5:][::-1]
-	        print(f"[trainer] {req.name}@{req.version}: Brier={brier:.4f}, AUC={auc:.3f}, "
-	              f"Acc={acc:.3f}, top5={top5_idx.tolist()}, "
-	              f"imp={[round(importance[i], 4) for i in top5_idx]}")
+        # Feature importance (top 5)
+        importance = model.feature_importances_
+        top5_idx = importance.argsort()[-5:][::-1]
+        print(f"[trainer] {req.name}@{req.version}: Brier={brier:.4f}, AUC={auc:.3f}, "
+              f"Acc={acc:.3f}, top5={top5_idx.tolist()}, "
+              f"imp={[round(importance[i], 4) for i in top5_idx]}")
 
         # Persist XGBoost JSON artifact
         artifact_path = MODELS_DIR / f"{req.name}-v{req.version}.json"
@@ -223,19 +223,19 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         sha = _sha256_file(artifact_path)
         artifact_size = artifact_path.stat().st_size
 
-	job.artifact_path = str(artifact_path)
-	        job.metrics = {
-	            "brier": float(brier),
-	            "logLoss": float(ll),
-	            "accuracy": float(acc),
-	            "auc": float(auc),
-	            "calibrationError": float(cal_err),
-	            "n": int(len(df)),
-	            "trainRows": int(len(Xtr)),
-	            "testRows": int(len(Xte)),
-	            "artifactBytes": artifact_size,
-	            "sha256": sha,
-	        }
+        job.artifact_path = str(artifact_path)
+        job.metrics = {
+            "brier": float(brier),
+            "logLoss": float(ll),
+            "accuracy": float(acc),
+            "auc": float(auc),
+            "calibrationError": float(cal_err),
+            "n": int(len(df)),
+            "trainRows": int(len(Xtr)),
+            "testRows": int(len(Xte)),
+            "artifactBytes": artifact_size,
+            "sha256": sha,
+        }
         job.status = "success"
     except Exception as exc:  # noqa: BLE001 — captured into job state
         job.status = "failed"

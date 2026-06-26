@@ -39,19 +39,19 @@ import { authFetch, KPICard } from '@/lib/adminAuth';
 	
 	  useEffect(() => { load(); }, [days]);
 	
-	  const runAutoCalibrate = async () => {
-	    setCalRunMsg(null);
-	    try {
-	      const res = await authFetch('/api/calibration?action=autocalibrate');
-	      const data = await res.json();
-	      if (data.ok) {
-	        setCalRunMsg(`✓ Kalibrasyon güncellendi: Brier ${data.brierBefore.toFixed(4)} → ${data.brierAfter.toFixed(4)}`);
-	        load();
-	      } else {
-	        setCalRunMsg(`✗ ${data.error || 'Başarısız'}`);
-	      }
-	    } catch { setCalRunMsg('✗ Bağlantı hatası'); }
-		  };
+  const runAutoCalibrate = async () => {
+    setCalRunMsg(null);
+    try {
+      const res = await authFetch('/api/calibration?action=autocalibrate');
+      const data = await res.json();
+      if (data.success) {
+        setCalRunMsg(`✓ Brier ${data.brierBefore.toFixed(4)} → ${data.brierAfter.toFixed(4)} (${data.improvement})`);
+        load();
+      } else {
+        setCalRunMsg(`✗ ${data.message || 'Başarısız'}`);
+      }
+    } catch { setCalRunMsg('✗ Bağlantı hatası'); }
+  };
 
 	  if (loading) return <div className="flex justify-center py-20"><div className="animate-spin w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full" /></div>;
 	  if (!stats) return <div className="text-center py-20 text-gray-400">Veri yüklenemedi</div>;
@@ -90,7 +90,7 @@ import { authFetch, KPICard } from '@/lib/adminAuth';
 		        <KPICard label="Ortalama P" value={stats.bins?.length > 0
 		          ? (stats.bins.reduce((a, b) => a + b.avgCalibratedP * b.count, 0) / Math.max(1, stats.totalPredictions)).toFixed(3)
 		          : '—'} color="#5794f2" sub="Model çıktısı" />
-		        <KPICard label="Ortalama Gözlem" value={(stats.totalGoals / Math.max(1, stats.totalPredictions)).toFixed(3)} color="#10b981" sub="Gerçekleşen gol %" />
+		        <KPICard label="Ortalama Gözlem" value={stats.totalPredictions > 0 ? (stats.totalGoals / stats.totalPredictions).toFixed(3) : '—'} color="#10b981" sub="Gerçekleşen gol %" />
 		      </div>
 
 	      {/* Manual Auto-Calibrate Button */}

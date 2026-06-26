@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   try {
     switch (action) {
       case 'stats': {
-        const stats = calculateCalibrationStats(days);
+        const stats = await calculateCalibrationStats(days);
         return NextResponse.json(stats);
       }
 

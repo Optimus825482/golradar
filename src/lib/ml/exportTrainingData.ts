@@ -305,8 +305,22 @@ export async function exportTrainingData(
       0,
     ) / rows.length;
 
-  // Create the TrainingDataset row
-  const dataset = await db.trainingDataset.create({
+	  // Dedup: aynı gün+horizon için eski dataset varsa sil (her 15dk tick'te
+	  // yeni kayıt oluşmasın). Son 3 kaydı koru (güvenlik).
+	  const existingRows = await db.trainingDataset.findMany({
+	    where: { horizonMin: horizon },
+	    select: { id: true, createdAt: true },
+	    orderBy: { createdAt: 'desc' },
+	  });
+	  if (existingRows.length >= 3) {
+	    const toDelete = existingRows.slice(2); // keep top 2 newest
+	    for (const old of toDelete) {
+	      await db.trainingDataset.delete({ where: { id: old.id } }).catch(() => {});
+	    }
+	  }
+
+	  // Create the TrainingDataset row
+	  const dataset = await db.trainingDataset.create({
     data: {
       horizonMin: horizon,
       rowCount: rows.length,

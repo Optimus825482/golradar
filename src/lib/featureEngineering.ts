@@ -692,7 +692,7 @@ export class PipelineSemaphore {
 }
 
 export function featuresToArray(features: MatchFeatures): number[] {
-  return FEATURE_NAMES.map(name => features[name]);
+  return FEATURE_NAMES.map(name => features[name] ?? 0);
 }
 
 // ── Training data record ───────────────────────────────────────────

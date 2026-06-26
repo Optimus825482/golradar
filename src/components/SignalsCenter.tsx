@@ -129,7 +129,11 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
     const live = matches.find(m => m.code === s.matchCode);
     if (live) { onSelectMatch(live); return; }
     try {
-      const map = await fetch(`/api/scoremer?action=mapping&matches=${encodeURIComponent(JSON.stringify([{ code: s.matchCode, home: s.homeTeam, away: s.awayTeam, time: s.matchTime }]))}`).then(r => r.ok ? r.json() : null);
+      const map = await fetch('/api/scoremer', {
+	        method: 'POST',
+	        headers: { 'Content-Type': 'application/json' },
+	        body: JSON.stringify({ action: 'mapping', matches: [{ code: s.matchCode, home: s.homeTeam, away: s.awayTeam, time: s.matchTime }] }),
+	      }).then(r => r.ok ? r.json() : null);
       const scoremerId = map?.mappings?.[0]?.scoremerId;
       const params = new URLSearchParams({ action: "details", matchCode: String(s.matchCode), home: s.homeTeam, away: s.awayTeam, time: s.matchTime });
       if (scoremerId) params.set("scoremerId", scoremerId);

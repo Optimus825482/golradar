@@ -25,10 +25,10 @@ export interface CalibrationBin {
 export interface CalibrationStats {
   totalPredictions: number;
   totalGoals: number;
-  brierScore: number;
-  logLoss: number;
-  accuracy: number;
-  calibrationError: number;  // Mean absolute calibration error
+  brierScore: number | null;
+  logLoss: number | null;
+  accuracy: number | null;
+  calibrationError: number | null;  // Mean absolute calibration error
   bins: CalibrationBin[];
   lastUpdated: number;
 }

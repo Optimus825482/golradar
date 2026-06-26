@@ -48,6 +48,7 @@ function getState(): SchedulerState {
       lastExportDate: '',
       lastInPlayExportDate: '',
       lastShadowEvalDate: '',
+      lastCalibrationDate: '',
       horizons: [5, 10, 15],
       startedAt: 0,
     };
@@ -214,6 +215,7 @@ function checkAndRunDaily(): void {
 	    const shadow = await evaluateDailyShadows(new Date(), { persist: true });
 
 	    // 2. Build series from last 14 days for drift calculation
+	    const state = getState();
 	    const since = new Date(Date.now() - 14 * 86_400_000);
 	    const series = await db.modelMetrics.findMany({
 	      where: { date: { gte: since } },

@@ -635,9 +635,9 @@ export async function calculateSignalStats(
     (s) => s.escalated === true && s.goalHappened === true,
   ).length;
 
-  const recentSignals = [...allSignals]
-    .sort((a, b) => (b.signalTimestamp || 0) - (a.signalTimestamp || 0))
-    .slice(0, 50);
+	  const recentSignals = [...allSignals]
+	    .sort((a, b) => (b.signalTimestamp || 0) - (a.signalTimestamp || 0))
+	    .slice(0, 200);
 
   const signalsByDay: Record<string, { total: number; goals: number; correct: number }> = {};
   for (const s of allSignals) {

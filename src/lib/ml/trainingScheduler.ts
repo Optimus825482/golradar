@@ -125,33 +125,61 @@ async function trainMainModels(exportResults: Array<{ result: ExportResult; hori
         logWarn('MLScheduler', `${name} train failed: ${completed?.error ?? 'timeout'}`);
         continue;
       }
-      const newBrier = completed.metrics?.brier ?? null;
-      await registerArtifact({
-        name,
-        version,
-        artifactPath: completed.artifactPath,
-        metrics: completed.metrics,
-        sha256: String(completed.metrics?.sha256 ?? ''),
-        bytes: completed.metrics?.artifactBytes ?? null,
-        notes: `Daily auto-retrain (n=${completed.metrics?.n ?? '?'}, horizon=${horizon}min)`,
-      });
-      if (newBrier != null && typeof newBrier === 'number') {
-        const championBrier = await getChampionBrier(name);
-        if (championBrier != null && newBrier < championBrier) {
-          const delta = championBrier - newBrier;
-          const n = completed.metrics?.n ?? 0;
-          const minDelta = minDeltaForPromotion(typeof n === 'number' ? n : 0);
-          if (delta >= minDelta) {
-            await promoteArtifact(name, version);
-            logInfo('MLScheduler', `${name}@${version} auto-promoted! Brier ${championBrier.toFixed(4)} → ${newBrier.toFixed(4)} (Δ=${delta.toFixed(4)})`);
-          } else {
-            logInfo('MLScheduler', `${name}@${version} better (${newBrier.toFixed(4)} vs ${championBrier.toFixed(4)}) but Δ=${delta.toFixed(4)} < min=${minDelta} — shadow only`);
-          }
-        } else if (championBrier == null) {
-          await promoteArtifact(name, version);
-          logInfo('MLScheduler', `${name}@${version} promoted as first champion (Brier=${newBrier.toFixed(4)})`);
-        }
-      }
+	      const newBrier = completed.metrics?.brier ?? null;
+	      // Sadece yeni Brier champion'dan iyi YİSE shadow oluştur.
+	      let shouldRegister = false;
+	      if (newBrier != null && typeof newBrier === 'number') {
+	        const championBrier = await getChampionBrier(name);
+	        if (championBrier == null) {
+	          shouldRegister = true; // İlk model
+	        } else if (newBrier <= championBrier) {
+	          shouldRegister = true; // İyi veya eşit
+	        } else {
+	          logInfo('MLScheduler', `${name}@${version} Brier ${newBrier.toFixed(4)} > champion ${championBrier.toFixed(4)} — shadow atlandı`);
+	        }
+	      } else {
+	        shouldRegister = true; // Brier bilinmiyor — güvence
+	      }
+
+	      if (!shouldRegister) continue;
+
+	      // Eski shadow'ları temizle: her model için max 5 shadow
+	      const artifactList = await (await import('./modelRouter')).listArtifacts(name);
+	      const shadows = artifactList.filter(a => !a.isChampion).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+	      if (shadows.length >= 5) {
+	        const toDelete = shadows.slice(4); // keep 4 newest shadows
+	        for (const old of toDelete) {
+	          await (await import('./modelRouter')).deleteArtifact(name, old.version, true).catch(() => {});
+	          logInfo('MLScheduler', `Removed old shadow ${name}@${old.version}`);
+	        }
+	      }
+
+	      await registerArtifact({
+	        name,
+	        version,
+	        artifactPath: completed.artifactPath,
+	        metrics: completed.metrics,
+	        sha256: String(completed.metrics?.sha256 ?? ''),
+	        bytes: completed.metrics?.artifactBytes ?? null,
+	        notes: `Daily auto-retrain (n=${completed.metrics?.n ?? '?'}, horizon=${horizon}min)`,
+	      });
+	      if (newBrier != null && typeof newBrier === 'number') {
+	        const championBrier = await getChampionBrier(name);
+	        if (championBrier != null && newBrier < championBrier) {
+	          const delta = championBrier - newBrier;
+	          const n = completed.metrics?.n ?? 0;
+	          const minDelta = minDeltaForPromotion(typeof n === 'number' ? n : 0);
+	          if (delta >= minDelta) {
+	            await promoteArtifact(name, version);
+	            logInfo('MLScheduler', `${name}@${version} auto-promoted! Brier ${championBrier.toFixed(4)} → ${newBrier.toFixed(4)} (Δ=${delta.toFixed(4)})`);
+	          } else {
+	            logInfo('MLScheduler', `${name}@${version} better (${newBrier.toFixed(4)} vs ${championBrier.toFixed(4)}) but Δ=${delta.toFixed(4)} < min=${minDelta} — shadow only`);
+	          }
+	        } else if (championBrier == null) {
+	          await promoteArtifact(name, version);
+	          logInfo('MLScheduler', `${name}@${version} promoted as first champion (Brier=${newBrier.toFixed(4)})`);
+	        }
+	      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logError('MLScheduler', `${name} training failed: ${msg}`);

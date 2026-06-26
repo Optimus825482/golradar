@@ -27,14 +27,15 @@ const EXPORT_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 min — re-check time
 const DEFAULT_DAYS_BACK = 90;
 const MAX_ROWS_PER_EXPORT = 50_000;
 
-interface SchedulerState {
-  exportTimer: ReturnType<typeof setInterval> | null;
-  lastExportDate: string; // YYYY-MM-DD, used as a once-per-day guard
-  lastInPlayExportDate: string; // YYYY-MM-DD, used as a once-per-window guard
-  lastShadowEvalDate: string; // YYYY-MM-DD, used as a once-per-day guard
-  horizons: TrainingHorizon[];
-  startedAt: number;
-}
+	interface SchedulerState {
+	  exportTimer: ReturnType<typeof setInterval> | null;
+	  lastExportDate: string; // YYYY-MM-DD, used as a once-per-day guard
+	  lastInPlayExportDate: string; // YYYY-MM-DD, used as a once-per-window guard
+	  lastShadowEvalDate: string; // YYYY-MM-DD, used as a once-per-day guard
+	  lastCalibrationDate: string; // YYYY-MM-DD, used as a once-per-week guard
+	  horizons: TrainingHorizon[];
+	  startedAt: number;
+	}
 
 const globalForScheduler = globalThis as unknown as {
   mlTrainingScheduler: SchedulerState | undefined;
@@ -203,39 +204,60 @@ function checkAndRunDaily(): void {
   }
 }
 
-async function runDailyShadowEval(today: string): Promise<void> {
-  try {
-    const { evaluateDailyShadows } = await import('./shadowEvaluator');
-    const { evaluateCalibrationDrift, persistDriftReport } = await import('./calibrationLoop');
-    const { db } = await import('@/lib/db');
+	async function runDailyShadowEval(today: string): Promise<void> {
+	  try {
+	    const { evaluateDailyShadows } = await import('./shadowEvaluator');
+	    const { evaluateCalibrationDrift, persistDriftReport } = await import('./calibrationLoop');
+	    const { db } = await import('@/lib/db');
 
-    // 1. Shadow Brier rollup → writes ModelMetrics
-    const shadow = await evaluateDailyShadows(new Date(), { persist: true });
+	    // 1. Shadow Brier rollup → writes ModelMetrics
+	    const shadow = await evaluateDailyShadows(new Date(), { persist: true });
 
-    // 2. Build series from last 14 days for drift calculation
-    const since = new Date(Date.now() - 14 * 86_400_000);
-    const series = await db.modelMetrics.findMany({
-      where: { date: { gte: since } },
-      orderBy: { date: 'asc' },
-      select: { date: true, brierScore: true },
-    });
-    const brierSeries = series
-      .filter((r) => r.brierScore != null)
-      .map((r) => ({
-        date: r.date.toISOString().slice(0, 10),
-        brierScore: r.brierScore as number,
-      }));
-    const driftReport = evaluateCalibrationDrift({ series: brierSeries, windowDays: 7 });
-    await persistDriftReport(today, driftReport, 'trainingScheduler');
+	    // 2. Build series from last 14 days for drift calculation
+	    const since = new Date(Date.now() - 14 * 86_400_000);
+	    const series = await db.modelMetrics.findMany({
+	      where: { date: { gte: since } },
+	      orderBy: { date: 'asc' },
+	      select: { date: true, brierScore: true },
+	    });
+	    const brierSeries = series
+	      .filter((r) => r.brierScore != null)
+	      .map((r) => ({
+	        date: r.date.toISOString().slice(0, 10),
+	        brierScore: r.brierScore as number,
+	      }));
+	    const driftReport = evaluateCalibrationDrift({ series: brierSeries, windowDays: 7 });
+	    await persistDriftReport(today, driftReport, 'trainingScheduler');
 
-    logInfo('MLScheduler',
-      `Daily shadow eval done — champion=${shadow.championBrier.toFixed(4)}, ` +
-      `delta=${shadow.shadowBrierDelta.toFixed(4)}, suspended=${shadow.suspendedVariants.length}`);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    logError('MLScheduler', `Daily shadow eval failed: ${msg}`);
-  }
-}
+	    // 3. Haftada bir otomatik sigmoid recalibrasyon
+	    // Son kalibrasyon 7+ gün önceyse çalıştır
+	    const daysSinceCal = state.lastCalibrationDate
+	      ? Math.floor((Date.now() - new Date(state.lastCalibrationDate).getTime()) / 86400000)
+	      : 999;
+	    if (daysSinceCal >= 7) {
+	      try {
+	        const { autoCalibrateFromDB } = await import('@/lib/calibration');
+	        const result = await autoCalibrateFromDB();
+	        if (result) {
+	          logInfo('MLScheduler', `Auto-calibration done: Brier ${result.brierBefore.toFixed(4)} → ${result.brierAfter.toFixed(4)}`);
+	        } else {
+	          logInfo('MLScheduler', 'Auto-calibration skipped (no improvement or insufficient data)');
+	        }
+	      } catch (calErr) {
+	        const msg = calErr instanceof Error ? calErr.message : String(calErr);
+	        logError('MLScheduler', `Auto-calibration failed: ${msg}`);
+	      }
+	      state.lastCalibrationDate = today;
+	    }
+
+	    logInfo('MLScheduler',
+	      `Daily shadow eval done — champion=${shadow.championBrier.toFixed(4)}, ` +
+	      `delta=${shadow.shadowBrierDelta.toFixed(4)}, suspended=${shadow.suspendedVariants.length}`);
+	  } catch (e) {
+	    const msg = e instanceof Error ? e.message : String(e);
+	    logError('MLScheduler', `Daily shadow eval failed: ${msg}`);
+	  }
+	}
 
 export function startTrainingScheduler(): SchedulerState {
   const state = getState();

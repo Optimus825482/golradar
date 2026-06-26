@@ -5,60 +5,64 @@ import { useEffect, useRef, useState } from 'react';
 // ── Mermaid diagram source ───────────────────────────────────────
 const SIGNAL_FLOW_DIAGRAM = `
 flowchart TD
-    Start([⏱️ Her 60 saniye<br/>Cron Worker]) --> Fetch[Nesine API<br/>GET /matches?sportType=1]
-    Fetch --> Parse{Status<br/>Filtresi}
+    Start([⏱️ Poll cycle<br/>15-60sn]) --> Nesine[Nesine API<br/>GET /matches]
+    Nesine --> Parse{Status}
 
-    Parse -->|S=4,5,6,7<br/>Live| Hydrate[Pressure History<br/>Singleton Map]
-    Parse -->|S=3,28<br/>Devre Arası| Expire[expireSignalsForHalftime<br/>Bekleyen sinyalleri expire et]
-    Parse -->|S=0,1<br/>Başlamadı/Bitti| Skip[Atla]
+    Parse -->|Live| Stats[Parse stats<br/>21 alan]
+    Parse -->|Bitti/Devre| Skip[Skip]
 
-    Expire --> Next
-    Hydrate --> CalcProb[calculateGoalProbability<br/>Feature Engineering]
+    Stats --> FotMob[FotMob enrichment<br/>200ms timeout]
+    FotMob --> ShotXG[Shot-level xG<br/>shotmap.sum]
+    ShotXG --> Goaloo[Goaloo enrichment<br/>300ms timeout]
+    
+    Goaloo --> Odds[oddsMovement<br/>initial vs live]
+    Odds --> Momentum[Momentum trend<br/>son 5dk ortalama]
+    
+    Momentum --> CalcGoal[calculateGoalProbability<br/>12 factor heuristic]
+    CalcGoal --> Ensemble[Ensemble 6-model<br/>Brier-tier weights]
+    Ensemble --> Calib[Calibration<br/>PAVA / Sigmoid]
+    
+    Calib --> SignalCheck{score >= 60<br/>side != null?}
+    SignalCheck -->|Hayır| Next
+    SignalCheck -->|Evet| Cooldown{Son 3dk<br/>cooldown?}
+    Cooldown -->|Evet| Update[Update last values]
+    Cooldown -->|Hayır| DB[(PostgreSQL<br/>Signal)]
 
-    CalcProb --> HasStats{HasStats?}
-    HasStats -->|Hayır| Skip
-    HasStats -->|Evet| ScoreCheck{score >= 60<br/>threshold?}
-
-    ScoreCheck -->|Hayır| Skip
-    ScoreCheck -->|Evet| ZoneCheck{Dakika<br/>0-2, 43-45, 89+?}
-
-    ZoneCheck -->|Yasaklı| Skip
-    ZoneCheck -->|Geçerli| SideCheck{side<br/>home/away?}
-
-    SideCheck -->|both / null| Skip
-    SideCheck -->|home/away| Cooldown{Aynı match+side<br/>son 3dk içinde?}
-
-    Cooldown -->|Evet| Update[Update last values<br/>Yeni sinyal oluşturma]
-    Cooldown -->|Hayır| Record[(PostgreSQL<br/>Signal tablosuna INSERT)]
-
-    Record --> Snapshot[(MatchSnapshot<br/>Pressure history)]
-    Update --> Snapshot
-
-    Snapshot --> Poll[15s'de bir poll<br/>Tüm canlı maçlar]
-
-    Poll --> GoalDetect{Score değişti mi?}
-    GoalDetect -->|Evet| Report[reportGoal<br/>goalSide, goalMinute]
-    GoalDetect -->|Hayır| Next
-
-    Report --> Finalize[goalHappened = true<br/>correctPrediction<br/>minutesAfterSignal]
-    Finalize --> Stats[(SignalAccuracyStats<br/>Brier, Calibration)]
-
-    Stats --> Train[MLScheduler<br/>15dk'da feature extract]
-    Train --> Pipeline[pipelineRunner.runPipeline<br/>Train + Compare + Promote]
-    Pipeline --> Promote{New Brier<br/>better?}
-    Promote -->|Evet| Champion[(ModelArtifact<br/>isChampion=true)]
-    Promote -->|Hayır| Shadow[(Shadow model<br/>A/B test)]
-
-    Champion --> Next[Sonraki poll]
+    DB --> PollBack[Next poll]
 
     style Start fill:#6366f1,stroke:#4f46e5,color:#fff
-    style Fetch fill:#3b82f6,stroke:#2563eb,color:#fff
-    style CalcProb fill:#8b5cf6,stroke:#7c3aed,color:#fff
-    style Record fill:#10b981,stroke:#059669,color:#fff
-    style Stats fill:#f59e0b,stroke:#d97706,color:#fff
-    style Champion fill:#ef4444,stroke:#dc2626,color:#fff
-    style Skip fill:#94a3b8,stroke:#64748b,color:#fff
+    style Nesine fill:#3b82f6,stroke:#2563eb,color:#fff
+    style FotMob fill:#06b6d4,stroke:#0891b2,color:#fff
+    style Goaloo fill:#f59e0b,stroke:#d97706,color:#fff
+    style CalcGoal fill:#8b5cf6,stroke:#7c3aed,color:#fff
+    style Ensemble fill:#a855f7,stroke:#9333ea,color:#fff
+    style Calib fill:#10b981,stroke:#059669,color:#fff
+    style DB fill:#ef4444,stroke:#dc2626,color:#fff
 `;
+
+const FACTOR_TABLE = [
+  { f: 'F1', name: 'Pressure dominance', desc: 'calculatePressure weighted score >55%', max: 12, source: 'Nesine' },
+  { f: 'F2', name: 'Dangerous attack rate', desc: 'DA per 15min >= 1.5', max: 14, source: 'Nesine' },
+  { f: 'F3', name: 'Shot quality', desc: 'SOT rate/15min + accuracy bonus (xG removed)', max: 10, source: 'Nesine' },
+  { f: 'F4', name: 'xG accumulation', desc: 'Kümülatif xG + velocity/15min (F10 entegre)', max: 14, source: 'Nesine + FotMob shotmap' },
+  { f: 'F5', name: 'Stat spike detection', desc: 'DA/SOT/Corner delta vs 4 snapshot önce', max: 18, source: 'Nesine' },
+  { f: 'F6', name: 'Momentum acceleration', desc: 'Pressure trend 5 snap + 2nd deriv', max: 10, source: 'Nesine' },
+  { f: 'F7', name: 'Sustained pressure', desc: 'Son 5 snap press >55 count', max: 6, source: 'Nesine' },
+  { f: 'F8', name: 'Minute context (calibrated)', desc: 'Lig bazlı F8 — calibrateF8Sync', max: '×1.15-1.45', source: 'Nesine + SmartCalibration' },
+  { f: 'F9', name: 'Corner + SOT + set-piece', desc: 'Corner rate + SP ratio + accuracy', max: 14, source: 'Nesine' },
+  { f: 'F10', name: '(REMOVED → F4)', desc: 'xG spike entegre edildi', max: 0, source: '—' },
+  { f: 'F11', name: 'xG dominance', desc: 'xG ratio >0.70 (eski 0.65)', max: 8, source: 'Nesine' },
+  { f: 'F12', name: 'Composite threat', desc: 'Territory + attack flow + trend', max: 16, source: 'Nesine' },
+  { f: 'F13', name: 'xG flow momentum', desc: '3 recent vs 3 older xG avg (max 4)', max: 4, source: 'Nesine' },
+  { f: 'F14', name: 'Goaloo momentum', desc: 'Per-minute 0-100, son5dk avg + trend', max: 8, source: 'Goaloo type=2' },
+  { f: 'F15', name: 'Odds movement', desc: 'Live vs initial odds drop significance', max: 12, source: 'Goaloo type=1' },
+  { f: 'F16', name: 'Dangerous sequence', desc: 'Multi-stat spike combo (capped 15)', max: 15, source: 'Nesine' },
+  { f: 'F17', name: 'Organizasyon + fouls', desc: 'Pass_acc >75 / kontra atak / fouls ≥8', max: 14, source: 'Nesine ET=117,13' },
+  { f: 'F18', name: 'Kaleci + blok', desc: 'Saves ≥3 + shots_blocked', max: 8, source: 'Nesine ET=116,120' },
+  { f: 'F19', name: 'Ofsayt hattı', desc: 'Offsides ≥3 signal', max: 4, source: 'Nesine ET=9' },
+  { f: 'F20', name: 'Kanat atak', desc: 'Crosses ≥3 + crossing_accuracy', max: 6, source: 'NetScores' },
+  { f: 'F21', name: 'Penaltı + key passes', desc: 'Penalty + key_passes ≥3', max: 20, source: 'NetScores' },
+];
 
 const CALIBRATION_FLOW_DIAGRAM = `
 flowchart LR
@@ -110,26 +114,14 @@ flowchart LR
     style L fill:#10b981,stroke:#059669,color:#fff
 `;
 
-const DIAGRAMS = [
-  {
-    key: 'signal',
-    title: '🎯 Gol Sinyali Akışı',
-    description: 'Her 60 saniyede çalışan cron → Nesine fetch → goal probability → threshold + zone check → Signal tablosuna INSERT. Score değişiminde reportGoal → Brier score hesaplanır → MLScheduler ile model eğitimi → champion/shadow.',
-    source: SIGNAL_FLOW_DIAGRAM,
-  },
-  {
-    key: 'calibration',
-    title: '🧮 Kalibrasyon Pipeline',
-    description: 'Ham model tahmini → isotonic regression ile calibrated probability → gerçekleşen gol (0/1) ile Brier score → MLScheduler 15dk\'da feature extract → XGBoost train → yeni model iyiyse promote, kötüyse shadow.',
-    source: CALIBRATION_FLOW_DIAGRAM,
-  },
-  {
-    key: 'presence',
-    title: '👥 Presence + Tier-Aware Polling',
-    description: 'Browser mount → localStorage\'da sessionId → /api/presence ping (30s heartbeat) → server Map TTL prune → activeUserCount → resolveTier (LITE/MID/FULL) → tierConfig.pollIntervalMs → fetchMatches interval dinamik olarak değişir.',
-    source: PRESENCE_FLOW_DIAGRAM,
-  },
-];
+	const DIAGRAMS = [
+	  {
+	    key: 'signal',
+	    title: '🎯 Gol Sinyali Akışı (güncel)',
+	    description: 'Browser poll → Nesine API (21 stat alanı) → FotMob enrichment (shot-level xG, 200ms) → Goaloo enrichment (oddsMovement + momentum trend, 300ms) → 12 faktör heuristic → Ensemble 6-model Brier-weight blend → PAVA/Sigmoid kalibrasyon → threshold+side check → Signal DB.',
+	    source: SIGNAL_FLOW_DIAGRAM,
+	  },
+	];
 
 export default function AdminAlgorithmPage() {
   const [mermaidReady, setMermaidReady] = useState(false);
@@ -186,33 +178,72 @@ export default function AdminAlgorithmPage() {
         </p>
       </div>
 
-      {/* Pipeline Overview */}
-      <div className="bg-gradient-to-br from-indigo-50 via-white to-emerald-50 rounded-xl border border-gray-200 p-4 shadow-sm">
-        <h2 className="text-sm font-bold text-gray-800 mb-2">📐 Genel Mimari</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[11px]">
-          <PipelineStep
-            num="1"
-            title="Veri Toplama"
-            color="blue"
-            items={['Nesine canlı API', 'Cron worker (60s)', 'Pressure snapshots', 'Goal reporting']}
-          />
-          <PipelineStep
-            num="2"
-            title="Sinyal Üretimi"
-            color="purple"
-            items={['Feature engineering (47)', 'Goal probability', 'Threshold + zone check', 'Signal INSERT']}
-          />
-          <PipelineStep
-            num="3"
-            title="Öğrenme & Yayılım"
-            color="emerald"
-            items={['Brier calibration', 'MLScheduler (15m)', 'Champion / Shadow', 'Presence tier polling']}
-          />
-        </div>
-      </div>
+	      {/* Pipeline Overview */}
+	      <div className="bg-gradient-to-br from-indigo-50 via-white to-emerald-50 rounded-xl border border-gray-200 p-4 shadow-sm">
+	        <h2 className="text-sm font-bold text-gray-800 mb-2">📐 Genel Mimari (21 faktör, 4 veri kaynağı)</h2>
+	        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-[11px]">
+	          <PipelineStep
+	            num="1"
+	            title="Nesine API"
+	            color="blue"
+	            items={['21 stat alanı (ET 0-122)', '15sn poll interval', 'xG, SOT, DA, fouls, saves', 'pass_accuracy, offsides']}
+	          />
+	          <PipelineStep
+	            num="2"
+	            title="FotMob + Goaloo"
+	            color="purple"
+	            items={['Shot-level xG (shotmap)', 'Goaloo oddsMovement', 'Goaloo momentum 0-100', 'NetScores (crosses/key_passes)']}
+	          />
+	          <PipelineStep
+	            num="3"
+	            title="Sinyal Üretimi"
+	            color="emerald"
+	            items={['12 faktör heuristic → raw score', 'Ensemble 6-model Brier blend', 'PAVA/Sigmoid calibration', 'Threshold 60 + side ratio 0.62']}
+	          />
+	          <PipelineStep
+	            num="4"
+	            title="Öğrenme & Kalibrasyon"
+	            color="orange"
+	            items={['Train/val split grid search', 'Zaman ağırlıklı Brier', 'Lig bazlı F8 + xG katsayı', 'ML champion promotion']}
+	          />
+	        </div>
+		      </div>
 
-      {/* Mermaid diagrams */}
-      {DIAGRAMS.map(d => (
+		      {/* Factor Table */}
+		      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+		        <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+		          <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-purple-400 to-indigo-500" />
+		          <h3 className="text-sm font-bold text-gray-800">🧮 21 Faktör Detayı</h3>
+		          <span className="text-[10px] text-gray-400 ml-auto">F10 kaldırıldı (F4'e entegre) · F14-21 yeni</span>
+		        </div>
+		        <div className="overflow-x-auto">
+		          <table className="w-full text-[11px]">
+		            <thead>
+		              <tr className="bg-gray-50 border-b border-gray-100">
+		                <th className="text-left px-3 py-2 font-semibold text-gray-500">#</th>
+		                <th className="text-left px-3 py-2 font-semibold text-gray-500">Faktör</th>
+		                <th className="text-left px-3 py-2 font-semibold text-gray-500">Açıklama</th>
+		                <th className="text-right px-3 py-2 font-semibold text-gray-500">Max</th>
+		                <th className="text-right px-3 py-2 font-semibold text-gray-500">Kaynak</th>
+		              </tr>
+		            </thead>
+		            <tbody>
+		              {FACTOR_TABLE.map(f => (
+		                <tr key={f.f} className="border-b border-gray-50 hover:bg-gray-50/50">
+		                  <td className="px-3 py-1.5 font-mono text-gray-400">{f.f}</td>
+		                  <td className="px-3 py-1.5 font-semibold text-gray-700">{f.name}</td>
+		                  <td className="px-3 py-1.5 text-gray-500">{f.desc}</td>
+		                  <td className="px-3 py-1.5 text-right font-mono">{f.max}</td>
+		                  <td className="px-3 py-1.5 text-right text-gray-400">{f.source}</td>
+		                </tr>
+		              ))}
+		            </tbody>
+		          </table>
+		        </div>
+		      </div>
+
+		      {/* Mermaid diagrams */}
+		      {DIAGRAMS.map(d => (
         <div key={d.key} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
             <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-indigo-400 to-purple-500" />
@@ -256,23 +287,34 @@ export default function AdminAlgorithmPage() {
             formula="ECE = Σ |bucket_acc - bucket_conf| × n_bucket / N"
             description="Olasılık bucket'larının gözlemden sapması. Düşük = kalibre."
           />
-          <Formula
-            title="Success Rate"
-            formula="SR = (Excellent + Good + Late) / Resolved"
-            description="Sinyalden sonraki 15dk içinde gol olan oranı."
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PipelineStep({ num, title, color, items }: { num: string; title: string; color: 'blue' | 'purple' | 'emerald'; items: string[] }) {
-  const colors: Record<string, string> = {
-    blue: 'border-blue-200 bg-blue-50/50',
-    purple: 'border-purple-200 bg-purple-50/50',
-    emerald: 'border-emerald-200 bg-emerald-50/50',
-  };
+	          <Formula
+	            title="Success Rate"
+	            formula="SR = (Excellent + Good + Late) / Resolved"
+	            description="Sinyalden sonraki 15dk içinde gol olan oranı."
+	          />
+	          <Formula
+	            title="Side Ratio"
+	            formula="homeRatio = homeScore / (homeScore + awayScore) > 0.62"
+	            description="Yeni oran-based side belirleme (eski threshold-based)."
+	          />
+	          <Formula
+	            title="Kalibrasyon (PAVA)"
+	            formula="p = isotonic(rawScore/100) ?? L/(1+exp(-k*(score-x0)))"
+	            description="Önce PAVA monothonic mapping, yoksa sigmoid. Train/val split."
+	          />
+	        </div>
+	      </div>
+	    </div>
+	  );
+	}
+	
+	function PipelineStep({ num, title, color, items }: { num: string; title: string; color: 'blue' | 'purple' | 'emerald' | 'orange'; items: string[] }) {
+	  const colors: Record<string, string> = {
+	    blue: 'border-blue-200 bg-blue-50/50',
+	    purple: 'border-purple-200 bg-purple-50/50',
+	    emerald: 'border-emerald-200 bg-emerald-50/50',
+	    orange: 'border-orange-200 bg-orange-50/50',
+	  };
   return (
     <div className={`rounded-lg border p-3 ${colors[color]}`}>
       <div className="flex items-center gap-2 mb-1.5">

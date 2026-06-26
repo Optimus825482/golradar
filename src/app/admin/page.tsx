@@ -210,27 +210,58 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Quick Links */}
-      <Card title="⚡ Hızlı Erişim">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <Link href="/admin/ml" className="text-center py-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors">
-            <div className="text-xl mb-0.5">🤖</div>
-            <div className="text-[11px] font-bold text-indigo-700">ML & Modeller</div>
-          </Link>
-          <Link href="/admin/calibration" className="text-center py-3 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors">
-            <div className="text-xl mb-0.5">🎯</div>
-            <div className="text-[11px] font-bold text-emerald-700">Kalibrasyon</div>
-          </Link>
-          <Link href="/admin/algorithm" className="text-center py-3 rounded-lg bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-colors">
-            <div className="text-xl mb-0.5">🧠</div>
-            <div className="text-[11px] font-bold text-purple-700">Algoritma Akışı</div>
-          </Link>
-          <a href="/" className="text-center py-3 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors">
-            <div className="text-xl mb-0.5">⚽</div>
-            <div className="text-[11px] font-bold text-blue-700">Ana Sayfa</div>
-          </a>
-        </div>
-      </Card>
+	      {/* Quick Links */}
+	      <Card title="⚡ Hızlı Erişim">
+	        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+	          <Link href="/admin/ml" className="text-center py-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors">
+	            <div className="text-xl mb-0.5">🤖</div>
+	            <div className="text-[11px] font-bold text-indigo-700">ML & Modeller</div>
+	          </Link>
+	          <Link href="/admin/calibration" className="text-center py-3 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors">
+	            <div className="text-xl mb-0.5">🎯</div>
+	            <div className="text-[11px] font-bold text-emerald-700">Kalibrasyon</div>
+	          </Link>
+	          <Link href="/admin/algorithm" className="text-center py-3 rounded-lg bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-colors">
+	            <div className="text-xl mb-0.5">🧠</div>
+	            <div className="text-[11px] font-bold text-purple-700">Algoritma Akışı</div>
+	          </Link>
+	          <a href="/" className="text-center py-3 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors">
+	            <div className="text-xl mb-0.5">⚽</div>
+	            <div className="text-[11px] font-bold text-blue-700">Ana Sayfa</div>
+	          </a>
+	        </div>
+	      </Card>
+
+	      {/* System Health */}
+	      <Card title="🔧 Sistem Sağlığı" accent="blue">
+	        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-[11px]">
+	          <div className="text-center p-2 rounded-lg bg-gray-50 border border-gray-100">
+	            <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Faktör</div>
+	            <div className="text-lg font-black text-indigo-600">21</div>
+	            <div className="text-gray-400">toplam (F1-F21)</div>
+	          </div>
+	          <div className="text-center p-2 rounded-lg bg-gray-50 border border-gray-100">
+	            <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Veri Kaynağı</div>
+	            <div className="text-lg font-black text-cyan-600">4</div>
+	            <div className="text-gray-400">Nesine+Goaloo+FotMob+NetScores</div>
+	          </div>
+	          <div className="text-center p-2 rounded-lg bg-gray-50 border border-gray-100">
+	            <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Ensemble</div>
+	            <div className="text-lg font-black text-purple-600">6</div>
+	            <div className="text-gray-400">model Brier-weight blend</div>
+	          </div>
+	          <div className="text-center p-2 rounded-lg bg-gray-50 border border-gray-100">
+	            <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Kalibrasyon</div>
+	            <div className="text-lg font-black text-emerald-600">2</div>
+	            <div className="text-gray-400">PAVA + Sigmoid (train/val)</div>
+	          </div>
+	          <div className="text-center p-2 rounded-lg bg-gray-50 border border-gray-100">
+	            <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Canlı Zengin.</div>
+	            <div className="text-lg font-black text-amber-600">3</div>
+	            <div className="text-gray-400">odds+momentum+shot-xG</div>
+	          </div>
+	        </div>
+	      </Card>
     </div>
   );
 }

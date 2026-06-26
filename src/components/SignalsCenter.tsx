@@ -142,8 +142,7 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
   }, [todaySignals]);
 
   // ── Pagination ──
-  const [page, setPage] = useState(1);
-  const PAGE_SIZE = 20;
+	  const PAGE_SIZE = 20;
   const totalPages = Math.max(1, Math.ceil(filteredSignals.length / PAGE_SIZE));
   const pagedSignals = filteredSignals.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 

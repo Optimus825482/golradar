@@ -36,9 +36,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "3012:3012"
-    environment:
+	    ports:
+	      - "3012:3012"
+	    labels:
+	      traefik.http.services.golradar.loadbalancer.server.port: "3012"
+	      traefik.http.services.golradar.loadbalancer.server.scheme: "http"
+	    environment:
       # Database — PostgreSQL container'ına bağlanır
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
 

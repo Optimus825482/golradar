@@ -31,15 +31,28 @@ export function MatchCard({ match, onClick, showLeague, goalProb, isSelected, is
         isRadarAlert ? 'bg-red-50/50' : ''
       }`}
     >
-      {isRadarAlert && (
-        <div className={`absolute inset-0 pointer-events-none ${
-          goalProb.level === 'critical'
-            ? 'animate-pulse border-l-4 border-l-red-500'
-            : goalProb.level === 'high'
-            ? 'border-l-4 border-l-orange-400'
-            : 'border-l-4 border-l-yellow-400'
-        }`} />
-      )}
+	      {isRadarAlert && (
+	        <div className={`absolute inset-0 pointer-events-none ${
+	          goalProb.level === 'critical'
+	            ? 'animate-pulse border-l-4 border-l-red-500'
+	            : goalProb.level === 'high'
+	            ? 'border-l-4 border-l-orange-400'
+	            : 'border-l-4 border-l-yellow-400'
+	        }`} />
+	      )}
+
+	      {isRadarAlert && (
+	        <div className={`absolute top-1 right-1 flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider shadow-sm z-10 ${
+	          goalProb.level === 'critical'
+	            ? 'bg-red-500 text-white animate-pulse'
+	            : goalProb.level === 'high'
+	            ? 'bg-orange-500 text-white'
+	            : 'bg-yellow-500 text-white'
+	        }`}>
+	          <span className="w-1 h-1 rounded-full bg-white inline-block animate-ping" />
+	          SİNYAL
+	        </div>
+	      )}
 
       <div className="flex items-center gap-2">
         <div className="w-10 text-center shrink-0">

@@ -390,14 +390,22 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               );
             })()}
           </div>
-        ) : (
-          <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
-            <div className="text-center">
-              <div className="animate-spin w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full mx-auto mb-2" />
-              <p className="text-xs text-gray-400">Grafik için veri toplanıyor...</p>
-            </div>
-          </div>
-        )}
+	        ) : fotmobLoading ? (
+	          <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
+	            <div className="text-center">
+	              <div className="animate-spin w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full mx-auto mb-2" />
+	              <p className="text-xs text-gray-400">Grafik için veri toplanıyor...</p>
+	            </div>
+	          </div>
+	        ) : (
+	          <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
+	            <div className="text-center">
+	              <div className="text-2xl mb-1 opacity-30">📡</div>
+	              <p className="text-xs text-gray-400 mb-1">Grafik verisi alınamadı</p>
+	              <p className="text-[10px] text-gray-400">Canlı istatistikler geldiğinde otomatik görünecek</p>
+	            </div>
+	          </div>
+	        )}
       </div>
 
       {/* Match Statistics */}

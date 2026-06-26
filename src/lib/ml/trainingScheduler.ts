@@ -18,8 +18,9 @@ import {
   pollJob,
   ML_TRAINER_ENABLED,
 } from './mlClient';
-import { registerArtifact } from './modelRouter';
+import { registerArtifact, getChampionBrier, promoteArtifact } from './modelRouter';
 import { logInfo, logWarn, logError } from '@/lib/devLog';
+import { minDeltaForPromotion } from '@/config';
 
 const EXPORT_HOUR_LOCAL = 3; // 03:00 local
 const EXPORT_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 min — re-check time
@@ -55,6 +56,7 @@ function getState(): SchedulerState {
 
 async function exportAllHorizons(): Promise<void> {
   const state = getState();
+  const results: Array<{ result: ExportResult; horizon: number }> = [];
   for (const horizon of state.horizons) {
     try {
       const result = await exportTrainingData({
@@ -63,6 +65,7 @@ async function exportAllHorizons(): Promise<void> {
         maxRows: MAX_ROWS_PER_EXPORT,
       });
       if (result) {
+        results.push({ result, horizon });
         logInfo('MLScheduler',
           `Exported ${result.rowCount} rows (horizon=${horizon}min) → ${result.path}`);
       } else {
@@ -77,6 +80,81 @@ async function exportAllHorizons(): Promise<void> {
         const innerMsg = innerErr instanceof Error ? innerErr.message : String(innerErr);
         logError('MLScheduler', `Failed to record failure: ${innerMsg}`);
       }
+    }
+  }
+  // Export sonrası: main modelleri otomatik retrain et (trainer enabled ise)
+  if (ML_TRAINER_ENABLED && results.length > 0) {
+    try {
+      await trainMainModels(results);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logError('MLScheduler', `Main model training failed: ${msg}`);
+    }
+  }
+}
+
+/**
+ * Export edilen dataset'leri kullanarak main modelleri (gbdt, xgb) retrain eder.
+ */
+async function trainMainModels(exportResults: Array<{ result: ExportResult; horizon: number }>): Promise<void> {
+  const nameVersionMap: Array<{ name: 'gbdt' | 'xgb'; horizon: number }> = [
+    { name: 'gbdt', horizon: 15 },
+    { name: 'xgb', horizon: 10 },
+  ];
+  for (const { name, horizon } of nameVersionMap) {
+    const entry = exportResults.find(e => e.horizon === horizon);
+    if (!entry) {
+      logInfo('MLScheduler', `No dataset for horizon=${horizon}min — skipping ${name}`);
+      continue;
+    }
+    const dataset = entry.result;
+    const version = `daily-${Date.now()}`;
+    try {
+      const job = await startTraining({
+        name,
+        version,
+        horizon_min: horizon,
+        dataset_path: dataset.path,
+      });
+      if (!job) {
+        logWarn('MLScheduler', `${name} trainer unreachable — skipping`);
+        continue;
+      }
+      const completed = await pollJob(job.jobId, { timeoutMs: 180_000, pollMs: 3_000 });
+      if (!completed || completed.status !== 'success' || !completed.artifactPath) {
+        logWarn('MLScheduler', `${name} train failed: ${completed?.error ?? 'timeout'}`);
+        continue;
+      }
+      const newBrier = completed.metrics?.brier ?? null;
+      await registerArtifact({
+        name,
+        version,
+        artifactPath: completed.artifactPath,
+        metrics: completed.metrics,
+        sha256: String(completed.metrics?.sha256 ?? ''),
+        bytes: completed.metrics?.artifactBytes ?? null,
+        notes: `Daily auto-retrain (n=${completed.metrics?.n ?? '?'}, horizon=${horizon}min)`,
+      });
+      if (newBrier != null && typeof newBrier === 'number') {
+        const championBrier = await getChampionBrier(name);
+        if (championBrier != null && newBrier < championBrier) {
+          const delta = championBrier - newBrier;
+          const n = completed.metrics?.n ?? 0;
+          const minDelta = minDeltaForPromotion(typeof n === 'number' ? n : 0);
+          if (delta >= minDelta) {
+            await promoteArtifact(name, version);
+            logInfo('MLScheduler', `${name}@${version} auto-promoted! Brier ${championBrier.toFixed(4)} → ${newBrier.toFixed(4)} (Δ=${delta.toFixed(4)})`);
+          } else {
+            logInfo('MLScheduler', `${name}@${version} better (${newBrier.toFixed(4)} vs ${championBrier.toFixed(4)}) but Δ=${delta.toFixed(4)} < min=${minDelta} — shadow only`);
+          }
+        } else if (championBrier == null) {
+          await promoteArtifact(name, version);
+          logInfo('MLScheduler', `${name}@${version} promoted as first champion (Brier=${newBrier.toFixed(4)})`);
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logError('MLScheduler', `${name} training failed: ${msg}`);
     }
   }
 }
@@ -288,18 +366,37 @@ async function runInPlayRetrain(): Promise<void> {
       logWarn('MLScheduler', `In-play train failed: ${completed?.error ?? 'timeout'}`);
       return;
     }
-    // 3. Register as a shadow artifact (champion=false). Operator
-    // promotes manually via the admin endpoint.
-    await registerArtifact({
-      name: 'inplay',
-      version,
-      artifactPath: completed.artifactPath,
-      metrics: completed.metrics,
-      sha256: String(completed.metrics.sha256 ?? ''),
-      bytes: completed.metrics.artifactBytes ?? null,
-      notes: `In-play re-train (n=${completed.metrics.n ?? '?'}, horizon=5min, last 7 days)`,
-    });
-    logInfo('MLScheduler', `In-play artifact registered: ${version}`);
+	    // 3. Register as a shadow artifact. Auto-promote: yeni model
+	    // champion'dan iyiyse ve threshold'u geçiyorsa promote et.
+	    const inplayBrier = completed.metrics?.brier ?? null;
+	    await registerArtifact({
+	      name: 'inplay',
+	      version,
+	      artifactPath: completed.artifactPath,
+	      metrics: completed.metrics,
+	      sha256: String(completed.metrics?.sha256 ?? ''),
+	      bytes: completed.metrics?.artifactBytes ?? null,
+	      notes: `In-play re-train (n=${completed.metrics?.n ?? '?'}, horizon=5min, last 7 days)`,
+	    });
+	    // Auto-promote: yeni inplay model champion'dan iyiyse promote et
+	    if (inplayBrier != null && typeof inplayBrier === 'number') {
+	      const championBrier = await getChampionBrier('inplay');
+	      if (championBrier != null && inplayBrier < championBrier) {
+	        const delta = championBrier - inplayBrier;
+	        const n = completed.metrics?.n ?? 0;
+	        const minDelta = minDeltaForPromotion(typeof n === 'number' ? n : 0);
+	        if (delta >= minDelta) {
+	          await promoteArtifact('inplay', version);
+	          logInfo('MLScheduler', `In-play auto-promoted! Brier ${championBrier.toFixed(4)} → ${inplayBrier.toFixed(4)} (Δ=${delta.toFixed(4)})`);
+	        } else {
+	          logInfo('MLScheduler', `In-play shadow (Brier ${inplayBrier.toFixed(4)} better but Δ=${delta.toFixed(4)} < min=${minDelta})`);
+	        }
+	      } else if (championBrier == null) {
+	        await promoteArtifact('inplay', version);
+	        logInfo('MLScheduler', `In-play promoted as first champion (Brier=${inplayBrier.toFixed(4)})`);
+	      }
+	    }
+	    logInfo('MLScheduler', `In-play artifact registered: ${version}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logError('MLScheduler', `In-play retrain error: ${msg}`);

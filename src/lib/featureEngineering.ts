@@ -698,7 +698,7 @@ export function featuresToArray(features: MatchFeatures): number[] {
 // ── Training data record ───────────────────────────────────────────
 
 export interface TrainingRecord {
-  features: number[];       // 47-element feature vector
+  features: number[];       // 67-element feature vector (47 → 67 eklendi: P1.1/P1.3/P1.6/W4)
   label: number;            // 1 = goal scored within 10 min, 0 = no goal
   matchCode: number;
   minute: number;

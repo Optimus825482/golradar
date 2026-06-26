@@ -51,12 +51,16 @@ export async function runBacktestFromDB(
       modelVariant,
       minute: { gte: minMinute },
     },
-    select: {
-      rawScore: true,
-      calibratedP: true,
-      goalScored: true,
-      minute: true,
-    },
+	    select: {
+	      rawScore: true,
+	      calibratedP: true,
+	      goalScored: true,
+	      minute: true,
+	      homeElo: true,
+	      awayElo: true,
+	      poissonHomeP: true,
+	      poissonAwayP: true,
+	    },
     orderBy: { createdAt: "desc" },
     take: 20000,
   });
@@ -276,13 +280,15 @@ export async function optimizeEnsembleWeights(
       goalScored: { not: null },
       modelVariant,
     },
-    select: {
-      rawScore: true,
-      calibratedP: true,
-      goalScored: true,
-      homeElo: true,
-      awayElo: true,
-    },
+	    select: {
+	      rawScore: true,
+	      calibratedP: true,
+	      goalScored: true,
+	      homeElo: true,
+	      awayElo: true,
+	      poissonHomeP: true,
+	      poissonAwayP: true,
+	    },
     take: 5000,
   });
 
@@ -305,24 +311,35 @@ export async function optimizeEnsembleWeights(
         const wm = 1 - wr - wp - we;
         if (wm < 0) continue;
 
-          // For each log, compute ensemble probability = weighted average
-          let brierSum = 0;
-          for (const log of logs) {
-            // Estimate per-model probabilities from available signals:
-            // - ruleP: rawScore mapped to 0-1 via sigmoid
-            // - poissonP: estimate from Elo difference
-            // - eloP: estimate from Elo difference (higher weight)
-            // - mlP: calibratedP as ML-informed baseline
-            const ruleP = Math.max(0.01, Math.min(0.99, log.rawScore / 100));
-            
-            // Poisson estimate from Elo difference (if available)
-            const eloDiff = (log.homeElo ?? 1500) - (log.awayElo ?? 1500);
-            const poissonP = Math.max(0.01, Math.min(0.99, 
-              0.15 + (eloDiff / 400) * 0.1));
-            
-            // Elo-based estimate 
-            const eloP = Math.max(0.01, Math.min(0.99, 
-              0.12 + (eloDiff / 400) * 0.15));
+	          // For each log, compute ensemble probability = weighted average
+	          let brierSum = 0;
+	          for (const log of logs) {
+	            // Estimate per-model probabilities from available signals:
+	            // - ruleP: rawScore mapped to 0-1 via sigmoid
+	            // - poissonP: from stored Poisson model output (actual Dixon-Coles)
+	            // - eloP: from stored Elo ratings
+	            // - mlP: calibratedP as ML-informed baseline
+	            const ruleP = Math.max(0.01, Math.min(0.99, log.rawScore / 100));
+	            
+	            // Gerçek Poisson model çıktısı (PredictionLog.poissonHomeP/poissonAwayP)
+	            // Hiçbiri yoksa Elo'dan proxy (fallback)
+	            let poissonP: number;
+	            if (log.poissonHomeP != null && log.poissonAwayP != null) {
+	              // Any goal probability: 1 - P(no home goal) * P(no away goal)
+	              poissonP = 1 - (1 - log.poissonHomeP) * (1 - log.poissonAwayP);
+	            } else if (log.poissonHomeP != null) {
+	              poissonP = log.poissonHomeP;
+	            } else {
+	              // Fallback: Elo proxy
+	              const eloDiff = (log.homeElo ?? 1500) - (log.awayElo ?? 1500);
+	              poissonP = Math.max(0.01, Math.min(0.99, 0.15 + (eloDiff / 400) * 0.1));
+	            }
+	            poissonP = Math.max(0.01, Math.min(0.99, poissonP));
+	            
+	            // Elo-based estimate (bağımsız sinyal)
+	            const eloDiff = (log.homeElo ?? 1500) - (log.awayElo ?? 1500);
+	            const eloP = Math.max(0.01, Math.min(0.99, 
+	              0.12 + (eloDiff / 400) * 0.15));
             
             // ML estimate: calibratedP is the best single estimate
             const mlP = Math.max(0.01, Math.min(0.99, log.calibratedP));

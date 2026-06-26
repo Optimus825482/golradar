@@ -180,8 +180,15 @@ export async function exportTrainingData(
   let labeledFromDb = 0;
   let labeledFromEvents = 0;
 
-  for (const log of predictionLogs) {
-    if (!log.featuresJson) {
+	for (const log of predictionLogs) {
+	    // Cron ile train-inference skew'u önle: cron'un sinyal üretmediği
+	    // dakikaları (0-2, 43-45, 89+) eğitim verisinden de çıkar.
+	    const logMin = log.minute ?? 0;
+	    if (logMin <= 2 || (logMin >= 43 && logMin <= 45) || logMin >= 89) {
+	      continue;
+	    }
+
+	    if (!log.featuresJson) {
       skippedMissingFeatures++;
       continue;
     }

@@ -20,6 +20,23 @@ import { determineSide } from './goalRadar/side';
 import { detectGoalCooldown, applyGoalCooldown } from './goalRadar/cooldown';
 import type { PressureSnapshotLite, GoalProbability } from './goalRadar/types';
 
+// ── Goaloo canlı zenginleştirme verisi (opsiyonel) ──────────────
+export interface GoalooEnrichment {
+  /** Analiz edilmiş odds hareketi */
+  oddsMovement?: {
+    homeBoost: number;
+    awayBoost: number;
+    significance: string;
+  } | null;
+  /** Per-minute momentum (0-100) — son 5 dk'nın ortalaması */
+  momentumTrend?: {
+    homeAvg: number;
+    awayAvg: number;
+    homeDirection: 'rising' | 'falling' | 'stable';
+    awayDirection: 'rising' | 'falling' | 'stable';
+  } | null;
+}
+
 export function calculateGoalProbability(
   stats: MatchStats,
   minute: string,
@@ -36,6 +53,7 @@ export function calculateGoalProbability(
   } | null,
   leagueId?: number | null,
   fotmobData?: import("./fotmob").FotMobMatchDetails | null,
+  goalooData?: GoalooEnrichment | null,  // ← YENİ
 ): GoalProbability {
   const emptyResult: GoalProbability = {
     score: 0,
@@ -645,13 +663,90 @@ export function calculateGoalProbability(
     awayFactors.push("Kritik eşik!");
   } else if (awayActiveCount >= 8) {
     awayScore += 5;
-  } else if (awayActiveCount >= 6) {
-    awayScore += 2;
-  }
+	  } else if (awayActiveCount >= 6) {
+	    awayScore += 2;
+	  }
 
-  const postFactors: string[] = [];
+	  // ── F17: Organizasyon kalitesi (pass_accuracy) + Fouls ─────────
+	  // Yüksek pas yüzdesi + düşük faul = organize atak
+	  // Düşük pas yüzdesi + yüksek tehlikeli atak = kontra atak tehdidi
+	  const homePassAcc = stats.pass_accuracy?.home ?? null;
+	  const awayPassAcc = stats.pass_accuracy?.away ?? null;
+	  const homeFouls = stats.fouls?.home ?? 0;
+	  const awayFouls = stats.fouls?.away ?? 0;
+	  if (homePassAcc != null && homePassAcc > 0) {
+	    if (homePassAcc > 75) {
+	      const pts = Math.min(5, Math.round((homePassAcc - 75) * 0.2));
+	      homeScore += pts;
+	      if (pts >= 2) homeFactors.push(`Pas kalitesi %${homePassAcc}`);
+	    }
+	    // Kontra atak: düşük pas + yüksek tehlikeli atak = hızlı hücum
+	    if (homePassAcc < 65 && stats.dangerous_attacks?.home && stats.dangerous_attacks.home > 5) {
+	      const pts = Math.min(4, Math.round((65 - homePassAcc) * 0.15));
+	      homeScore += pts;
+	      if (pts >= 2) homeFactors.push(`Kontra atak stili`);
+	    }
+	  }
+	  if (awayPassAcc != null && awayPassAcc > 0) {
+	    if (awayPassAcc > 75) {
+	      const pts = Math.min(5, Math.round((awayPassAcc - 75) * 0.2));
+	      awayScore += pts;
+	      if (pts >= 2) awayFactors.push(`Pas kalitesi %${awayPassAcc}`);
+	    }
+	    if (awayPassAcc < 65 && stats.dangerous_attacks?.away && stats.dangerous_attacks.away > 5) {
+	      const pts = Math.min(4, Math.round((65 - awayPassAcc) * 0.15));
+	      awayScore += pts;
+	      if (pts >= 2) awayFactors.push(`Kontra atak stili`);
+	    }
+	  }
+	  // Faul agresiflik: çok faul yapan takım baskı altında veya agresif
+	  if (awayFouls >= 8) {
+	    const pts = Math.min(5, awayFouls * 0.5);
+	    homeScore += pts;
+	    if (pts >= 3) homeFactors.push(`Rakip ${awayFouls} faul`);
+	  }
+	  if (homeFouls >= 8) {
+	    const pts = Math.min(5, homeFouls * 0.5);
+	    awayScore += pts;
+	    if (pts >= 3) awayFactors.push(`Rakip ${homeFouls} faul`);
+	  }
 
-  // Goal cooldown
+	  // ── F18: Kaleci kurtarış / savunma baskısı (saves + shots_blocked) ──
+	  // Rakip kaleci çok kurtarış yapıyorsa = takım baskı kuruyor
+	  // shots_blocked yüksekse = savunma son anda müdahale ediyor (baskı altında)
+	  const homeSaves = stats.saves?.home ?? 0;
+	  const awaySaves = stats.saves?.away ?? 0;
+	  const homeBlocks = stats.shots_blocked?.home ?? 0;
+	  const awayBlocks = stats.shots_blocked?.away ?? 0;
+	  if (awaySaves >= 3) {
+	    const pts = Math.min(8, awaySaves * 1.5 + awayBlocks * 0.5);
+	    homeScore += pts;
+	    if (pts >= 4) homeFactors.push(`Kaleci ${awaySaves} kurtarış`);
+	  }
+	  if (homeSaves >= 3) {
+	    const pts = Math.min(8, homeSaves * 1.5 + homeBlocks * 0.5);
+	    awayScore += pts;
+	    if (pts >= 4) awayFactors.push(`Kaleci ${homeSaves} kurtarış`);
+	  }
+
+	  // ── F19: Ofsayt / savunma hattı ──────────────────────────────────
+	  // Yüksek ofsayt = takım yüksek savunma yapıyor, rakip derinlemesine atak yapıyor
+	  const homeOffsides = stats.offsides?.home ?? 0;
+	  const awayOffsides = stats.offsides?.away ?? 0;
+	  if (awayOffsides >= 3) {
+	    const pts = Math.min(4, awayOffsides * 1);
+	    homeScore += pts;
+	    if (pts >= 3) homeFactors.push(`Rakip ${awayOffsides} ofsayt`);
+	  }
+	  if (homeOffsides >= 3) {
+	    const pts = Math.min(4, homeOffsides * 1);
+	    awayScore += pts;
+	    if (pts >= 3) awayFactors.push(`Rakip ${homeOffsides} ofsayt`);
+	  }
+
+	  const postFactors: string[] = [];
+
+	  // Goal cooldown
   {
     const cooldownResult = applyGoalCooldown(
       homeScore, awayScore,
@@ -1105,16 +1200,132 @@ export function calculateGoalProbability(
             if (fm.description) awayFactors.push(fm.description);
           }
         }
-      }
-    } catch (err) {
-      if (process.env.NODE_ENV === "development") {
-        console.warn(
-          "[GoalRadar] FotMob intel processing failed:",
-          (err as Error).message,
-        );
-      }
-    }
-  }
+	      }
+	    } catch (err) {
+	      if (process.env.NODE_ENV === "development") {
+	        console.warn(
+	          "[GoalRadar] FotMob intel processing failed:",
+	          (err as Error).message,
+	        );
+	      }
+	    }
+
+	    // ── FotMob shot-level xG (C) ──────────────────────────────────
+	    // FotMob shotmap'teki her şutun expectedGoals değerini topla.
+	    // Tahmini xG'den daha doğru — gerçek şut kalitesini yansıtır.
+	    try {
+	      const shotmap = fotmobData?.shotmap;
+	      if (shotmap && Array.isArray(shotmap) && shotmap.length > 0) {
+	        let fotmobXgHome = 0, fotmobXgAway = 0;
+	        for (const shot of shotmap) {
+	          if (shot.expectedGoals != null) {
+	            const isHomeShot = shot.teamId === fotmobData?.homeTeam?.id;
+	            if (isHomeShot) fotmobXgHome += shot.expectedGoals;
+	            else fotmobXgAway += shot.expectedGoals;
+	          }
+	        }
+	        // FotMob xG, API xG'den daha zengin (shot-level). Eğer FotMob xG
+	        // mevcutsa ve API xG'den büyükse, F4 xG accumulation'u güncelle.
+	        // NOT: xg değişkeni zaten tanımlandı (satır ~145). Burada sadece
+	        // factor string güncellemesi yapılır; asıl xg değeri değişmez.
+	        if (fotmobXgHome > xg.home) {
+	          const diff = fotmobXgHome - xg.home;
+	          const bonusPts = Math.min(5, Math.round(diff * 7));
+	          if (bonusPts >= 2) {
+	            homeScore += bonusPts;
+	            homeFactors.push(`FotMob xG +${fotmobXgHome.toFixed(2)}`);
+	          }
+	        }
+	        if (fotmobXgAway > xg.away) {
+	          const diff = fotmobXgAway - xg.away;
+	          const bonusPts = Math.min(5, Math.round(diff * 7));
+	          if (bonusPts >= 2) {
+	            awayScore += bonusPts;
+	            awayFactors.push(`FotMob xG +${fotmobXgAway.toFixed(2)}`);
+	          }
+	        }
+	      }
+	    } catch (xgErr) {
+	      // FotMob xG mevcut değil — sessiz geç
+	    }
+
+	    // ── Goaloo momentum trend (B) ──────────────────────────────────
+	    // Canlı Goaloo momentum verisi (per-minute 0-100).
+	    // Son 5 dk'nın ortalaması ve yönü kullanılır.
+	    try {
+	      const gmt = goalooData?.momentumTrend;
+	      if (gmt) {
+	        if (gmt.homeAvg > 65 && gmt.homeDirection === 'rising') {
+	          const pts = Math.min(8, Math.round((gmt.homeAvg - 60) * 0.4));
+	          homeScore += pts;
+	          if (pts >= 3) homeFactors.push(`Goaloo momentum ${Math.round(gmt.homeAvg)}`);
+	        } else if (gmt.homeAvg > 75) {
+	          const pts = Math.min(5, Math.round((gmt.homeAvg - 70) * 0.3));
+	          homeScore += pts;
+	          if (pts >= 3) homeFactors.push(`Goaloo momentum ${Math.round(gmt.homeAvg)}`);
+	        }
+	        if (gmt.awayAvg > 65 && gmt.awayDirection === 'rising') {
+	          const pts = Math.min(8, Math.round((gmt.awayAvg - 60) * 0.4));
+	          awayScore += pts;
+	          if (pts >= 3) awayFactors.push(`Goaloo momentum ${Math.round(gmt.awayAvg)}`);
+	        } else if (gmt.awayAvg > 75) {
+	          const pts = Math.min(5, Math.round((gmt.awayAvg - 70) * 0.3));
+	          awayScore += pts;
+	          if (pts >= 3) awayFactors.push(`Goaloo momentum ${Math.round(gmt.awayAvg)}`);
+	        }
+	      }
+	    } catch (gErr) {
+	      // Goaloo yok — sessiz geç
+	    }
+
+	    // ── NetScores özel alanlar (her maç yok, opsiyonel) ──────────
+	    try {
+	      const ns = fotmobData._netscores?.rawStats;
+	      if (ns) {
+	        // F20: Kanat atak (crosses + crossing_accuracy)
+	        const homeCrosses = ns.crosses?.home != null ? Number(ns.crosses.home) : 0;
+	        const awayCrosses = ns.crosses?.away != null ? Number(ns.crosses.away) : 0;
+	        const homeCrossAcc = ns.crossing_accuracy?.home != null ? Number(ns.crossing_accuracy.home) : 0;
+	        const awayCrossAcc = ns.crossing_accuracy?.away != null ? Number(ns.crossing_accuracy.away) : 0;
+	        if (homeCrosses >= 3) {
+	          const pts = Math.min(6, homeCrosses * 0.8 + (homeCrossAcc > 30 ? 2 : 0));
+	          homeScore += pts;
+	          if (pts >= 3) homeFactors.push(`Kanat atak ${homeCrosses} orta`);
+	        }
+	        if (awayCrosses >= 3) {
+	          const pts = Math.min(6, awayCrosses * 0.8 + (awayCrossAcc > 30 ? 2 : 0));
+	          awayScore += pts;
+	          if (pts >= 3) awayFactors.push(`Kanat atak ${awayCrosses} orta`);
+	        }
+	        // F21: Penaltı / kritik pozisyon
+	        const homePen = ns.penalties?.home != null ? Number(ns.penalties.home) : 0;
+	        const awayPen = ns.penalties?.away != null ? Number(ns.penalties.away) : 0;
+	        if (homePen > 0) {
+	          homeScore += 15;
+	          homeFactors.push("Penaltı kazanıldı! (+15)");
+	        }
+	        if (awayPen > 0) {
+	          awayScore += 15;
+	          awayFactors.push("Penaltı kazanıldı! (+15)");
+	        }
+	        // Anahtar pas (key passes) — gol öncesi son pas
+	        const homeKp = ns.key_passes?.home != null ? Number(ns.key_passes.home) : 0;
+	        const awayKp = ns.key_passes?.away != null ? Number(ns.key_passes.away) : 0;
+	        if (homeKp >= 3) {
+	          const pts = Math.min(5, homeKp * 0.7);
+	          homeScore += pts;
+	          if (pts >= 3) homeFactors.push(`Anahtar pas ${homeKp}`);
+	        }
+	        if (awayKp >= 3) {
+	          const pts = Math.min(5, awayKp * 0.7);
+	          awayScore += pts;
+	          if (pts >= 3) awayFactors.push(`Anahtar pas ${awayKp}`);
+	        }
+	      }
+	    } catch (nsErr) {
+	      // NetScores verisi yok veya parse hatası — sessiz geç
+	    }
+	  }
 
 
 	  // Trend-adjusted threshold: if momentum is rising, accept signals

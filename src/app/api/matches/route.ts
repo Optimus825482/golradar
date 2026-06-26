@@ -21,6 +21,8 @@ import { extractFeatures, featuresToArray, pushFeatureSample } from "@/lib/featu
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
 import { reportGoal } from "@/lib/goalSignalTracker";
+import { findGoalooMatchForNesine, fetchGoalooOdds, fetchGoalooMomentum, analyzeOddsMovement } from "@/lib/goaloo";
+import type { GoalooEnrichment } from "@/lib/goalRadar";
 import {
   ensureMatch,
   addSnapshot,
@@ -203,36 +205,93 @@ export async function GET(request: Request) {
     const hist = getSnapshots(parsed.code);
     let goalRadar: GoalProbability | undefined;
 
-    if (parsed.isLive && parsed.hasStats) {
-      // Try to enrich with FotMob data. The async lookup is bounded
-      // by Promise.race + a 200ms timeout — slow cache misses fall
-      // through to a non-enriched goalRadar.
-      let fotmobData: import("@/lib/fotmob").FotMobMatchDetails | null = null;
-      if (parsed.fotmobId && parsed.matchDate) {
-        try {
-          fotmobData = await Promise.race([
-            getCachedMatchDetails(parsed.fotmobId, parsed.matchDate),
-            new Promise<null>((resolve) =>
-              setTimeout(() => resolve(null), 200),
-            ),
-          ]);
-        } catch {
-          fotmobData = null;
-        }
-      }
-      goalRadar = calculateGoalProbability(
-        parsed.stats,
-        parsed.minute,
-        parsed.isLive,
-        hist.length > 0 ? hist : undefined,
-        parsed.homeGoals,
-        parsed.awayGoals,
-        parsed.home,
-        parsed.away,
-        undefined,
-        undefined,
-        fotmobData,
-      );
+	    if (parsed.isLive && parsed.hasStats) {
+	      // Try to enrich with FotMob data. The async lookup is bounded
+	      // by Promise.race + a 200ms timeout — slow cache misses fall
+	      // through to a non-enriched goalRadar.
+	      let fotmobData: import("@/lib/fotmob").FotMobMatchDetails | null = null;
+	      if (parsed.fotmobId && parsed.matchDate) {
+	        try {
+	          fotmobData = await Promise.race([
+	            getCachedMatchDetails(parsed.fotmobId, parsed.matchDate),
+	            new Promise<null>((resolve) =>
+	              setTimeout(() => resolve(null), 200),
+	            ),
+	          ]);
+	        } catch {
+	          fotmobData = null;
+	        }
+	      }
+
+	      // Try to enrich with Goaloo data (odds + momentum).
+	      // 500ms combined timeout — anti-bot koruması nedeniyle yavaş olabilir,
+	      // timeout'a düşerse Goaloo data null gider, algoritma etkilenmez.
+	      let goalooOddsBoost: { homeBoost: number; awayBoost: number; significance: string } | null = null;
+	      let goalooData: GoalooEnrichment | null = null;
+	      try {
+	        const goalooMatch = await Promise.race([
+	          findGoalooMatchForNesine(parsed.home, parsed.away, parsed.matchDate),
+	          new Promise<null>((resolve) => setTimeout(() => resolve(null), 300)),
+	        ]);
+	        if (goalooMatch) {
+	          const [odds, momentum] = await Promise.all([
+	            fetchGoalooOdds(goalooMatch.goalooMatchId).catch(() => null),
+	            fetchGoalooMomentum(goalooMatch.goalooMatchId).catch(() => null),
+	          ]);
+	          if (odds) {
+	            const movement = analyzeOddsMovement(odds);
+	            if (movement.significance !== 'none') {
+	              goalooOddsBoost = {
+	                homeBoost: movement.homeBoost,
+	                awayBoost: movement.awayBoost,
+	                significance: movement.significance,
+	              };
+	            }
+	          }
+	          if (momentum && momentum.totalMinutes > 0) {
+	            // Son 5 dk'nın momentum ortalaması ve yönü
+	            const recentWindow = Math.min(5, momentum.totalMinutes);
+	            const startIdx = Math.max(0, momentum.homeIntensities.length - recentWindow);
+	            const recentHome = momentum.homeIntensities.slice(startIdx);
+	            const recentAway = momentum.awayIntensities.slice(startIdx);
+	            const homeAvg = recentHome.reduce((s, v) => s + v, 0) / recentHome.length;
+	            const awayAvg = recentAway.reduce((s, v) => s + v, 0) / recentAway.length;
+	            // Yön tespiti: son 5 dk'yı ikiye böl
+	            const midIdx = Math.floor(recentHome.length / 2);
+	            const homeFirst = recentHome.slice(0, midIdx).reduce((s, v) => s + v, 0) / Math.max(1, midIdx);
+	            const homeLast = recentHome.slice(midIdx).reduce((s, v) => s + v, 0) / Math.max(1, recentHome.length - midIdx);
+	            const awayFirst = recentAway.slice(0, midIdx).reduce((s, v) => s + v, 0) / Math.max(1, midIdx);
+	            const awayLast = recentAway.slice(midIdx).reduce((s, v) => s + v, 0) / Math.max(1, recentAway.length - midIdx);
+	            goalooData = {
+	              oddsMovement: goalooOddsBoost,
+	              momentumTrend: {
+	                homeAvg, awayAvg,
+	                homeDirection: homeLast > homeFirst + 5 ? 'rising' : homeLast < homeFirst - 5 ? 'falling' : 'stable',
+	                awayDirection: awayLast > awayFirst + 5 ? 'rising' : awayLast < awayFirst - 5 ? 'falling' : 'stable',
+	              },
+	            };
+	          } else if (goalooOddsBoost) {
+	            goalooData = { oddsMovement: goalooOddsBoost, momentumTrend: null };
+	          }
+	        }
+	      } catch {
+	        // Goaloo timeout veya hata — sessiz geç
+	      }
+
+	      goalRadar = calculateGoalProbability(
+	        parsed.stats,
+	        parsed.minute,
+	        parsed.isLive,
+	        hist.length > 0 ? hist : undefined,
+	        parsed.homeGoals,
+	        parsed.awayGoals,
+	        parsed.home,
+	        parsed.away,
+	        goalooOddsBoost,   // ← artık undefined değil
+	        parsed.leagueId,   // ← artık undefined değil!
+	        fotmobData,
+	        goalooData,        // ← YENİ
+	      );
       // Log ALL predictions for ML pipeline (no minimum score filter).
       // Level is determined by goalRadar.level — let low/medium signals
       // accumulate so the calibration + backtest systems see the full

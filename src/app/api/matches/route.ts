@@ -21,7 +21,6 @@ import { extractFeatures, featuresToArray, pushFeatureSample } from "@/lib/featu
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
 import { reportGoal } from "@/lib/goalSignalTracker";
-import { findGoalooMatchForNesine, fetchGoalooOdds, fetchGoalooMomentum, analyzeOddsMovement } from "@/lib/goaloo";
 import type { GoalooEnrichment } from "@/lib/goalRadar";
 import {
   ensureMatch,
@@ -224,22 +223,23 @@ export async function GET(request: Request) {
 	      }
 
 	      // Try to enrich with Goaloo data (odds + momentum).
-	      // 500ms combined timeout — anti-bot koruması nedeniyle yavaş olabilir,
-	      // timeout'a düşerse Goaloo data null gider, algoritma etkilenmez.
+	      // Dinamik import — Python bridge (scraper.ts) serverless'te
+	      // crash vermesin diye lazy-loaded. Timeout 300ms.
 	      let goalooOddsBoost: { homeBoost: number; awayBoost: number; significance: string } | null = null;
 	      let goalooData: GoalooEnrichment | null = null;
 	      try {
+	        const goaloo = await import('@/lib/goaloo');
 	        const goalooMatch = await Promise.race([
-	          findGoalooMatchForNesine(parsed.home, parsed.away, parsed.matchDate),
+	          goaloo.findGoalooMatchForNesine(parsed.home, parsed.away, parsed.matchDate),
 	          new Promise<null>((resolve) => setTimeout(() => resolve(null), 300)),
 	        ]);
 	        if (goalooMatch) {
 	          const [odds, momentum] = await Promise.all([
-	            fetchGoalooOdds(goalooMatch.goalooMatchId).catch(() => null),
-	            fetchGoalooMomentum(goalooMatch.goalooMatchId).catch(() => null),
+	            goaloo.fetchGoalooOdds(goalooMatch.goalooMatchId).catch(() => null),
+	            goaloo.fetchGoalooMomentum(goalooMatch.goalooMatchId).catch(() => null),
 	          ]);
 	          if (odds) {
-	            const movement = analyzeOddsMovement(odds);
+	            const movement = goaloo.analyzeOddsMovement(odds);
 	            if (movement.significance !== 'none') {
 	              goalooOddsBoost = {
 	                homeBoost: movement.homeBoost,
@@ -249,14 +249,12 @@ export async function GET(request: Request) {
 	            }
 	          }
 	          if (momentum && momentum.totalMinutes > 0) {
-	            // Son 5 dk'nın momentum ortalaması ve yönü
 	            const recentWindow = Math.min(5, momentum.totalMinutes);
 	            const startIdx = Math.max(0, momentum.homeIntensities.length - recentWindow);
 	            const recentHome = momentum.homeIntensities.slice(startIdx);
 	            const recentAway = momentum.awayIntensities.slice(startIdx);
 	            const homeAvg = recentHome.reduce((s, v) => s + v, 0) / recentHome.length;
 	            const awayAvg = recentAway.reduce((s, v) => s + v, 0) / recentAway.length;
-	            // Yön tespiti: son 5 dk'yı ikiye böl
 	            const midIdx = Math.floor(recentHome.length / 2);
 	            const homeFirst = recentHome.slice(0, midIdx).reduce((s, v) => s + v, 0) / Math.max(1, midIdx);
 	            const homeLast = recentHome.slice(midIdx).reduce((s, v) => s + v, 0) / Math.max(1, recentHome.length - midIdx);

@@ -41,9 +41,15 @@ services:
     labels:
       traefik.http.services.golradar.loadbalancer.server.port: "3012"
       traefik.http.services.golradar.loadbalancer.server.scheme: "http"
-    networks:
-      - golradar-net
-    environment:
+	    networks:
+	      - golradar-net
+	    healthcheck:
+	      test: ["CMD-SHELL", "wget -qO- http://localhost:3012/api >/dev/null 2>&1 || curl -sf http://localhost:3012/api >/dev/null 2>&1"]
+	      interval: 30s
+	      timeout: 10s
+	      retries: 5
+	      start_period: 120s
+	    environment:
       # Database — PostgreSQL container'ına bağlanır
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
 
@@ -103,8 +109,14 @@ services:
       DATABASE_URL: "postgresql://postgres:${POSTGRESS_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
     volumes:
       - golradar_ml_data:/data
-    networks:
-      - golradar-net
+	    networks:
+	      - golradar-net
+	    healthcheck:
+	      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9100/healthz')\" || exit 1"]
+	      interval: 30s
+	      timeout: 5s
+	      retries: 5
+	      start_period: 60s
 
 networks:
   golradar-net:

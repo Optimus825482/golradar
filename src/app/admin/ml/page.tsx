@@ -64,16 +64,31 @@ export default function AdminMLPage() {
     });
   };
 
-  const weightAction = async (name: string, version: string, action: 'archive' | 'disable' | 'promote') => {
-    if (typeof window !== 'undefined' && !window.confirm(`${name}@${version} için "${action}" işlemi?`)) return;
-    const res = await authFetch('/api/admin/ml/weights', {
-      method: 'PUT',
-      body: JSON.stringify({ name, version, action }),
-    });
-    const data = await res.json();
-    if (data.ok) load();
-    else if (typeof window !== 'undefined') window.alert(data.error || 'İşlem başarısız');
-  };
+	  const weightAction = async (name: string, version: string, action: 'archive' | 'disable' | 'promote') => {
+	    if (typeof window !== 'undefined' && !window.confirm(`${name}@${version} için "${action}" işlemi?`)) return;
+	    const res = await authFetch('/api/admin/ml/weights', {
+	      method: 'PUT',
+	      body: JSON.stringify({ name, version, action }),
+	    });
+	    const data = await res.json();
+	    if (data.ok) load();
+	    else if (typeof window !== 'undefined') window.alert(data.error || 'İşlem başarısız');
+	  };
+
+	  const deleteArtifact = async (name: string, version: string, isChampion: boolean = false) => {
+	    if (isChampion) {
+	      window.alert('⭐ Champion model silinemez. Önce başka bir sürümü champion yapın (Promote).');
+	      return;
+	    }
+	    if (typeof window !== 'undefined' && !window.confirm(`${name}@${version} silinsin mi? Bu işlem geri alınamaz.`)) return;
+	    const res = await authFetch('/api/admin/ml/artifact', {
+	      method: 'DELETE',
+	      body: JSON.stringify({ name, version }),
+	    });
+	    const data = await res.json();
+	    if (data.ok) { load(); }
+	    else window.alert(data.error || 'Silme başarısız');
+	  };
 
   useEffect(() => {
     load();
@@ -272,6 +287,7 @@ export default function AdminMLPage() {
             </div>
 
             {champion && (
+              <>
               <div className="p-4 grid grid-cols-2 md:grid-cols-5 gap-3 bg-gradient-to-br from-emerald-50/40 to-white">
                 <MetricTile label="Sürüm" value={`v${champion.version}`} color={meta.color} />
                 <MetricTile label="Brier" value={(champion.metrics.brier ?? 0).toFixed(4)} color={champion.metrics.brier && champion.metrics.brier < 0.2 ? '#10b981' : '#f59e0b'} />
@@ -279,30 +295,56 @@ export default function AdminMLPage() {
                 <MetricTile label="Accuracy" value={`${((champion.metrics.accuracy ?? 0) * 100).toFixed(1)}%`} color="#9178d9" />
                 <MetricTile label="Train Rows" value={fmtNum(champion.metrics.trainRows)} color="#f79520" />
               </div>
+              <div className="px-4 pb-3 flex justify-end">
+                <button onClick={() => deleteArtifact(name, champion.version, false)}
+                  className="text-[10px] px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-bold border border-red-200 disabled:opacity-50"
+                  title="Champion silinemez, önce başka bir sürümü champion yapın">
+                  🗑️ Sil (önce promote yap)
+                </button>
+              </div>
+              </>
             )}
 
-            {shadows.length > 0 && (
-              <div className="px-4 py-3 border-t border-gray-100">
-                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Shadow Modelleri ({shadows.length})
-                </div>
-                <div className="space-y-1.5">
-                  {shadows.slice(0, 5).map(s => (
-                    <div key={s.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-[11px]">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-gray-500">v{s.version}</span>
-                        <span className="text-gray-400">·</span>
-                        <span className="text-gray-600">{fmtDate(s.createdAt)}</span>
-                      </div>
-                      <div className="flex items-center gap-3 font-mono">
-                        <span>Brier <b className="text-gray-700">{(s.metrics.brier ?? 0).toFixed(4)}</b></span>
-                        <span>Acc <b className="text-gray-700">{((s.metrics.accuracy ?? 0) * 100).toFixed(1)}%</b></span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+	            {shadows.length > 0 && (
+	              <div className="px-4 py-3 border-t border-gray-100">
+	                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+	                  Shadow Modelleri ({shadows.length})
+	                </div>
+	                <div className="space-y-1">
+	                  {shadows.sort((a, b) => (b.metrics.brier ?? 999) - (a.metrics.brier ?? 999)).map(s => (
+	                    <div key={s.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-[11px] group">
+	                      <div className="flex items-center gap-2">
+	                        <span className="font-mono text-gray-700 font-semibold">v{s.version}</span>
+	                        <span className="text-gray-400">·</span>
+	                        <span className="text-gray-500">{fmtDate(s.createdAt)}</span>
+	                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+	                          (s.metrics.brier ?? 999) < 0.2 ? 'bg-emerald-100 text-emerald-700' :
+	                          (s.metrics.brier ?? 999) < 0.3 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+	                        }`}>
+	                          Brier {s.metrics.brier?.toFixed(4) ?? '?'}
+	                        </span>
+	                        <span className="text-gray-400 font-mono">{((s.metrics.accuracy ?? 0) * 100).toFixed(1)}%</span>
+	                      </div>
+	                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+	                        <button onClick={() => weightAction(name, s.version, 'promote')}
+	                          className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-bold">
+	                          ⭐ Promote
+	                        </button>
+	                        <button onClick={() => deleteArtifact(name, s.version)}
+	                          className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 font-bold border border-red-200">
+	                          🗑️
+	                        </button>
+	                      </div>
+	                    </div>
+	                  ))}
+	                </div>
+	                {shadows.length > 5 && (
+	                  <div className="text-[10px] text-gray-400 text-center mt-2">
+	                    Toplam {shadows.length} shadow — Brier yüksek olanlar silinebilir
+	                  </div>
+	                )}
+	              </div>
+	            )}
 
             {versions.length === 0 && (
               <div className="p-4 text-center text-[11px] text-gray-400">

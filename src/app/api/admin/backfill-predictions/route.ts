@@ -9,17 +9,10 @@
 import { NextResponse } from "next/server";
 import { adminRoute } from "@/lib/adminRoute";
 import { db } from "@/lib/db";
-import {
-  fetchGoalooSeasonMatches,
-  fetchGoalooMomentum,
-  fetchGoalooMatchEvents,
-  type GoalooSeasonMatch,
-  type MomentumData,
-  type GoalooMatchEvent,
-} from "@/lib/goaloo";
 import { calculateGoalProbability } from "@/lib/goalRadar";
 import { extractFeatures, featuresToArray } from "@/lib/featureEngineering";
 import { getRating } from "@/lib/eloRating";
+import type { MomentumData, GoalooSeasonMatch, GoalooMatchEvent } from "@/lib/goaloo";
 
 export const dynamic = "force-dynamic";
 
@@ -123,11 +116,12 @@ async function processMatch(m: GoalooSeasonMatch, leagueName: string): Promise<n
   const homeTeam = m.homeTeam;
   const awayTeam = m.awayTeam;
 
-  // Fetch momentum & events from Goaloo AJAX endpoints
-  const momentum = await fetchGoalooMomentum(matchCode);
+	  // Fetch momentum & events from Goaloo AJAX endpoints
+	  const goaloo = await import('@/lib/goaloo');
+	  const momentum = await goaloo.fetchGoalooMomentum(matchCode);
   if (!momentum) return 0;
 
-  const events = await fetchGoalooMatchEvents(matchCode);
+	  const events = await goaloo.fetchGoalooMatchEvents(matchCode);
   const goalEvents = parseGoalEvents(events, homeTeam, awayTeam);
 
   // Build snapshots
@@ -217,7 +211,8 @@ export const POST = adminRoute(async (request: Request) => {
 
   void (async () => {
     try {
-      const matches = await fetchGoalooSeasonMatches(league, season);
+	      const goaloo = await import('@/lib/goaloo');
+	      const matches = await goaloo.fetchGoalooSeasonMatches(league, season);
       progress.totalMatches = Math.min(matches.length, maxMatches);
 
       let processed = 0, totalPreds = 0;

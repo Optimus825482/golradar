@@ -17,6 +17,7 @@ import {
   type MatchStats as NesineMatchStats,
   FINISHED_STATUSES,
 } from '@/lib/nesine'
+import { determineSideByStats } from '@/lib/goalRadar/side'
 import type {
   FotMobMatchDetails,
 } from '@/lib/fotmob'
@@ -542,36 +543,48 @@ export default function OptimusGolRadariPage() {
   // fire inside a useMemo (React anti-pattern). A ref tracks which
   // match+side+minute combos have already been posted to prevent
   // duplicate signals on re-render.
-  const postedSignalsRef = useRef<Set<string>>(new Set())
-  useEffect(() => {
-    const posted = postedSignalsRef.current
-    for (const [code, prob] of goalProbabilities) {
-      if (!prob || !prob.side) continue
-      const m = matches.find(x => x.code === code)
-      if (!m) continue
-      const signalKey = `${code}:${prob.side}:${parseGoalMinute(m.minute)}`
-      if (posted.has(signalKey)) continue
-      posted.add(signalKey)
-      fetch('/api/goal-signals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          matchCode: code, homeTeam: m.home, awayTeam: m.away, league: m.league,
-          matchTime: m.time, minute: m.minute, score: prob.score,
-          side: prob.side, homeGoals: m.homeGoals, awayGoals: m.awayGoals,
-          homeScore: prob.homeScore, awayScore: prob.awayScore,
-          level: prob.level, factors: prob.factors,
-          calibratedP: prob.calibratedP, poissonP: prob.poissonP,
-        }),
-      }).catch((e) => { logError('page', e); })
-    }
-    // Keep set from growing unbounded — cap at 500 entries
+	  useEffect(() => {
+	    const posted = postedSignalsRef.current
+	    for (const [code, prob] of goalProbabilities) {
+	      if (!prob) continue
+	      // Signal gösterme ile kayıt arasında tutarlılık:
+	      // MatchCard score+5minProb'a göre gösterir, burada da aynı şart
+	      if (prob.score < SIGNAL_THRESHOLD || prob.goalProbability5min < SIGNAL_5MIN_THRESHOLD) continue
+	      // Side kontrolü: null ise determineSideByStats ile dene
+	      let side = prob.side
+	      if (!side || side === 'both') {
+	        const m = matches.find(x => x.code === code)
+	        if (m && m.stats) {
+	          try {
+	            side = determineSideByStats(m.stats)
+	          } catch { /* fallback */ }
+	        }
+	      }
+	      if (!side || side === 'both') continue
+	      const m = matches.find(x => x.code === code)
+	      if (!m) continue
+	      const signalKey = `${code}:${side}:${parseGoalMinute(m.minute)}`
+	      if (posted.has(signalKey)) continue
+	      posted.add(signalKey)
+	      fetch('/api/goal-signals', {
+	        method: 'POST',
+	        headers: { 'Content-Type': 'application/json' },
+	        body: JSON.stringify({
+	          matchCode: code, homeTeam: m.home, awayTeam: m.away, league: m.league,
+	          matchTime: m.time, minute: m.minute, score: prob.score,
+	          side, homeGoals: m.homeGoals, awayGoals: m.awayGoals,
+	          homeScore: prob.homeScore, awayScore: prob.awayScore,
+	          level: prob.level, factors: prob.factors,
+	          calibratedP: prob.calibratedP, poissonP: prob.poissonP,
+	        }),
+	      }).catch((e) => { logError('page', e); })
+	    }
+	    // Keep set from growing unbounded — cap at 500 entries
 	    if (posted.size > 500) {
-	      // True FIFO: eski sinyalleri koru, en yeni 200'ü bırak
 	      const arr = Array.from(posted)
 	      postedSignalsRef.current = new Set(arr.slice(0, 300))
 	    }
-  }, [goalProbabilities, matches])
+	  }, [goalProbabilities, matches])
 
   const radarCount = goalProbabilities.size
 

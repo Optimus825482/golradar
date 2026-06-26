@@ -98,10 +98,10 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
   // ── Compute today's stats ──
   const today = new Date().toISOString().slice(0, 10);
   const todaySignals = signals.filter(s => s.date === today || new Date(s.signalTimestamp ?? 0).toISOString().slice(0, 10) === today);
-  const todayResolved = todaySignals.filter(s => s.goalHappened !== null);
-  const todaySuccess = todayResolved.filter(s => s.goalHappened === true).length;
-  const todayFail = todayResolved.filter(s => s.goalHappened === false).length;
-  const todayRate = todayResolved.length > 0 ? todaySuccess / todayResolved.length : 0;
+  const todayResolved = todaySignals.filter(s => s.goalHappened !== null).length;
+  const todaySuccess = todaySignals.filter(s => s.goalHappened === true).length;
+  const todayFail = todaySignals.filter(s => s.goalHappened === false).length;
+  const todayRate = todayResolved > 0 ? todaySuccess / todayResolved : 0;
 
   // ── Filtered list (pending first, then by time) ──
   const filteredSignals = useMemo(() => {
@@ -202,7 +202,7 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
           </div>
           <div className="text-center">
             <div className="text-[9px] text-gray-500 uppercase font-semibold">Gol</div>
-            <div className="text-lg font-black text-emerald-600">{todaySuccess}/{todayResolved}</div>
+            <div className="text-lg font-black text-emerald-600">{`${todaySuccess}/${todayResolved}`}</div>
           </div>
           <div className="text-center">
             <div className="text-[9px] text-gray-500 uppercase font-semibold">Başarısız</div>

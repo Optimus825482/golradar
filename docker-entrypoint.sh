@@ -117,6 +117,24 @@ for model in xgb gbdt inplay; do
   fi
 done
 
+# ── Python / Scrapling Check ──────────────────────────────────────
+echo "[PYTHON] Python + scrapling kontrol ediliyor..."
+if command -v python3 &>/dev/null; then
+  PYTHON_OK=$(python3 -c "try:
+  import scrapling
+  print('OK')
+except:
+  print('NO')" 2>&1)
+  if [ "$PYTHON_OK" = "OK" ]; then
+    echo "[PYTHON] ✅ Python + scrapling hazır — Goaloo/FotMob zenginleştirmesi aktif"
+  else
+    echo "[PYTHON] ⚠️  scrapling bulunamadı — Goaloo/Netscores Python bridge pasif"
+    echo "[PYTHON]    Uygulama Python'suz çalışır, Goaloo zenginleştirmesi atlanır"
+  fi
+else
+  echo "[PYTHON] ⚠️  Python bulunamadı — Goaloo/Netscores Python bridge pasif"
+fi
+
 # ── Start Next.js ────────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════"

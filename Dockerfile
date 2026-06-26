@@ -26,6 +26,7 @@ LABEL description="golradar — web app + nesine relay"
 
 ENV NODE_ENV=production
 ENV PORT=3012
+ENV HOSTNAME=0.0.0.0
 
 # nodejs for prisma CLI; python3 + build tooling for Scrapling (curl_cffi
 # compiles a C extension at install time). libstdc++ is needed for the

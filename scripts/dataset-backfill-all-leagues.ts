@@ -215,7 +215,7 @@ async function phase1BulkImport(
         }
 
         // Rate limit: 500ms between season calls per worker
-        await setTimeout(500);
+        await setTimeout(200);
       }
 
       processed++;

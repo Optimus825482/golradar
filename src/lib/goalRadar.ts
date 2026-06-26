@@ -1000,14 +1000,13 @@ export function calculateGoalProbability(
   );
 
   // Levels calibrated to observed goal rates:
-  //   score 40-54 → low    (~5% goal rate)
-  //   score 55-69 → medium (~15% goal rate)
-  //   score 70-79 → high   (~29% goal rate)
-  //   score 80+   → critical
+  //   score 60-69 → medium    (~39% goal rate)
+  //   score 70-79 → high   (~42% goal rate)
+  //   score 80+   → critical   (~55% goal rate)
   let level: GoalProbability["level"] = "low";
   if (score >= 80) level = "critical";
   else if (score >= 70) level = "high";
-  else if (score >= 55) level = "medium";
+  else if (score >= 60) level = "medium";
 
   homeScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, homeScore));
   awayScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, awayScore));
@@ -1086,21 +1085,21 @@ export function calculateGoalProbability(
 	  } catch (e) { logError('goalRadar', e); /* fallback */ }
 
   // P0.5: Critical multi-confirmation gate — score ≥80 is necessary but
-  // insufficient. Requires ≥2 of 4 independent confirms to prevent
+  // insufficient. Requires ≥3 of 4 independent confirms to prevent
   // single-factor spikes (e.g., red card only) from triggering critical.
   if (finalScore >= 80) {
     const xgThreat = xg.home > 0.4 || xg.away > 0.4;
     const pressureConfirm = pressure.home > 55 || pressure.away > 55;
-    const factorsConfirm = homeFactors.length >= 2 || awayFactors.length >= 2;
+    const factorsConfirm = homeFactors.length >= 3 || awayFactors.length >= 3;
     const goalProbConfirm = goalProbability5min >= 0.20;
     const confirms = [xgThreat, pressureConfirm, factorsConfirm, goalProbConfirm];
-    if (confirms.filter(Boolean).length >= 2) {
+    if (confirms.filter(Boolean).length >= 3) {
       level = "critical";
     } else {
       level = "high";
     }
   } else if (finalScore >= 70) level = "high";
-  else if (finalScore >= 55) level = "medium";
+  else if (finalScore >= 60) level = "medium";
   else level = "low";
 
   // ── FotMob Intelligence Integration ─────────────────────────────

@@ -9,14 +9,14 @@ interface NavTab {
   icon: (active: boolean) => React.ReactNode
 }
 
-interface BottomNavBarProps {
-  activeTab: string
-  liveCount: number
-  radarCount: number
-  favCount: number
-  finishedCount?: number
-  onTabChange: (tab: any) => void
-}
+	interface BottomNavBarProps {
+	  activeTab: string
+	  liveCount: number
+	  radarCount: number
+	  favCount: number
+	  finishedCount?: number
+	  onTabChange: (tab: BottomTab | 'signal-history') => void
+	}
 
 export function BottomNavBar({
   activeTab, liveCount, radarCount, favCount, finishedCount,

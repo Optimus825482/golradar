@@ -190,14 +190,19 @@ export function clearIsotonicCache(): void {
 }
 
 	/** Optimize sigmoid params from PredictionLog table, persist to SystemConfig. */
-	export async function autoCalibrateFromDB(): Promise<{
-	  x0: number;
-	  k: number;
-	  L: number;
-	  brierBefore: number;
-	  brierAfter: number;
-	} | null> {
-	  const logs = await db.predictionLog.findMany({
+let _calibrationRunning = false;
+
+export async function autoCalibrateFromDB(): Promise<{
+  x0: number;
+  k: number;
+  L: number;
+  brierBefore: number;
+  brierAfter: number;
+} | null> {
+  if (_calibrationRunning) return null;
+  _calibrationRunning = true;
+  try {
+    const logs = await db.predictionLog.findMany({
 	    where: { goalScored: { not: null } },
 	    select: { rawScore: true, calibratedP: true, goalScored: true },
 	    orderBy: { createdAt: "desc" },
@@ -298,6 +303,9 @@ export function clearIsotonicCache(): void {
 	    `[Calibration] No improvement needed (TrainBrier ${currentBrier.toFixed(4)}, ValBrier ${bestValBrier.toFixed(4)})`,
 	  );
 	  return null;
+	} finally {
+	  _calibrationRunning = false;
+	}
 	}
 
 export function calibrateScore(rawScore: number): number {
@@ -393,8 +401,8 @@ export async function calculateCalibrationStats(days?: number): Promise<Calibrat
   const records = await loadCalibrationRecords(days);
   if (records.length === 0) {
     return {
-      totalPredictions: 0, totalGoals: 0, brierScore: 1.0, logLoss: Infinity,
-      accuracy: 0, calibrationError: 0, bins: [], lastUpdated: Date.now(),
+      totalPredictions: 0, totalGoals: 0, brierScore: null, logLoss: null,
+      accuracy: null, calibrationError: null, bins: [], lastUpdated: Date.now(),
     };
   }
   const totalGoals = records.filter((r) => r.goalScored).length;

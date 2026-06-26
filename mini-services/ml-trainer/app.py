@@ -75,15 +75,16 @@ class TrainRequest(BaseModel):
     version: str = Field(..., description="semver, e.g. '1.0.0'")
     horizon_min: int = Field(..., ge=1, le=120)
     dataset_path: str = Field(..., description="Path to the JSONL file the TS exporter produced")
-    n_estimators: int = 400
-    max_depth: int = 4
-    learning_rate: float = 0.05
+    n_estimators: int = 800
+    max_depth: int = 6
+    learning_rate: float = 0.03
     subsample: float = 0.8
     colsample_bytree: float = 0.7
-    reg_lambda: float = 1.0
-    reg_alpha: float = 0.0
+    reg_lambda: float = 1.5
+    reg_alpha: float = 0.1
+    min_child_weight: int = 3
     test_size: float = 0.2
-    early_stopping_rounds: int = 30
+    early_stopping_rounds: int = 50
     random_state: int = 42
 
 
@@ -177,7 +178,7 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         base_score = max(0.01, min(0.99, pos_rate))
         print(f"[trainer] {req.name}@{req.version}: n={len(df)}, pos_rate={pos_rate:.3f}, base_score={base_score:.3f}, features={X.shape[1]}")
 
-        # Train XGBoost with better base_score
+        # Train XGBoost with better base_score and params
         model = xgb.XGBClassifier(
             n_estimators=req.n_estimators,
             max_depth=req.max_depth,
@@ -186,6 +187,7 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
             colsample_bytree=req.colsample_bytree,
             reg_lambda=req.reg_lambda,
             reg_alpha=req.reg_alpha,
+            min_child_weight=req.min_child_weight,
             objective="binary:logistic",
             eval_metric=["logloss", "error", "auc"],
             early_stopping_rounds=req.early_stopping_rounds,

@@ -3,6 +3,8 @@ import { triggerExportNow } from '@/lib/ml/trainingScheduler';
 import type { TrainingHorizon } from '@/lib/ml/exportTrainingData';
 import { adminRoute } from '@/lib/adminRoute';
 import { db } from '@/lib/db';
+import fs from 'fs';
+import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,17 +17,26 @@ export const GET = adminRoute(async () => {
     orderBy: { createdAt: 'desc' },
     take: 100,
   });
-  const datasets = rows.map(r => ({
-    id: r.id,
-    horizon: r.horizonMin,
-    rowCount: r.rowCount,
-    path: r.path,
-    sizeBytes: 0, // not stored in DB
-    status: r.status,
-    date: r.createdAt?.toISOString().slice(0, 10) ?? '',
-    createdAt: r.createdAt?.toISOString() ?? null,
-    errorMsg: r.errorMsg,
-  }));
+  const datasets = rows.map(r => {
+    let sizeBytes = 0;
+    if (r.path) {
+      try {
+        const fullPath = r.path.startsWith('/') ? r.path : path.join(process.cwd(), r.path);
+        if (fs.existsSync(fullPath)) sizeBytes = fs.statSync(fullPath).size;
+      } catch { /* file may be deleted */ }
+    }
+    return {
+      id: r.id,
+      horizon: r.horizonMin,
+      rowCount: r.rowCount,
+      path: r.path,
+      sizeBytes,
+      status: r.status,
+      date: r.createdAt?.toISOString().slice(0, 10) ?? '',
+      createdAt: r.createdAt?.toISOString() ?? null,
+      errorMsg: r.errorMsg,
+    };
+  });
   return NextResponse.json({ datasets });
 });
 

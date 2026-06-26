@@ -36,12 +36,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-	    ports:
-	      - "3012:3012"
-	    labels:
-	      traefik.http.services.golradar.loadbalancer.server.port: "3012"
-	      traefik.http.services.golradar.loadbalancer.server.scheme: "http"
-	    environment:
+    ports:
+      - "3012:3012"
+    labels:
+      traefik.http.services.golradar.loadbalancer.server.port: "3012"
+      traefik.http.services.golradar.loadbalancer.server.scheme: "http"
+    networks:
+      - golradar-net
+    environment:
       # Database — PostgreSQL container'ına bağlanır
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
 
@@ -66,6 +68,9 @@ services:
       # ML Trainer sidecar URL (Docker internal network)
       ML_TRAINER_URL: "http://ml-trainer:9100"
 
+      # ML data directory — shared volume mount point
+      ML_DATA_DIR: "/app/data"
+
       # PWA
       NEXT_PUBLIC_PWA_THEME_COLOR: "${NEXT_PUBLIC_PWA_THEME_COLOR:-#10b981}"
 
@@ -82,18 +87,8 @@ services:
       IMPORT_FOTMOB_TEAMS: "${IMPORT_FOTMOB_TEAMS:-0}"
     volumes:
       - golradar_ml_data:/app/data
-    networks:
-      - golradar-net
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3012/api >/dev/null 2>&1 || curl -sf http://localhost:3012/api >/dev/null 2>&1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
 
   # ── ML Trainer Sidecar (XGBoost) ──
-  # Python ile XGBoost model eğitimi için.
-  # Çalışmazsa uygulama built-in GBDT model ile devam eder.
   ml-trainer:
     build:
       context: ./mini-services/ml-trainer
@@ -105,17 +100,11 @@ services:
         condition: service_healthy
     environment:
       ML_DATA_ROOT: /data
-      DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
+      DATABASE_URL: "postgresql://postgres:${POSTGRESS_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
     volumes:
       - golradar_ml_data:/data
     networks:
       - golradar-net
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9100/healthz')\" || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
 
 networks:
   golradar-net:

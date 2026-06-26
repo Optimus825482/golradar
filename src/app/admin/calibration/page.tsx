@@ -80,18 +80,18 @@ import { authFetch, KPICard } from '@/lib/adminAuth';
       </div>
 
       {/* KPI Row */}
-	      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-	        <KPICard label="Brier Score" value={stats.brierScore.toFixed(4)}
-	          color={stats.brierScore < 0.2 ? '#10b981' : stats.brierScore < 0.3 ? '#f59e0b' : '#ef4444'}
-	          sub="Düşük = iyi" />
-	        <KPICard label="Kal. Hata" value={(stats.calibrationError * 100).toFixed(1) + '%'}
-	          color={stats.calibrationError < 0.1 ? '#10b981' : '#f59e0b'}
-	          sub="Tahmin-gözlem farkı" />
-	        <KPICard label="Ortalama P" value={stats.bins?.length > 0
-	          ? (stats.bins.reduce((a, b) => a + b.avgCalibratedP * b.count, 0) / Math.max(1, stats.totalPredictions)).toFixed(3)
-	          : '—'} color="#5794f2" sub="Model çıktısı" />
-	        <KPICard label="Ortalama Gözlem" value={(stats.totalGoals / Math.max(1, stats.totalPredictions)).toFixed(3)} color="#10b981" sub="Gerçekleşen gol %" />
-	      </div>
+		      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+		        <KPICard label="Brier Score" value={stats.brierScore != null ? stats.brierScore.toFixed(4) : '—'}
+		          color={stats.brierScore != null ? (stats.brierScore < 0.2 ? '#10b981' : stats.brierScore < 0.3 ? '#f59e0b' : '#ef4444') : '#6b7280'}
+		          sub="Düşük = iyi" />
+		        <KPICard label="Kal. Hata" value={stats.calibrationError != null ? (stats.calibrationError * 100).toFixed(1) + '%' : '—'}
+		          color={stats.calibrationError != null ? (stats.calibrationError < 0.1 ? '#10b981' : '#f59e0b') : '#6b7280'}
+		          sub="Tahmin-gözlem farkı" />
+		        <KPICard label="Ortalama P" value={stats.bins?.length > 0
+		          ? (stats.bins.reduce((a, b) => a + b.avgCalibratedP * b.count, 0) / Math.max(1, stats.totalPredictions)).toFixed(3)
+		          : '—'} color="#5794f2" sub="Model çıktısı" />
+		        <KPICard label="Ortalama Gözlem" value={(stats.totalGoals / Math.max(1, stats.totalPredictions)).toFixed(3)} color="#10b981" sub="Gerçekleşen gol %" />
+		      </div>
 
 	      {/* Manual Auto-Calibrate Button */}
 	      <div className="flex items-center gap-2">

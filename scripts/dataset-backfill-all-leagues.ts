@@ -218,7 +218,7 @@ async function phase1BulkImport(
   const workers_arr: Promise<void>[] = [];
   const workerCount = Math.min(CONCURRENCY, leagues.length);
   for (let i = 0; i < workerCount; i++) {
-    workers_arr.push(worker(i + 1));
+    workers_arr.push(worker());
   }
   await Promise.all(workers_arr);
 
@@ -243,7 +243,10 @@ async function phase1BulkImport(
       const key = e.error;
       errorCounts.set(key, (errorCounts.get(key) || 0) + 1);
     }
-    for (const [err, count] of [...errorCounts.entries()].slice(0, 10)) {
+    const entries: [string, number][] = [];
+    errorCounts.forEach((v, k) => entries.push([k, v]));
+    entries.sort((a, b) => b[1] - a[1]);
+    for (const [err, count] of entries.slice(0, 10)) {
       console.log(`    ${err} (${count}x)`);
     }
   }
@@ -273,7 +276,7 @@ async function phase2Enrich(
   // Only do the most recent season for enrichment (too slow otherwise)
   const targetSeason = RECENT_SEASONS[0];
 
-  async function worker(id: number) {
+  async function worker() {
     const { calculateGoalProbability } = await import("../src/lib/goalRadar");
     const { extractFeatures, featuresToArray } = await import("../src/lib/featureEngineering");
 
@@ -407,9 +410,9 @@ async function phase2Enrich(
           await setTimeout(800); // Rate limit
         }
 
-        console.log(`[Worker ${id}] ✅ ${league.shortName} (${league.id}): ${capped.length} matches enriched`);
+        console.log(`[Enrich] ✅ ${league.shortName} (${league.id}): ${capped.length} matches enriched`);
       } catch {
-        console.log(`[Worker ${id}] ❌ ${league.shortName} (${league.id}): fetch failed`);
+        console.log(`[Enrich] ❌ ${league.shortName} (${league.id}): fetch failed`);
       }
     }
   }
@@ -417,7 +420,7 @@ async function phase2Enrich(
   const workerCount = Math.min(WORKERS, leagues.length);
   const workers_arr: Promise<void>[] = [];
   for (let i = 0; i < workerCount; i++) {
-    workers_arr.push(worker(i + 1));
+    workers_arr.push(worker());
   }
   await Promise.all(workers_arr);
 

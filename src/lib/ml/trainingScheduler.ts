@@ -32,7 +32,7 @@ const MAX_ROWS_PER_EXPORT = 50_000;
 	  lastExportDate: string; // YYYY-MM-DD, used as a once-per-day guard
 	  lastInPlayExportDate: string; // YYYY-MM-DD, used as a once-per-window guard
 	  lastShadowEvalDate: string; // YYYY-MM-DD, used as a once-per-day guard
-	  lastCalibrationDate: string; // YYYY-MM-DD, used as a once-per-week guard
+	  lastCalibrationDate: string; // YYYY-MM-DD, min 24h between runs (günlük)
 	  horizons: TrainingHorizon[];
 	  startedAt: number;
 	}
@@ -231,12 +231,12 @@ function checkAndRunDaily(): void {
 	    const driftReport = evaluateCalibrationDrift({ series: brierSeries, windowDays: 7 });
 	    await persistDriftReport(today, driftReport, 'trainingScheduler');
 
-	    // 3. Haftada bir otomatik sigmoid recalibrasyon
-	    // Son kalibrasyon 7+ gün önceyse çalıştır
-	    const daysSinceCal = state.lastCalibrationDate
-	      ? Math.floor((Date.now() - new Date(state.lastCalibrationDate).getTime()) / 86400000)
-	      : 999;
-	    if (daysSinceCal >= 7) {
+		    // 3. Günlük otomatik sigmoid recalibrasyon
+		    // Her gün 03:00'te çalışır (min 24 saat aralıklı)
+		    const daysSinceCal = state.lastCalibrationDate
+		      ? Math.floor((Date.now() - new Date(state.lastCalibrationDate).getTime()) / 86400000)
+		      : 999;
+		    if (daysSinceCal >= 1) {
 	      try {
 	        const { autoCalibrateFromDB } = await import('@/lib/calibration');
 	        const result = await autoCalibrateFromDB();

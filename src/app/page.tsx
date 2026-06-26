@@ -518,23 +518,38 @@ export default function OptimusGolRadariPage() {
 
   }, [matches, favorites])
 
-	  // Goal probabilities — pure computation only, no side-effects
+	  // Goal probabilities — gösterim + kayıt tutarlılığı
+	  // Sadece kaydedilebilecek sinyalleri göster (score + 5min prob + side)
 	  const goalProbabilities = useMemo(() => {
 	    const map = new Map<number, GoalProbability>()
 	    for (const m of matches) {
 	      if (!m.isLive || !m.hasStats || HALFTIME_STATUSES.has(m.status)) continue
-	      // B3: Server goalRadar varsa ve maç hala canlıysa kullan
-	      if (m.isLive && m.goalRadar && m.goalRadar.score >= SIGNAL_THRESHOLD && m.goalRadar.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) {
-	        map.set(m.code, m.goalRadar)
-	        continue
+	      // Server goalRadar varsa ve maç hala canlıysa kullan
+	      let prob: GoalProbability | undefined
+	      if (m.goalRadar && m.goalRadar.score >= SIGNAL_THRESHOLD && m.goalRadar.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) {
+	        prob = m.goalRadar
+	      } else {
+	        const history = allPressureData[m.code]
+	        const cp = calculateGoalProbability(
+	          m.stats, m.minute, m.isLive, history, m.homeGoals, m.awayGoals, m.home, m.away,
+	        )
+	        if (cp.score >= SIGNAL_THRESHOLD && cp.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) {
+	          prob = cp
+	        }
 	      }
-	      const history = allPressureData[m.code]
-	      const prob = calculateGoalProbability(
-	        m.stats, m.minute, m.isLive, history, m.homeGoals, m.awayGoals, m.home, m.away,
-	      )
-	      if (prob.score >= SIGNAL_THRESHOLD && prob.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) {
-	        map.set(m.code, prob)
+	      if (!prob) continue
+	      // Side kontrolü: null ise determineSideByStats ile dene, yine nullsa gösterme
+	      if (!prob.side || prob.side === 'both') {
+	        try {
+	          const fallbackSide = determineSideByStats(m.stats)
+	          if (fallbackSide && fallbackSide !== 'both') {
+	            prob = { ...prob, side: fallbackSide }
+	          } else {
+	            continue // side belirlenemiyor → gösterme
+	          }
+	        } catch { continue }
 	      }
+	      map.set(m.code, prob)
 	    }
 	    return map
 	  }, [matches, allPressureData])
@@ -547,24 +562,11 @@ export default function OptimusGolRadariPage() {
 	  useEffect(() => {
 	    const posted = postedSignalsRef.current
 	    for (const [code, prob] of goalProbabilities) {
-	      if (!prob) continue
-	      // Signal gösterme ile kayıt arasında tutarlılık:
-	      // MatchCard score+5minProb'a göre gösterir, burada da aynı şart
-	      if (prob.score < SIGNAL_THRESHOLD || prob.goalProbability5min < SIGNAL_5MIN_THRESHOLD) continue
-	      // Side kontrolü: null ise determineSideByStats ile dene
-	      let side = prob.side
-	      if (!side || side === 'both') {
-	        const m = matches.find(x => x.code === code)
-	        if (m && m.stats) {
-	          try {
-	            side = determineSideByStats(m.stats)
-	          } catch { /* fallback */ }
-	        }
-	      }
-	      if (!side || side === 'both') continue
+	      if (!prob || !prob.side || prob.side === 'both') continue
+	      // goalProbabilities artık side'ı validate edilmiş olarak döndürür
 	      const m = matches.find(x => x.code === code)
 	      if (!m) continue
-	      const signalKey = `${code}:${side}:${parseGoalMinute(m.minute)}`
+	      const signalKey = `${code}:${prob.side}:${parseGoalMinute(m.minute)}`
 	      if (posted.has(signalKey)) continue
 	      posted.add(signalKey)
 	      fetch('/api/goal-signals', {
@@ -573,7 +575,7 @@ export default function OptimusGolRadariPage() {
 	        body: JSON.stringify({
 	          matchCode: code, homeTeam: m.home, awayTeam: m.away, league: m.league,
 	          matchTime: m.time, minute: m.minute, score: prob.score,
-	          side, homeGoals: m.homeGoals, awayGoals: m.awayGoals,
+	          side: prob.side, homeGoals: m.homeGoals, awayGoals: m.awayGoals,
 	          homeScore: prob.homeScore, awayScore: prob.awayScore,
 	          level: prob.level, factors: prob.factors,
 	          calibratedP: prob.calibratedP, poissonP: prob.poissonP,

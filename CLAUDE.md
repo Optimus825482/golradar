@@ -1,9 +1,25 @@
 
 # CLAUDE.md
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+Behavioral guidelines + project-specific config.
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+## Proje Kısayolları
+
+| Command | Ne yapar |
+|---------|----------|
+| `/train` | ML training pipeline |
+| `/predict` | Run predictions |
+| `/scrape` | Data scraping |
+| `Agent(ml-trainer)` | ML training specialist |
+| `Agent(data-scraper)` | Data scraping specialist |
+| `Agent(frontend-dev)` | UI development specialist |
+
+## Lazy-Load Rules (`.claude/rules/`)
+
+Claude loads these automatically when touching matching files:
+- `python-ml.md` → `scripts/*.py`, `data/**`
+- `database.md` → `prisma/**`
+- `frontend.md` → `src/app/**`, `src/components/**`
 
 ## 1. Think Before Coding
 

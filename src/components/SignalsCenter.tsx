@@ -66,9 +66,11 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
   const [stats, setStats] = useState<SignalAccuracyStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [period, setPeriod] = useState<PeriodType>("1");   // ← default 24s
-  const [filter, setFilter] = useState<FilterType>("pending"); // ← default pending
+  // Period state
+  const [period, setPeriod] = useState<PeriodType>("1");
+  const [filter, setFilter] = useState<FilterType>("pending");
   const [searchTeam, setSearchTeam] = useState("");
+  const [page, setPage] = useState(1);
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<string | null>(null);
 
@@ -120,10 +122,30 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
       return (b.signalTimestamp ?? 0) - (a.signalTimestamp ?? 0);
     });
     return list;
-  }, [signals, filter, searchTeam]);
+	  }, [signals, filter, searchTeam]);
+
+  // Reset page when filter or search changes
+  useEffect(() => { setPage(1); }, [filter, searchTeam]);
 
   // ── Today's signals for badge ──
   const todayPending = todaySignals.filter(s => s.goalHappened === null).length;
+  // Level breakdown for today
+  const todayLevels = useMemo(() => {
+    const levels: Record<string, { total: number; goals: number }> = {};
+    for (const s of todaySignals) {
+      const lv = s.signalLevel || 'unknown';
+      if (!levels[lv]) levels[lv] = { total: 0, goals: 0 };
+      levels[lv].total++;
+      if (s.goalHappened === true) levels[lv].goals++;
+    }
+    return levels;
+  }, [todaySignals]);
+
+  // ── Pagination ──
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
+  const totalPages = Math.max(1, Math.ceil(filteredSignals.length / PAGE_SIZE));
+  const pagedSignals = filteredSignals.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleSelectSignal = useCallback(async (s: GoalSignalRecord) => {
     const live = matches.find(m => m.code === s.matchCode);
@@ -183,44 +205,58 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
 
   return (
     <div className="px-3 py-3 space-y-4 pb-24">
-      {/* ── Header: Bugünün Başarısı ── */}
-      <div className="bg-gradient-to-br from-indigo-50 via-white to-emerald-50 rounded-xl border border-gray-200 p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wide">📊 Bugünün Sinyal Performansı</h2>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-            todayPending > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-          }`}>
-            {todayPending > 0 ? `${todayPending} bekliyor` : 'Tümü çözüldü'}
-          </span>
-        </div>
-        <div className="grid grid-cols-4 gap-2">
-          <div className="text-center">
-            <div className="text-[9px] text-gray-500 uppercase font-semibold">Toplam</div>
-            <div className="text-lg font-black text-gray-800">{todaySignals.length}</div>
-          </div>
-          <div className="text-center">
-            <div className="text-[9px] text-gray-500 uppercase font-semibold">Başarı</div>
-            <div className={`text-lg font-black ${todayRate >= 0.5 ? 'text-emerald-600' : todayRate > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
-              {asPct(todayRate, 0)}
-            </div>
-          </div>
-          <div className="text-center">
-            <div className="text-[9px] text-gray-500 uppercase font-semibold">Gol</div>
-            <div className="text-lg font-black text-emerald-600">{`${todaySuccess}/${todayResolved}`}</div>
-          </div>
-          <div className="text-center">
-            <div className="text-[9px] text-gray-500 uppercase font-semibold">Başarısız</div>
-            <div className="text-lg font-black text-red-500">{todayFail}</div>
-          </div>
-        </div>
-        {/* Mini progress bar */}
-        {todayResolved > 0 && (
-          <div className="mt-2 h-1.5 rounded-full bg-gray-200 overflow-hidden flex">
-            <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${todayRate * 100}%` }} />
-            <div className="h-full bg-red-400 transition-all duration-500" style={{ width: `${(1 - todayRate) * 100}%` }} />
-          </div>
-        )}
-      </div>
+	      {/* ── Bugünün Sinyal Performansı ── */}
+	      <div className="bg-gradient-to-br from-indigo-50 via-white to-emerald-50 rounded-xl border border-gray-200 p-4 shadow-sm">
+	        <div className="flex items-center justify-between mb-2">
+	          <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wide">📊 Bugünün Sinyal Performansı</h2>
+	          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+	            todayPending > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+	          }`}>
+	            {todayPending > 0 ? `${todayPending} bekliyor` : 'Tümü çözüldü'}
+	          </span>
+	        </div>
+	        <div className="grid grid-cols-4 gap-2 mb-2">
+	          <div className="text-center">
+	            <div className="text-[9px] text-gray-500 uppercase font-semibold">Toplam</div>
+	            <div className="text-lg font-black text-gray-800">{todaySignals.length}</div>
+	          </div>
+	          <div className="text-center">
+	            <div className="text-[9px] text-gray-500 uppercase font-semibold">Başarı</div>
+	            <div className={`text-lg font-black ${todayRate >= 0.5 ? 'text-emerald-600' : todayRate > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+	              {asPct(todayRate, 0)}
+	            </div>
+	          </div>
+	          <div className="text-center">
+	            <div className="text-[9px] text-gray-500 uppercase font-semibold">Gol</div>
+	            <div className="text-lg font-black text-emerald-600">{`${todaySuccess}/${todayResolved}`}</div>
+	          </div>
+	          <div className="text-center">
+	            <div className="text-[9px] text-gray-500 uppercase font-semibold">Başarısız</div>
+	            <div className="text-lg font-black text-red-500">{todayFail}</div>
+	          </div>
+	        </div>
+	        {todayResolved > 0 && (
+	          <div className="mt-1 h-1.5 rounded-full bg-gray-200 overflow-hidden flex">
+	            <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${todayRate * 100}%` }} />
+	            <div className="h-full bg-red-400 transition-all duration-500" style={{ width: `${(1 - todayRate) * 100}%` }} />
+	          </div>
+	        )}
+	        {/* Level breakdown for today */}
+	        {Object.keys(todayLevels).length > 0 && (
+	          <div className="grid grid-cols-3 gap-1.5 mt-2">
+	            {Object.entries(todayLevels).map(([lv, d]) => {
+	              const colors: Record<string, string> = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#6b7280' };
+	              return (
+	                <div key={lv} className="text-center p-1 rounded bg-white/60 border border-gray-100">
+	                  <div className="text-[8px] font-bold uppercase" style={{ color: colors[lv] || '#6b7280' }}>{lv}</div>
+	                  <div className="text-xs font-black text-gray-800">{d.total}</div>
+	                  <div className="text-[8px] text-gray-400">{d.goals} gol</div>
+	                </div>
+	              );
+	            })}
+	          </div>
+	        )}
+	      </div>
 
       {/* ── Period Switcher ── */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -305,20 +341,47 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
             </div>
           )}
 
-          <div className="space-y-2">
-            {filteredSignals.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 text-xs bg-white rounded-xl border border-gray-200">
-                {signals.length === 0 ? "Henüz sinyal kaydı yok." : "Filtreye uygun sinyal yok."}
-              </div>
-            ) : (
-              filteredSignals.slice(0, 100).map((s, i) => (
-                <SignalCard key={`${s.matchCode}-${s.signalTimestamp}-${i}`} s={s} onClick={() => handleSelectSignal(s)} today={today} />
-              ))
-            )}
-            {filteredSignals.length > 100 && (
-              <div className="text-center text-[10px] text-gray-400 pt-2">+{filteredSignals.length - 100} sinyal daha.</div>
-            )}
-          </div>
+	          <div className="space-y-2">
+	            {pagedSignals.length === 0 ? (
+	              <div className="text-center py-12 text-gray-400 text-xs bg-white rounded-xl border border-gray-200">
+	                {signals.length === 0 ? "Henüz sinyal kaydı yok." : "Filtreye uygun sinyal yok."}
+	              </div>
+	            ) : (
+	              pagedSignals.map((s, i) => (
+	                <SignalCard key={`${s.matchCode}-${s.signalTimestamp}-${i}`} s={s} onClick={() => handleSelectSignal(s)} today={today} />
+	              ))
+	            )}
+	          </div>
+
+	          {/* Pagination */}
+	          {totalPages > 1 && (
+	            <div className="flex items-center justify-center gap-1 pt-2">
+	              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+	                className="text-[11px] px-2 py-1 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 font-semibold disabled:opacity-50">
+	                ←
+	              </button>
+	              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+	                let pageNum: number;
+	                if (totalPages <= 7) pageNum = i + 1;
+	                else if (page <= 4) pageNum = i + 1;
+	                else if (page >= totalPages - 3) pageNum = totalPages - 6 + i;
+	                else pageNum = page - 3 + i;
+	                return (
+	                  <button key={pageNum} onClick={() => setPage(pageNum)}
+	                    className={`text-[11px] w-7 h-7 rounded font-bold transition-all ${
+	                      page === pageNum ? 'bg-indigo-500 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+	                    }`}>
+	                    {pageNum}
+	                  </button>
+	                );
+	              })}
+	              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+	                className="text-[11px] px-2 py-1 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 font-semibold disabled:opacity-50">
+	                →
+	              </button>
+	              <span className="text-[10px] text-gray-400 ml-1">{filteredSignals.length} sinyal</span>
+	            </div>
+	          )}
         </TabsContent>
 
         {/* ═══ TAB 2: Grafikler ═══ */}

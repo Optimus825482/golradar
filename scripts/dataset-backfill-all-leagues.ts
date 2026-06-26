@@ -29,17 +29,27 @@ import { setTimeout } from "node:timers/promises";
 
 // ── CLI args ───────────────────────────────────────────────────────
 
-const args = process.argv.slice(2);
-const PHASE = parseInt(args.find((a) => a.startsWith("--phase="))?.split("=")[1] || "1");
-const SEASONS = parseInt(args.find((a) => a.startsWith("--seasons="))?.split("=")[1] || "4");
-const CONCURRENCY = Math.min(30, parseInt(args.find((a) => a.startsWith("--concurrency="))?.split("=")[1] || "10"));
-const MAX_LEAGUES = parseInt(args.find((a) => a.startsWith("--max-leagues="))?.split("=")[1] || "9999");
-const SINGLE_LEAGUE = parseInt(args.find((a) => a.startsWith("--league="))?.split("=")[1] || "0");
-const RESUME = args.includes("--resume");
-const START_ID = parseInt(args.find((a) => a.startsWith("--start-id="))?.split("=")[1] || "0");
-const END_ID = parseInt(args.find((a) => a.startsWith("--end-id="))?.split("=")[1] || "9999");
-const MAX_MATCHES_PER_LEAGUE = parseInt(args.find((a) => a.startsWith("--max-matches="))?.split("=")[1] || "5000");
-const WORKERS = parseInt(args.find((a) => a.startsWith("--workers="))?.split("=")[1] || "3");
+function cliInt(key: string, def: number): number {
+  const idx = process.argv.indexOf(`--${key}`);
+  if (idx >= 0 && idx + 1 < process.argv.length) return parseInt(process.argv[idx + 1]);
+  const eq = process.argv.find((a) => a.startsWith(`--${key}=`));
+  if (eq) return parseInt(eq.split("=")[1]);
+  return def;
+}
+function cliBool(key: string): boolean {
+  return process.argv.includes(`--${key}`);
+}
+
+const PHASE = cliInt("phase", 1);
+const SEASONS = cliInt("seasons", 4);
+const CONCURRENCY = Math.min(30, cliInt("concurrency", 10));
+const MAX_LEAGUES = cliInt("max-leagues", 9999);
+const SINGLE_LEAGUE = cliInt("league", 0);
+const RESUME = cliBool("resume");
+const START_ID = cliInt("start-id", 0);
+const END_ID = cliInt("end-id", 9999);
+const MAX_MATCHES_PER_LEAGUE = cliInt("max-matches", 5000);
+const WORKERS = cliInt("workers", 3);
 
 const RECENT_SEASONS = (() => {
   const thisYear = new Date().getFullYear();
@@ -71,7 +81,7 @@ function parseLeagueCodes(): LeagueEntry[] {
   const leagues: LeagueEntry[] = [];
 
   // Format: | nth | ID | SHORT | Full Name |
-  const rowRegex = /^\|\s*\d+\s*\|\s*(\d+)\s*\|\s*(\S+)\s*\|\s*(.+?)\s*\|/;
+  const rowRegex = /^\|\s*\d+\s*\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*(.+?)\s*\|/;
 
   for (const line of lines) {
     const m = line.match(rowRegex);

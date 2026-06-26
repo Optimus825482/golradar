@@ -194,7 +194,7 @@ export default function AdminMLMonitoringPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {weights.filter(w => w.status !== 'archived').map(w => {
+            {weights.map(w => {
               const tierLabel = w.brierScore == null ? 'sırasız' :
                 w.brierScore < 0.18 ? 'mükemmel' :
                 w.brierScore < 0.25 ? 'iyi' :

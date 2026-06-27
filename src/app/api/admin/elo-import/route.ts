@@ -173,6 +173,11 @@ const EUROPEAN_TEAMS = [
 
 export const dynamic = 'force-dynamic';
 
+// GET: sadece durum sorgulama
+export async function GET() {
+  return NextResponse.json({ ok: true, jobs: [] });
+}
+
 export const POST = adminRoute(async (request: Request) => {
   let body: any;
   try {

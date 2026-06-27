@@ -22,6 +22,7 @@ import { fetchFotMobMatches, fetchMatchDetails } from '../fotmob';
 // import inside backfillFromSofascore prevents Turbopack from
 // tracing it into the client bundle via the admin page chain.
 import { predictMatch } from './teamStrengthKalman';
+import { GOALOO_LEAGUES } from './goalooLeagues';
 // goaloo.ts is server-only (uses child_process / node:fs). Dynamic
 // import here prevents Turbopack from tracing it into the client
 // bundle via the teamHistoryBackfill -> ensemble -> page chain.
@@ -143,32 +144,6 @@ async function backfillFromScoremer(
   return { scraped, inserted, skippedDuplicate };
 }
 
-// Top leagues covered by Goaloo season JSON endpoint.
-// League IDs are Goaloo's internal ball_id. Each adds ~3-5s per
-// season call — keep the list small. IDs verified by inspecting
-// the B[] array of a SoccerAjax type=6 response; adjust if Goaloo
-// renumbers.
-const GOALOO_BACKFILL_LEAGUES = [
-  // League IDs verified Jun 2026 from football.goaloo.com league catalogue.
-  { id: 36, name: 'Premier League' },
-  { id: 31, name: 'La Liga' },
-  { id: 8, name: 'Bundesliga' },
-  { id: 9, name: 'Bundesliga 2' },
-  { id: 10, name: 'Russia Premier League' },
-  { id: 11, name: 'Ligue 1' },
-  { id: 12, name: 'Ligue 2' },
-  { id: 16, name: 'Holland Eredivisie' },
-  { id: 21, name: 'USA Major League Soccer' },
-  { id: 22, name: 'Norway Eliteserien' },
-  { id: 23, name: 'Liga Portugal 1' },
-  { id: 26, name: 'Swedish Allsvenskan' },
-  { id: 34, name: 'Serie A' },
-  { id: 30, name: 'Super Lig' },
-  { id: 31, name: 'Spanish La Liga' },
-  { id: 103, name: 'Champions League' },
-  { id: 113, name: 'Europa League' }
-];
-
 function getSeasonsForRange(start: Date, end: Date): string[] {
   // Typical football season: Aug–May. Season 2025-2026 covers Aug 2025 → Jun 2026.
   const seasons = new Set<string>();
@@ -181,22 +156,42 @@ function getSeasonsForRange(start: Date, end: Date): string[] {
 async function backfillFromGoaloo(
   startDate: Date,
   endDate: Date,
+  concurrency = 10,
 ): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {
   // Dynamic import — goaloo.ts uses child_process and is server-only.
-  // Use fetchGoalooSeasonMatches (entire-season JSON) instead of
-  // fetchGoalooMatchesByDate (SoccerAjax type=6) which is limited to
-  // 7-day results history and returns 0 matches for older dates.
   const { fetchGoalooSeasonMatches } = await import('../goaloo');
-  let scraped = 0;
-  let inserted = 0;
-  let skippedDuplicate = 0;
 
   const startStr = startDate.toISOString().slice(0, 10);
   const endStr = endDate.toISOString().slice(0, 10);
   const seasons = getSeasonsForRange(startDate, endDate);
 
-  for (const league of GOALOO_BACKFILL_LEAGUES) {
+  // Build job list: every (league, season) pair
+  const jobs: { league: typeof GOALOO_LEAGUES[number]; season: string }[] = [];
+  for (const league of GOALOO_LEAGUES) {
     for (const season of seasons) {
+      jobs.push({ league, season });
+    }
+  }
+
+  // Shared counters protected by a simple mutex via serialised access
+  // (JS is single-threaded, we just need atomic increments on the shared vars)
+  let scraped = 0;
+  let inserted = 0;
+  let skippedDuplicate = 0;
+  let completed = 0;
+  const total = jobs.length;
+  const logInterval = Math.max(1, Math.floor(total / 10));
+
+  const startTime = Date.now();
+
+  async function worker() {
+    while (true) {
+      const idx = jobs.length;
+      const job = jobs.pop();
+      if (!job) break;
+
+      const { league, season } = job;
+
       try {
         const matches = await fetchGoalooSeasonMatches(league.id, season);
 
@@ -232,13 +227,13 @@ async function backfillFromGoaloo(
                 awayTeam: away,
                 homeGoals,
                 awayGoals,
-                league: league.name,
+                league: league.fullName,
                 source: 'goaloo',
               },
               update: {
                 homeGoals,
                 awayGoals,
-                league: league.name,
+                league: league.fullName,
                 fetchedAt: new Date(),
               },
             });
@@ -251,8 +246,28 @@ async function backfillFromGoaloo(
       } catch {
         // Season not available or parse error — skip silently
       }
+
+      // Progress log
+      completed++;
+      if (completed % logInterval === 0) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+        console.log(`[GoalooBackfill] ${completed}/${total} leagues/seasons (${elapsed}s) — ${inserted} new, ${skippedDuplicate} dup`);
+      }
+
+      // Polite rate-limit between season calls per worker
+      await new Promise((r) => setTimeout(r, 200));
     }
   }
+
+  const workerCount = Math.min(concurrency, total);
+  const workers: Promise<void>[] = [];
+  for (let i = 0; i < workerCount; i++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[GoalooBackfill] Done: ${completed}/${total} in ${elapsed}s — ${inserted} new, ${skippedDuplicate} dup`);
 
   return { scraped, inserted, skippedDuplicate };
 }

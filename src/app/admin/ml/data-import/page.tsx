@@ -14,6 +14,26 @@ import { useState, useCallback } from 'react';
 import { fmtNum } from '@/lib/safeFormat';
 import { authFetch } from '@/lib/adminAuth';
 
+interface BulkEnrichResult {
+  ok: boolean;
+  season: string;
+  leagueCount: number;
+  leaguesWithData: number;
+  matchesProcessed: number;
+  predictionLogsCreated: number;
+  errors: number;
+  perLeague: Array<{
+    leagueId: number;
+    shortName: string;
+    fullName: string;
+    seasonMatches: number;
+    finished: number;
+    enriched: number;
+    errors: number;
+  }>;
+  elapsed: string;
+}
+
 interface ImportResult {
   ok: boolean;
   dryRun?: boolean;
@@ -51,7 +71,7 @@ const SOURCES = [
   {
     id: 'goaloo',
     label: 'Goaloo',
-    desc: 'Scraping tabanlı, anti-bot 300ms delay. Yavaş ama geniş kapsam.',
+    desc: '166 lig, 365 gün. Scraping tabanlı, hızlı parallel fetch. Maç sonuçları + detaylı ML verisi.',
     color: '#9178d9',
   },
 ] as const;
@@ -70,6 +90,8 @@ export default function AdminDataImportPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [enrichResult, setEnrichResult] = useState<BulkEnrichResult | null>(null);
+  const [enrichLoading, setEnrichLoading] = useState(false);
 
   const days = Math.max(
     1,
@@ -106,6 +128,30 @@ export default function AdminDataImportPage() {
     },
     [source, startDate, endDate],
   );
+
+  const startEnrich = useCallback(async () => {
+    setEnrichLoading(true);
+    setEnrichResult(null);
+    setError(null);
+    try {
+      const res = await authFetch('/api/admin/ml/bulk-enrich', {
+        method: 'POST',
+        body: JSON.stringify({
+          maxMatches: 500,
+        }),
+      });
+      const data: BulkEnrichResult = await res.json();
+      if (!res.ok || !data.ok) {
+        setError('Enrichment failed');
+      } else {
+        setEnrichResult(data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEnrichLoading(false);
+    }
+  }, []);
 
   return (
     <div className="space-y-5">
@@ -293,6 +339,50 @@ export default function AdminDataImportPage() {
           )}
         </div>
       )}
+
+      {/* Bulk enrich trigger — only for Goaloo after successful import */}
+      {result?.ok && !result.dryRun && source === 'goaloo' && (
+        <div className="bg-white rounded-xl border border-violet-200 p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-[11px] font-semibold text-violet-600 uppercase tracking-wide">
+                🧠 Detaylı ML Verisi (Phase 2)
+              </div>
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                Her maç için momentum + events + prediction log çeker. ~1 maç/sn hızla çalışır.
+                500 maç ≈ 8 dakika sürer. Sayfada bekle — tamamlanınca sonuç gösterilir.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={startEnrich}
+            disabled={enrichLoading}
+            className="w-full px-4 py-2.5 rounded-lg bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {enrichLoading
+              ? '⏳ Detaylı veriler çekiliyor...'
+              : enrichResult
+                ? '🔄 Tekrar Detaylı Çek'
+                : '⚡ Detaylı ML Verilerini Çek'}
+          </button>
+
+          {enrichResult && (
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <Stat label="İşlenen Maç" value={fmtNum(enrichResult.matchesProcessed)} color="#8b5cf6" />
+              <Stat label="Prediction Log" value={fmtNum(enrichResult.predictionLogsCreated)} color="#10b981" />
+              <Stat label="Lig (verili)" value={fmtNum(enrichResult.leaguesWithData)} color="#3b82f6" />
+              <Stat label="Süre" value={enrichResult.elapsed} color="#f59e0b" />
+              {enrichResult.errors > 0 && (
+                <Stat label="Hata" value={fmtNum(enrichResult.errors)} color="#ef4444" />
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* bulk enrich result end */}
+
     </div>
   );
 }

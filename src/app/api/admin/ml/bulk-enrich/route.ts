@@ -22,6 +22,7 @@ import { adminRoute } from '@/lib/adminRoute';
 import { db } from '@/lib/db';
 import { GOALOO_LEAGUES } from '@/lib/ml/goalooLeagues';
 import { startEnrich, tickEnrich, finishEnrich, getEnrichProgress } from '@/lib/enrichProgress';
+import { statsFromGoaloo } from '@/lib/ml/goalooStats';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 1800; // 30 dk (23219 maç × 200ms/worker)
@@ -103,6 +104,9 @@ export const POST = adminRoute(async (req: Request) => {
       const goalEvents = events
         .filter((e: any) => e.type === 'goal' && e.minute)
         .map((e: any) => ({ minute: e.minute, isHome: e.team === 'home', player: e.player || '' }));
+      const cardEvents = events
+        .filter((e: any) => e.type === 'yellow_card' && e.minute)
+        .map((e: any) => ({ minute: e.minute, isHome: e.team === 'home' }));
 
       const scoreParts = m.score.split('-');
       const homeScore = parseInt(scoreParts[0]) || 0;
@@ -120,12 +124,21 @@ export const POST = adminRoute(async (req: Request) => {
       for (const minNum of intervals) {
         const nextGoal = goalEvents.map((g: any) => g.minute).filter((t: number) => t > minNum).sort((a: number, b: number) => a - b)[0] ?? null;
         try {
+          // Goaloo momentum'dan gerçekçi stats oluştur
+          const realStats = statsFromGoaloo(
+            momentum.homeIntensities,
+            momentum.awayIntensities,
+            momentum.totalMinutes,
+            goalEvents,
+            cardEvents,
+            minNum,
+          );
           const prob = calculateGoalProbability(
-            { possession: { home: 50, away: 50 }, shots_on_target: { home: 0, away: 0 }, dangerous_attacks: { home: 0, away: 0 }, shots_total: { home: 0, away: 0 }, corners: { home: 0, away: 0 }, yellow_cards: { home: 0, away: 0 } },
+            realStats,
             `${minNum}'`, true, [], homeScore, awayScore, m.homeTeam, m.awayTeam,
           );
           const features = await extractFeatures({
-            stats: { possession: { home: 50, away: 50 }, shots_on_target: { home: 0, away: 0 }, dangerous_attacks: { home: 0, away: 0 }, shots_total: { home: 0, away: 0 }, corners: { home: 0, away: 0 }, yellow_cards: { home: 0, away: 0 } },
+            stats: realStats,
             minute: `${minNum}'`, isLive: true, homeGoals: homeScore, awayGoals: awayScore,
             homeTeam: m.homeTeam, awayTeam: m.awayTeam, pressureHistory: [], skipXtGrid: true,
           });

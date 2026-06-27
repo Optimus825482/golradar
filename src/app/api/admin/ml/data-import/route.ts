@@ -15,12 +15,12 @@ import { NextResponse } from 'next/server';
 import { adminRoute } from '@/lib/adminRoute';
 import {
   backfillTeamHistory,
-  type BackfillSource,
 } from '@/lib/ml/teamHistoryBackfill';
+import { fetchHistoricalMatchesRange, backfillFromNesine } from '@/lib/nesineHistorical';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_SOURCES: BackfillSource[] = ['fotmob', 'sofascore', 'scoremer', 'goaloo'];
+const VALID_SOURCES = ['fotmob', 'sofascore', 'scoremer', 'goaloo', 'nesine'];
 const MAX_DAYS = 365;
 
 export const POST = adminRoute(async (request: Request) => {
@@ -37,7 +37,7 @@ export const POST = adminRoute(async (request: Request) => {
   }
 
   const source = body.source ?? 'fotmob';
-  if (!VALID_SOURCES.includes(source as BackfillSource)) {
+  if (!VALID_SOURCES.includes(source)) {
     return NextResponse.json(
       {
         ok: false,
@@ -98,7 +98,28 @@ export const POST = adminRoute(async (request: Request) => {
   }
 
   try {
-    const backfill = await backfillTeamHistory(start, end, source as BackfillSource);
+    // Nesine historical: gerçek stats'lı geçmiş maç backfill
+    if (source === 'nesine') {
+      const matches = await fetchHistoricalMatchesRange(
+        start.toISOString().slice(0, 10),
+        end.toISOString().slice(0, 10),
+      );
+      const result = await backfillFromNesine(matches, { maxMatches: Math.min(matches.length, 100000) });
+
+      return NextResponse.json({
+        ok: true,
+        dryRun: false,
+        source,
+        dateRange,
+        scraped: matches.length,
+        inserted: result.processed,
+        predictionLogsCreated: result.predictions,
+        skippedDuplicate: 0,
+        message: `${matches.length} maç bulundu, ${result.processed} işlendi, ${result.predictions} prediction log oluşturuldu`,
+      });
+    }
+
+    const backfill = await backfillTeamHistory(start, end, source as any);
 
     // ── Auto-trigger Phase 2 enrichment for Goaloo ──
     // After import, immediately enrich matches with momentum + events + prediction logs.

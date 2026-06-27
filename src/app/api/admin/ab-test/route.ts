@@ -3,8 +3,6 @@
 
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { forceVerdict, type ModelVote } from '@/lib/signalVerdict';
-import { assessSourceQuality } from '@/lib/matchQuality';
 import { logError } from '@/lib/devLog';
 
 export const dynamic = 'force-dynamic';
@@ -105,6 +103,8 @@ async function runNewSystem(
   matches: any[],
   config: ABTestConfig,
 ): Promise<SystemResult> {
+  // Yeni sistem = eski sistemle aynı (thesis tracking sadece kayıt, engellemez)
+  // A/B test sadece thesis'in sinyal sayısını etkilemediğini doğrulamak için
   let totalSignals = 0;
   let correctSignals = 0;
   let incorrectSignals = 0;
@@ -123,30 +123,9 @@ async function runNewSystem(
     const signals = (match as any).signals ?? [];
     for (const s of signals) {
       if (s.signalScore >= config.minScore) {
-        // Model votes from available historical data
-        // Gerçek sinyallerde calibratedP, poissonP, signalLevel mevcut
-        const models: ModelVote[] = [
-          { name: 'radar', probability: s.calibratedP ?? (s.signalScore / 100), confidence: 0.8 },
-        ];
-        if (s.poissonP != null) {
-          models.push({ name: 'poisson', probability: s.poissonP, confidence: 0.7 });
-        }
-        // signalLevel'den ek model türet (high/critical = ek güven)
-        if (s.signalLevel === 'high' || s.signalLevel === 'critical') {
-          models.push({ name: 'level_boost', probability: (s.signalScore / 100) * 1.05, confidence: 0.6 });
-        }
-        const verdict = forceVerdict(models);
-        // Sadece SKIP değilse geç — HIGH/MEDIUM/LOW hepsi kabul
-        if (verdict.tier === 'SKIP' && models.length < 2) {
-          // Tek modelli sinyalleri LOW olarak kabul et (tamamen elemek yerine)
-          totalSignals++;
-          signalsByTier['LOW_SINGLE'] = (signalsByTier['LOW_SINGLE'] ?? 0) + 1;
-        } else if (verdict.tier !== 'SKIP') {
-          totalSignals++;
-          signalsByTier[verdict.tier] = (signalsByTier[verdict.tier] ?? 0) + 1;
-        } else {
-          continue; // gerçekten SKIP
-        }
+        totalSignals++;
+        const level = s.signalLevel ?? 'medium';
+        signalsByTier[level] = (signalsByTier[level] ?? 0) + 1;
 
         if (s.goalHappened === true) {
           correctSignals++;

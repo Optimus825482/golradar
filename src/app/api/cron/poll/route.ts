@@ -43,7 +43,6 @@ import {
   pruneStale,
 } from "@/lib/pressureHistory";
 import { logError } from "@/lib/devLog";
-import { assessMatchQuality } from "@/lib/matchQuality";
 import { forceVerdict, type ModelVote } from "@/lib/signalVerdict";
 import { createThesis } from "@/lib/signalThesis";
 import { onGoal, onFulltime } from "@/lib/feedbackLoops";
@@ -133,28 +132,7 @@ async function processMatch(
     };
   }
 
-  // ── Match Quality Funnel ──────────────────────────────
-  // C kalite maçları (tek veri kaynağı) atla — sinyal üretme
-  const quality = assessMatchQuality({
-    matchCode,
-    homeTeam: home,
-    awayTeam: away,
-    league,
-    activeSources: ['nesine'], // cron poll only uses nesine
-  });
-  if (!quality.passFunnel) {
-    // Yine de poll et, ama sinyal üretme — sadece canlılık takibi
-    return {
-      code: matchCode,
-      processed: true,
-      signalsCreated: 0,
-      isHalftime,
-      isFinished,
-      heavyAnalytics: false,
-    };
-  }
-
-  // Ensure history entry exists
+  // ── Ensure history entry exists ──
   ensureMatch(matchCode, { homeTeam: home, awayTeam: away, league, country: "" });
 
   if (isHalftime) {

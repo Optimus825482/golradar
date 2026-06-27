@@ -1,14 +1,14 @@
-// ── Backfill: PredictionLog goalScored Labels ────────────────
+// ── Backfill: PredictionLog goalScored Labels (DB tabanlı) ───
 // Existing kayıtlarda goalScored=NULL olanları Goaloo events ile doldurur.
-// POST /api/admin/ml/backfill-labels
-// Body: { maxMatches?: number }
+// Goaloo mapping için findGoalooMatchForNesine API'si yerine
+// veritabanındaki goaloo-bulk kayıtlarını kullanır — çok daha hızlı.
 
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { logError } from '@/lib/devLog';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 600; // 10 dk
+export const maxDuration = 600;
 
 export async function POST(request: Request) {
   try {
@@ -16,30 +16,64 @@ export async function POST(request: Request) {
     const maxMatches = Math.min(body.maxMatches ?? 5000, 50000);
 
     // PredictionLog'dan goalScored=NULL olan eşsiz maçları bul
+    // Sadece champion ve nesine-historical variantları
     const nullRecords = await db.predictionLog.findMany({
-      where: { goalScored: null },
-      select: { matchCode: true, homeTeam: true, awayTeam: true, league: true },
+      where: {
+        goalScored: null,
+        modelVariant: { in: ['champion', 'nesine-historical'] },
+      },
+      select: { matchCode: true, homeTeam: true, awayTeam: true },
       distinct: ['matchCode'],
       take: maxMatches,
     });
 
-    const { findGoalooMatchForNesine, fetchGoalooMatchEvents } = await import('@/lib/goaloo');
+    // Goaloo-bulk kayıtlarından matchCode → goal minutes mapping oluştur
+    // Bunlar Goaloo scheduleId'si içerir, Goaloo events ile eşleşir
+    const goalooMatches = await db.predictionLog.findMany({
+      where: { modelVariant: 'goaloo-bulk', goalScored: { not: null } },
+      select: { matchCode: true, homeTeam: true, awayTeam: true, goalScored: true, minute: true },
+    });
+
+    // Group goal minutes by matchCode
+    const goalsByMatch = new Map<number, number[]>();
+    for (const gm of goalooMatches) {
+      if (!gm.goalScored) continue;
+      if (!goalsByMatch.has(gm.matchCode)) goalsByMatch.set(gm.matchCode, []);
+      goalsByMatch.get(gm.matchCode)!.push(gm.minute);
+    }
+
+    // Fuzzy homeTeam eşleştirme cache
+    const teamMatchCache = new Map<string, number>();
+    for (const [matchCode, _goalMinutes] of goalsByMatch) {
+      // matchCode = Goaloo scheduleId
+    }
 
     let updated = 0;
     let errors = 0;
 
     for (const rec of nullRecords) {
       try {
-        // Goaloo mapping
-        const mapping = await findGoalooMatchForNesine(rec.homeTeam, rec.awayTeam, '');
-        if (!mapping) continue;
+        // Fuzzy team matching: goaloo-bulk kayıtları arasında aynı takım adını bul
+        const homeLower = rec.homeTeam.toLowerCase();
+        const awayLower = rec.awayTeam.toLowerCase();
 
-        const events = await fetchGoalooMatchEvents(mapping.goalooMatchId).catch(() => []);
-        const goalMinutes = events
-          .filter((e: any) => e.type === 'goal' && e.minute)
-          .map((e: any) => e.minute);
+        // Goaloo'dan eşleşen maç kodunu bul (fuzzy team name)
+        let goalooMatchCode: number | null = null;
+        for (const [matchCode, _goals] of goalsByMatch) {
+          // Check if any goaloo-bulk record has same team names
+          const goalooRec = goalooMatches.find(
+            g => g.matchCode === matchCode &&
+            (g.homeTeam.toLowerCase().includes(homeLower) || homeLower.includes(g.homeTeam.toLowerCase())) &&
+            (g.awayTeam.toLowerCase().includes(awayLower) || awayLower.includes(g.awayTeam.toLowerCase()))
+          );
+          if (goalooRec) {
+            goalooMatchCode = matchCode;
+            break;
+          }
+        }
 
-        if (goalMinutes.length === 0) continue;
+        if (!goalooMatchCode) continue;
+        const goalMinutes = goalsByMatch.get(goalooMatchCode) || [];
 
         // Her PredictionLog kaydını güncelle
         const logs = await db.predictionLog.findMany({
@@ -48,7 +82,7 @@ export async function POST(request: Request) {
         });
 
         for (const log of logs) {
-          const goalAfter = goalMinutes.some((gm: number) => gm > log.minute);
+          const goalAfter = goalMinutes.some(gm => gm > log.minute);
           await db.predictionLog.update({
             where: { id: log.id },
             data: { goalScored: goalAfter },
@@ -63,6 +97,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       matchesProcessed: nullRecords.length,
+      goalooMatchesInDb: goalsByMatch.size,
       recordsUpdated: updated,
       errors,
     });

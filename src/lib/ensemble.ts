@@ -31,9 +31,10 @@ import { getChampionBrier } from './ml/modelRouter';
 	// the import to call time.
 	import { loadXgbChampion } from "./ml/modelRouter";
 	import { predictXgb, type XgbModel } from "./ml/xgbLoader";
-	import { logError } from '@/lib/devLog';
-	import { brierToConfidence, UNRANKED_MODEL_BRIER } from '@/config';
-	import { FEATURE_NAMES } from './featureEngineering';
+import { logError } from '@/lib/devLog';
+import { brierToConfidence, UNRANKED_MODEL_BRIER } from '@/config';
+import { FEATURE_NAMES } from './featureEngineering';
+import { predictStacking, type StackingInput } from './ml/stackingEnsemble';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -394,9 +395,26 @@ export async function predictEnsemble(
 	  if (inPlayP > 0) activeModels.push({ weight: weights.inplay, pred: inPlayP });
 
 	  const totalActiveWeight = activeModels.reduce((s, m) => s + m.weight, 0);
-	  const ensembleP = totalActiveWeight > 0
-	    ? activeModels.reduce((s, m) => s + m.pred * (m.weight / totalActiveWeight), 0)
-	    : ruleBasedP; // fallback: hiçbir model aktif değilse rule-based kullan
+		  const ensembleP = totalActiveWeight > 0
+		    ? activeModels.reduce((s, m) => s + m.pred * (m.weight / totalActiveWeight), 0)
+		    : ruleBasedP; // fallback: hiçbir model aktif değilse rule-based kullan
+
+  // ── Stacking Ensemble (meta-model alternatifi) ──
+  // Logistic regression meta-model: tüm modellerin çıktılarını öğrenip birleştirir.
+  // Şu an deneme aşamasında — ensembleP kullanılmaya devam eder.
+  const stackingInput: StackingInput = {
+    ruleBased: ruleBasedP,
+    poisson: poissonP,
+    elo: eloP,
+    ml: mlP,
+    teamStrength: teamStrengthP,
+    inplay: inPlayP,
+  };
+  const stackingP = predictStacking(stackingInput);
+  // Stacking şu an sadece loglanır, kullanılmaz. İleride ensembleP yerine geçebilir.
+  if (process.env.NODE_ENV === 'development' && stackingP > 0.1) {
+    console.log(`[Stacking] ensemble=${ensembleP.toFixed(3)} stacking=${stackingP.toFixed(3)}`);
+  }
 
   // ── Model agreement (excluding zero predictions) ──
   const allPredictions = [ruleBasedP, poissonP, eloP, mlP].filter((p) => p > 0.01);

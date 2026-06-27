@@ -40,6 +40,50 @@ flowchart TD
     style DB fill:#ef4444,stroke:#dc2626,color:#fff
 `;
 
+const NEW_FEATURES_DIAGRAM = `
+flowchart TB
+    subgraph Kalibrasyon["🎯 Kalibrasyon (3 katmanlı)"]
+        A1[Ham Score 0-100] --> B1[Beta Calibration<br/>Beta CDF fit]
+        B1 -->|varsa| C1[✅ Kalibre P]
+        A1 --> B2[Isotonic Regression<br/>PAVA monotonic]
+        B2 -->|varsa| C1
+        A1 --> B3[Sigmoid + Temperature<br/>L / (1+exp(-z/T))]
+        B3 --> C1
+    end
+
+    subgraph ModelKal["🔧 Per-Model Calibration"]
+        D1[Her model kendi<br/>kalibrasyonuna sahip] --> E1[calibrateModelOutput]
+        E1 --> F1[Beta / Isotonic / Sigmoid<br/>model bazında seçilir]
+    end
+
+    subgraph BMA["📊 Bayesian Model Averaging"]
+        G1[Model 1 Brier] --> H1[exp(-B²/2σ²)]
+        G2[Model 2 Brier] --> H1
+        G3[Model N Brier] --> H1
+        H1 --> I1[Posterior Weights]
+        I1 --> J1[BMA Probability]
+    end
+
+    subgraph LSTM["📈 Trend LSTM"]
+        K1[Son 10 dk<br/>Pressure trend] --> L1[Zaman ağırlıklı<br/>ortalama]
+        L1 --> M1[Trend direction<br/>detection]
+        M1 --> N1[Ani sıçrama<br/>analizi]
+        N1 --> O1[Boost factor<br/>0-0.15]
+    end
+
+    subgraph LightGBM["🌲 LightGBM Trainer"]
+        P1[Python sidecar] --> Q1[name: lightgbm]
+        Q1 --> R1[LGBMClassifier]
+        R1 --> S1[Brier / AUC / ECE]
+    end
+
+    style Kalibrasyon fill:#f0fdf4,stroke:#10b981
+    style ModelKal fill:#f0f9ff,stroke:#3b82f6
+    style BMA fill:#f5f3ff,stroke:#8b5cf6
+    style LSTM fill:#fefce8,stroke:#f59e0b
+    style LightGBM fill:#fef2f2,stroke:#ef4444
+`;
+
 const FACTOR_TABLE = [
   { f: 'F1', name: 'Pressure dominance', desc: 'calculatePressure weighted score >55%', max: 12, source: 'Nesine' },
   { f: 'F2', name: 'Dangerous attack rate', desc: 'DA per 15min >= 1.5', max: 14, source: 'Nesine' },
@@ -66,27 +110,34 @@ const FACTOR_TABLE = [
 
 const CALIBRATION_FLOW_DIAGRAM = `
 flowchart LR
-    A[Ham Model<br/>Tahmini P] --> B[Isotonic<br/>Calibration]
-    B --> C[Calibrated P<br/>0-1 arası]
+    A[Ham Model<br/>Tahmini P] --> B{Kaç model?}
+    B -->|Tek model| B1[Per-Model Cal<br/>calibrateModelOutput]
+    B1 --> C[Calibrated P<br/>0-1 arası]
+    B -->|Ensemble| B2[Bayesian Model Avg<br/>Brier-based]
+    B2 --> C
     C --> D{Goal<br/>Gerçekleşti mi?}
-    D -->|Evet 1| E[Brier =<br/>1-P squared]
-    D -->|Hayır 0| F[Brier =<br/>P squared]
-    E --> G[Brier Ortalaması]
+    D -->|Evet 1| E[Brier =<br/>(1-P)²]
+    D -->|Hayır 0| F[Brier =<br/>P²]
+    E --> G[Brier Ortalaması<br/>+ ECE + Log Loss]
     F --> G
-    G --> H{Cron<br/>MLScheduler<br/>every 15m}
-    H -->|Evet| I[Feature Extract<br/>47 features]
-    I --> J[XGBoost / GBDT<br/>Train]
-    J --> K{Brier<br/>düştü mü?}
-    K -->|Evet| L[Promote<br/>isChampion=true]
-    K -->|Hayır| M[Shadow olarak tut]
-    L --> N[Production<br/>prediction]
-    M --> N
+    G --> H{autoCalibrate<br/>trigger}
+    H -->|Her N sinyal| I[3 katmanlı kalibrasyon]
+    I --> J1[Beta Calibration<br/>Kull et al. 2017]
+    I --> J2[Isotonic (PAVA)<br/>Niculescu-Mizul 2005]
+    I --> J3[Temperature Scaling<br/>Sigmoid / T]
+    J1 --> K[Kalibrasyon DB'ye<br/>kaydedilir]
+    J2 --> K
+    J3 --> K
+    K --> L[WebSocket<br/>push update]
+    L --> M[Production<br/>prediction]
 
     style A fill:#3b82f6,stroke:#2563eb,color:#fff
     style C fill:#8b5cf6,stroke:#7c3aed,color:#fff
     style G fill:#10b981,stroke:#059669,color:#fff
-    style L fill:#f59e0b,stroke:#d97706,color:#fff
-    style N fill:#ef4444,stroke:#dc2626,color:#fff
+    style J1 fill:#059669,stroke:#047857,color:#fff
+    style J2 fill:#059669,stroke:#047857,color:#fff
+    style J3 fill:#059669,stroke:#047857,color:#fff
+    style M fill:#ef4444,stroke:#dc2626,color:#fff
 `;
 
 const PRESENCE_FLOW_DIAGRAM = `
@@ -302,10 +353,67 @@ export default function AdminAlgorithmPage() {
 	            formula="p = isotonic(rawScore/100) ?? L/(1+exp(-k*(score-x0)))"
 	            description="Önce PAVA monothonic mapping, yoksa sigmoid. Train/val split."
 	          />
-	        </div>
-	      </div>
-	    </div>
-	  );
+        </div>
+      </div>
+
+      {/* New Features */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+        <h3 className="text-sm font-bold text-gray-800 mb-3">🚀 Yeni Eklenen Özellikler</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+          <Formula
+            title="Temperature Scaling"
+            formula="p = L / (1 + exp(-z / T))"
+            description="Sigmoid'e T parametresi. T>1 daha düz (az güvenli), T<1 daha dik (çok güvenli). Varsayılan T=1.0."
+          />
+          <Formula
+            title="Beta Calibration"
+            formula="logit = c × ln(p/(1-p)) + d → sigmoid"
+            description="[0,1] sınırlı olasılıklar için en iyisi. Platt/Isotonic'tan daha iyi (Kull 2017)."
+          />
+          <Formula
+            title="Ensemble Calibration"
+            formula="calibrateModelOutput(name, score)"
+            description="Her model kendi kalibrasyonuna sahip. Beta/Isotonic/Sigmoid model bazında seçilir."
+          />
+          <Formula
+            title="Bayesian Model Averaging"
+            formula="w_i = exp(-Brier_i²/2σ²) / Σ exp(-Brier_j²/2σ²)"
+            description="Brier-based posterior weights. Düşük Brier → yüksek weight. σ=0.25."
+          />
+          <Formula
+            title="Trend LSTM"
+            formula="boost = f(windows, minute, trend)"
+            description="Son 10 dk pressure trend'inden goal probability boost. Ani sıçrama + yükselen trend tespiti."
+          />
+          <Formula
+            title="LightGBM"
+            formula="LGBMClassifier(n_estimators, max_depth)"
+            description="Python sidecar'da XGBoost'a alternatif. name='lightgbm' ile eğitilir."
+          />
+          <Formula
+            title="Online Weight Update"
+            formula="recordPrediction(model, predicted, actual)"
+            description="Son 500 sinyalin doğruluğuna göre ensemble ağırlıklarını dinamik ayarla."
+          />
+          <Formula
+            title="Stacking Meta-Model"
+            formula="logistic(Σ w_i × p_i + intercept)"
+            description="Tüm model çıktılarını logistic regression meta-model ile birleştirir."
+          />
+          <Formula
+            title="ClubElo API"
+            formula="eloToWinProbability(homeElo, awayElo)"
+            description="clubelo.com'dan bağımsız takım gücü ratingi. Ücretsiz, API key gerekmez."
+          />
+          <Formula
+            title="Profit Simulation"
+            formula="ROI = (totalReturned - totalStaked) / totalStaked"
+            description="Sinyalleri hypothetical bahis olarak simüle eder: Sharpe, Drawdown, Win Rate."
+          />
+        </div>
+      </div>
+    </div>
+  );
 	}
 	
 	function PipelineStep({ num, title, color, items }: { num: string; title: string; color: 'blue' | 'purple' | 'emerald' | 'orange'; items: string[] }) {

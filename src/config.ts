@@ -125,13 +125,15 @@ export const MIN_REAL_SAMPLES_FOR_PROMOTION = 200;
  * Resmi kaynak değer 0.95; yorum Faz 2'de düzeltilecek veya L grid
  * search'a dahil edilip sabit kaldırılacak.
  */
-export const DEFAULT_CALIBRATION_PARAMS: { L: number; k: number; x0: number } = {
+export const DEFAULT_CALIBRATION_PARAMS: { L: number; k: number; x0: number; T: number } = {
   /** Maksimum olasılık (tavan). */
   L: 0.95,
   /** Eğim (steepness). */
   k: 0.065,
   /** Skor → %50 olasılık orta noktası. */
   x0: 65,
+  /** Temperature scaling (T=1 nötr, T>1 daha düz/flat, T<1 daha dik/sharp). */
+  T: 1.0,
 };
 
 // ── Model güven türetme ──────────────────────────────────────────

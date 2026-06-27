@@ -27,6 +27,11 @@ from typing import Any, Dict, List, Literal, Optional
 import numpy as np
 import pandas as pd
 import xgboost as xgb
+try:
+    import lightgbm as lgb
+    _HAS_LGBM = True
+except ImportError:
+    _HAS_LGBM = False
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sklearn.metrics import (
@@ -71,7 +76,7 @@ class JobState:
 
 # ── Schemas ───────────────────────────────────────────────────────
 class TrainRequest(BaseModel):
-    name: Literal["gbdt", "xgb", "inplay", "team-strength", "xt-grid"]
+    name: Literal["gbdt", "xgb", "inplay", "team-strength", "xt-grid", "lightgbm"]
     version: str = Field(..., description="semver, e.g. '1.0.0'")
     horizon_min: int = Field(..., ge=1, le=120)
     dataset_path: str = Field(..., description="Path to the JSONL file the TS exporter produced")
@@ -178,24 +183,41 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         base_score = max(0.01, min(0.99, pos_rate))
         print(f"[trainer] {req.name}@{req.version}: n={len(df)}, pos_rate={pos_rate:.3f}, base_score={base_score:.3f}, features={X.shape[1]}")
 
-        # Train XGBoost with better base_score and params
-        model = xgb.XGBClassifier(
-            n_estimators=req.n_estimators,
-            max_depth=req.max_depth,
-            learning_rate=req.learning_rate,
-            subsample=req.subsample,
-            colsample_bytree=req.colsample_bytree,
-            reg_lambda=req.reg_lambda,
-            reg_alpha=req.reg_alpha,
-            min_child_weight=req.min_child_weight,
-            objective="binary:logistic",
-            eval_metric=["logloss", "error", "auc"],
-            early_stopping_rounds=req.early_stopping_rounds,
-            random_state=req.random_state,
-            base_score=base_score,
-            n_jobs=-1,
-        )
-        model.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=False)
+	        # Train model
+	        if req.name == 'lightgbm' and _HAS_LGBM:
+	            model = lgb.LGBMClassifier(
+	                n_estimators=req.n_estimators,
+	                max_depth=req.max_depth,
+	                learning_rate=req.learning_rate,
+	                subsample=req.subsample,
+	                colsample_bytree=req.colsample_bytree,
+	                reg_lambda=req.reg_lambda,
+	                reg_alpha=req.reg_alpha,
+	                min_child_weight=req.min_child_weight,
+	                objective="binary",
+	                random_state=req.random_state,
+	                n_jobs=-1,
+	            )
+	            model.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=False)
+	        else:
+	            # XGBoost (default for xgb, inplay, team-strength, xt-grid)
+	            model = xgb.XGBClassifier(
+	                n_estimators=req.n_estimators,
+	                max_depth=req.max_depth,
+	                learning_rate=req.learning_rate,
+	                subsample=req.subsample,
+	                colsample_bytree=req.colsample_bytree,
+	                reg_lambda=req.reg_lambda,
+	                reg_alpha=req.reg_alpha,
+	                min_child_weight=req.min_child_weight,
+	                objective="binary:logistic",
+	                eval_metric=["logloss", "error", "auc"],
+	                early_stopping_rounds=req.early_stopping_rounds,
+	                random_state=req.random_state,
+	                base_score=base_score,
+	                n_jobs=-1,
+	            )
+	            model.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=False)
 
         # Predict + metrics
         p = model.predict_proba(Xte)[:, 1]

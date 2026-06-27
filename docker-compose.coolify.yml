@@ -123,6 +123,26 @@ services:
       retries: 5
       start_period: 60s
 
+  # ── Real-time Pipeline Service ──
+  # Nesine WebSocket'inden canlı veri alır, sinyal işleme için Next.js API'ye gönderir.
+  # HTTP polling'in yerini alır — her 30sn'de bir tüm maçları poll etmek yerine
+  # WebSocket üzerinden anlık güncellemeleri işler.
+  pipeline:
+    build:
+      context: ./mini-services/pipeline-service
+      dockerfile: Dockerfile
+    container_name: golradar-pipeline
+    restart: unless-stopped
+    depends_on:
+      golradar:
+        condition: service_started
+    environment:
+      NEXT_PUBLIC_APP_URL: "http://golradar:3012"
+      CRON_SECRET: "${CRON_SECRET}"
+      SOCKET_CORS_ORIGIN: "https://radar.erkanerdem.online"
+    networks:
+      - golradar-net
+
 networks:
   golradar-net:
     driver: bridge

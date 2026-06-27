@@ -524,5 +524,40 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // Pipeline service'ten gelen bireysel maç verisi
+  // WebSocket → pipeline service → POST /api/cron/poll
+  const source = request.headers.get('X-Pipeline-Source');
+  if (source === 'websocket') {
+    try {
+      const body = await request.json();
+      const { matchCode, homeTeam, awayTeam, league, minute, homeGoals, awayGoals, status } = body;
+
+      if (!matchCode || !homeTeam || !awayTeam) {
+        return NextResponse.json({ ok: false, error: 'missing fields' }, { status: 400 });
+      }
+
+      // Process single match through the pipeline
+      const raw = {
+        C: matchCode,
+        HT: homeTeam,
+        AT: awayTeam,
+        L: league,
+        M: minute,
+        ES: [{ H: homeGoals, A: awayGoals }],
+        S: status ?? 4,
+        T: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
+      };
+
+      const cfg = tierConfig(resolveTier(activeUserCount()));
+      const result = await processMatch(raw, cfg);
+
+      return NextResponse.json({ ok: true, ...result });
+    } catch (e) {
+      logError("Cron", "pipeline POST failed:", e);
+      return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
+    }
+  }
+
+  // Fallback: normal cron tick
   return GET(request);
 }

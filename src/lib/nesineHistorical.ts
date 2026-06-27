@@ -135,7 +135,7 @@ function parseHistoricalMatch(raw: any): NesineHistoricalMatch | null {
 
 /**
  * Nesine historical match'leri PredictionLog tablosuna yaz.
- * Bulk enrichment'in yerini alır — Goaloo gerekmez!
+ * Goaloo'dan gol events'lerini çekerek goalScored label'larını belirler.
  */
 export async function backfillFromNesine(
   matches: NesineHistoricalMatch[],
@@ -143,6 +143,7 @@ export async function backfillFromNesine(
 ): Promise<{ processed: number; predictions: number }> {
   const { calculateGoalProbability } = await import('@/lib/goalRadar');
   const { extractFeatures, featuresToArray } = await import('@/lib/featureEngineering');
+  const { findGoalooMatchForNesine, fetchGoalooMatchEvents } = await import('@/lib/goaloo');
   const { db } = await import('@/lib/db');
 
   const max = options.maxMatches ?? matches.length;
@@ -154,6 +155,21 @@ export async function backfillFromNesine(
     processed++;
 
     try {
+      // Goaloo mapping: Nesine match → Goaloo matchId
+      const goalooMapping = await findGoalooMatchForNesine(
+        match.homeTeam, match.awayTeam,
+        match.date.slice(0, 10),
+      );
+
+      // Fetch goal events from Goaloo
+      let goalooGoalMinutes: Array<{ minute: number; isHome: boolean }> = [];
+      if (goalooMapping) {
+        const events = await fetchGoalooMatchEvents(goalooMapping.goalooMatchId).catch(() => []);
+        goalooGoalMinutes = events
+          .filter((e: any) => e.type === 'goal' && e.minute)
+          .map((e: any) => ({ minute: e.minute, isHome: e.team === 'home' }));
+      }
+
       const intervals = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
       const predLogs: any[] = [];
 
@@ -172,6 +188,10 @@ export async function backfillFromNesine(
             pressureHistory: [], skipXtGrid: true,
           });
 
+          // goalScored: Goaloo'dan gelen events'e göre belirle
+          const goalAfter = goalooGoalMinutes.filter(g => g.minute > minNum);
+          const goalScored = goalAfter.length > 0 ? true : null;
+
           predLogs.push({
             matchCode: match.bid,
             minute: minNum,
@@ -189,7 +209,7 @@ export async function backfillFromNesine(
             awayElo: null,
             modelVariant: 'nesine-historical',
             featuresJson: JSON.stringify(featuresToArray(features)),
-            goalScored: null,
+            goalScored,
             minutesToGoal: null,
           });
         } catch { /* skip */ }

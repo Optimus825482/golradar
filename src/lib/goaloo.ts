@@ -940,6 +940,14 @@ export async function findGoalooMatchForNesine(
   matchDate: string,  // YYYY-MM-DD
   matchTime?: string, // HH:MM
 ): Promise<GoalooMatchMapping | null> {
+  // ── Önce cache'e bak ──
+  const cacheKey = `${nesineHome}|${nesineAway}|${matchDate}`;
+  const cached = mappingCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < MAPPING_CACHE_TTL) {
+    // cached.mapping null olabilir (eşleşme bulunamadı)
+    return cached.mapping && cached.mapping.goalooMatchId > 0 ? cached.mapping : null;
+  }
+
   // Fetch Goaloo matches for the same date
   const goalooMatches = await fetchGoalooMatchesCached(matchDate)
   if (goalooMatches.length === 0) return null
@@ -977,9 +985,15 @@ export async function findGoalooMatchForNesine(
     }
   }
 
-  // Only return if we have a reasonable match
+  // Cache'e kaydet: bulunduysa mapping, bulunamadıysa null
+  // 24 saat TTL ile — maç günü boyunca tekrar hesaplama
+  mappingCache.set(cacheKey, { mapping: bestMatch, timestamp: Date.now() });
+
   if (bestMatch && bestScore >= 0.4) {
-    console.log(`[Goaloo Mapping] ${nesineHome} vs ${nesineAway} → Goaloo #${bestMatch.goalooMatchId} ${bestMatch.homeTeam} vs ${bestMatch.awayTeam} (score: ${bestScore.toFixed(2)})`)
+    // SADECE ilk seferde log — cache hit'lerde sessiz
+    if (!cached) {
+      console.log(`[Goaloo Mapping] ${nesineHome} vs ${nesineAway} → Goaloo #${bestMatch.goalooMatchId} ${bestMatch.homeTeam} vs ${bestMatch.awayTeam} (score: ${bestScore.toFixed(2)})`);
+    }
     return bestMatch
   }
 
@@ -998,6 +1012,16 @@ const momentumCache = new Map<number, CacheEntry<MomentumData | null>>();
 const eventsCache = new Map<number, CacheEntry<GoalooMatchEvent[]>>();
 const oddsCache = new Map<number, CacheEntry<GoalooOdds | null>>();
 
+// ── Persistent Mapping Cache ──────────────────────────────────
+// Key: "home|away|date" → mapping. 24h TTL — sadece ilk seferde eşleşme yap,
+// sonra cache'den oku. Her poll'de tekrar tekrar eşleştirme yapma.
+interface MappingEntry {
+  mapping: GoalooMatchMapping | null;
+  timestamp: number;
+}
+const mappingCache = new Map<string, MappingEntry>();
+const MAPPING_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 saat
+
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 // Periodic cleanup to prevent unbounded growth
@@ -1015,6 +1039,11 @@ function cleanupCache() {
   }
   for (const [key, val] of oddsCache) {
     if (val.timestamp < cutoff) oddsCache.delete(key);
+  }
+  // Mapping cache: 24h TTL (canlilik süresince tut)
+  const mappingCutoff = now - MAPPING_CACHE_TTL;
+  for (const [key, val] of mappingCache) {
+    if (val.timestamp < mappingCutoff) mappingCache.delete(key);
   }
 }
 

@@ -350,8 +350,8 @@ async function processMatch(
   if (status && FINISHED_STATUSES.has(status) && signalsCreated > 0) {
     onFulltime({
       matchCode,
-      homeScore,
-      awayScore,
+      homeScore: homeGoals,
+      awayScore: awayGoals,
       league,
     }).catch(() => {});
   }

@@ -50,7 +50,7 @@ export const POST = adminRoute(async (req: Request) => {
     return NextResponse.json({ ok: false, error: 'invalid-body' }, { status: 400 });
   }
 
-  const maxMatches = Math.min(body.maxMatches ?? 500, 2000);
+  const maxMatches = Math.min(body.maxMatches ?? 25000, 100000);
   const now = new Date();
   const thisYear = now.getFullYear();
   const defaultSeason = now.getMonth() >= 6 ? `${thisYear}-${thisYear + 1}` : `${thisYear - 1}-${thisYear}`;

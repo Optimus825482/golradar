@@ -57,6 +57,23 @@ interface IsotonicTable {
   fittedN: number;
 }
 
+// ── Beta Calibration ──────────────────────────────────────────
+// Bilgi: Beta calibration fits a scaled Beta CDF transformation to
+// probability outputs. Particularly effective for [0,1]-bounded
+// predictions (Kull et al., 2017). Parameters: a, b (shape), c (scale).
+// Transform: log(p/(1-p)) → logit space → Beta CDF.
+interface BetaParams {
+  a: number;      // Beta shape 1
+  b: number;      // Beta shape 2
+  c: number;      // Scale factor
+  d: number;      // Intercept
+  fittedAt: number;
+  fittedN: number;
+}
+
+let cachedBeta: BetaParams | null = null;
+const SYSTEM_KEY_BETA = 'calibration.beta';
+
 let cachedIsotonic: IsotonicTable | null = null;
 
 function poolAdjacentViolators(xIn: number[], yIn: number[]): { x: number[]; y: number[] } {
@@ -102,11 +119,11 @@ function poolAdjacentViolators(xIn: number[], yIn: number[]): { x: number[]; y: 
 }
 
 // ── SystemConfig hydrate / persist ───────────────────────────────
-/** DB'den calibration params + isotonic'i çekip in-memory cache'i doldurur. */
+/** DB'den calibration params + isotonic + beta çekip in-memory cache'i doldurur. */
 export async function hydrateCalibrationFromDB(): Promise<void> {
   try {
     const rows = await db.systemConfig.findMany({
-      where: { key: { in: [SYSTEM_KEY_PARAMS, SYSTEM_KEY_ISOTONIC] } },
+      where: { key: { in: [SYSTEM_KEY_PARAMS, SYSTEM_KEY_ISOTONIC, SYSTEM_KEY_BETA] } },
     });
     for (const row of rows) {
       if (row.key === SYSTEM_KEY_PARAMS) {
@@ -120,6 +137,11 @@ export async function hydrateCalibrationFromDB(): Promise<void> {
         const v = row.value as IsotonicTable | null;
         if (v && Array.isArray(v.x) && Array.isArray(v.y) && v.x.length === v.y.length) {
           cachedIsotonic = v;
+        }
+      } else if (row.key === SYSTEM_KEY_BETA) {
+        const v = row.value as BetaParams | null;
+        if (v && typeof v.c === 'number' && typeof v.d === 'number') {
+          cachedBeta = v;
         }
       }
     }
@@ -141,6 +163,85 @@ async function persistParamsToDB(updatedBy: string): Promise<void> {
       updatedBy,
     },
   });
+}
+
+// ── Beta Calibration ──────────────────────────────────────────
+// Beta calibration for [0,1]-bounded probability outputs.
+// Fits: logit(p) = c * log(p/(1-p)) + d, then applies Beta CDF.
+// Reference: Kull, M., Silva Filho, T., & Flach, P. (2017). "Beta
+// calibration: a well-founded foundation for calibration."
+//
+// Works best when isotonic is unstable (small N) or overfits.
+export function fitBeta(
+  rawScores: number[],  // 0-100
+  actuals: number[],     // 0 or 1
+): BetaParams | null {
+  if (rawScores.length !== actuals.length || rawScores.length < 30) return null;
+
+  // Normalize scores to (0,1), clamping edges to avoid log(0)
+  const ps = rawScores.map(s => {
+    const p = s / 100;
+    return Math.max(1e-6, Math.min(1 - 1e-6, p));
+  });
+
+  // Logit transform: log(p / (1-p))
+  const logits = ps.map(p => Math.log(p / (1 - p)));
+
+  // Simple logistic regression in logit space:
+  // target ~ Bernoulli, link=logit, predictors=[logit(p), 1]
+  // Use gradient descent to fit a, b (slope=coeff, intercept)
+  // goal: minimize log loss
+  let a = 1.0; // slope (c in beta params)
+  let b = 0.0; // intercept (d in beta params)
+  const lr = 0.01;
+  const epochs = 1000;
+
+  for (let epoch = 0; epoch < epochs; epoch++) {
+    let gradA = 0, gradB = 0;
+    for (let i = 0; i < ps.length; i++) {
+      const z = a * logits[i] + b;
+      const pred = 1 / (1 + Math.exp(-z));
+      const err = pred - actuals[i];
+      gradA += err * logits[i];
+      gradB += err;
+    }
+    gradA /= ps.length;
+    gradB /= ps.length;
+    a -= lr * gradA;
+    b -= lr * gradB;
+  }
+
+  // Clamp to prevent extreme values
+  a = Math.max(0.1, Math.min(10, a));
+  b = Math.max(-10, Math.min(10, b));
+
+  const params: BetaParams = {
+    a: 1,  // Beta shape 1 (default 1 = uniform prior)
+    b: 1,  // Beta shape 2
+    c: a,  // scale = logistic regression slope
+    d: b,  // intercept
+    fittedAt: Date.now(),
+    fittedN: rawScores.length,
+  };
+  cachedBeta = params;
+
+  db.systemConfig.upsert({
+    where: { key: SYSTEM_KEY_BETA },
+    create: { key: SYSTEM_KEY_BETA, value: params as unknown as object },
+    update: { value: params as unknown as object },
+  }).catch(() => {});
+
+  return params;
+}
+
+function applyBeta(rawScore: number): number | null {
+  if (!cachedBeta) return null;
+  const p = Math.max(1e-6, Math.min(1 - 1e-6, rawScore / 100));
+  const logit = Math.log(p / (1 - p));
+  const z = cachedBeta.c * logit + cachedBeta.d;
+  // Beta CDF approximation via sigmoid in logit space
+  const calibrated = 1 / (1 + Math.exp(-z));
+  return Math.round(calibrated * 1000) / 1000;
 }
 
 export function fitIsotonic(
@@ -309,7 +410,9 @@ export async function autoCalibrateFromDB(): Promise<{
 	}
 
 export function calibrateScore(rawScore: number): number {
-  // Prefer isotonic (PAVA) if fitted; fall back to sigmoid.
+  // Prefer Beta (best for [0,1] bounded), then isotonic, then sigmoid.
+  const beta = applyBeta(rawScore);
+  if (beta != null) return beta;
   const iso = applyIsotonic(rawScore);
   if (iso != null) return Math.round(iso * 1000) / 1000;
   const { L, k, x0 } = CALIBRATION_PARAMS;

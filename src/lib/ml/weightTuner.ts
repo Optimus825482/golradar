@@ -165,3 +165,89 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
     inplay: raw.inplay / sum,
   };
 }
+
+// ── Online Weight Update ──────────────────────────────────────
+// Son N sinyalin doğruluğuna göre model ağırlıklarını dinamik ayarlar.
+// Her golden sonra veya periyodik olarak çağrılır.
+
+interface ModelPredictionRecord {
+  model: string;
+  predicted: number;  // 0-1 probability
+  actual: number;     // 0 or 1 (goal or not)
+  timestamp: number;
+}
+
+// Rolling window of recent predictions per model
+const MAX_RECORDS = 500;
+const recentRecords: ModelPredictionRecord[] = [];
+
+/**
+ * Yeni bir tahmin kaydı ekle. Her golden sonra veya expire'de çağrılır.
+ */
+export function recordPrediction(model: string, predicted: number, actual: number): void {
+  recentRecords.push({ model, predicted, actual, timestamp: Date.now() });
+  if (recentRecords.length > MAX_RECORDS) {
+    recentRecords.shift();
+  }
+}
+
+/**
+ * Son N kayda göre per-model online weight adjustment factor hesapla.
+ * Accuracy-based: doğru tahmin oranı yüksek model → bonus weight.
+ * Returns: { "modelName": adjustmentFactor } — 1.0 = nötr, >1 = bonus, <1 = ceza
+ */
+export function computeOnlineAdjustments(): Record<string, number> {
+  const perModel: Record<string, { correct: number; total: number }> = {};
+
+  for (const r of recentRecords) {
+    if (!perModel[r.model]) perModel[r.model] = { correct: 0, total: 0 };
+    perModel[r.model].total++;
+    // correct if: (predicted > 0.5 && actual === 1) || (predicted <= 0.5 && actual === 0)
+    const isCorrect = (r.predicted > 0.5) === (r.actual === 1);
+    if (isCorrect) perModel[r.model].correct++;
+  }
+
+  const adjustments: Record<string, number> = {};
+  let maxAccuracy = 0;
+
+  for (const [model, stats] of Object.entries(perModel)) {
+    const acc = stats.total > 0 ? stats.correct / stats.total : 0.5;
+    if (acc > maxAccuracy) maxAccuracy = acc;
+    adjustments[model] = acc;
+  }
+
+  // Normalize: en iyi model 1.2x, en kötü 0.8x
+  if (maxAccuracy > 0) {
+    for (const model of Object.keys(adjustments)) {
+      adjustments[model] = 0.8 + 0.4 * (adjustments[model] / maxAccuracy);
+    }
+  }
+
+  return adjustments;
+}
+
+/**
+ * applyOnlineAdjustments: online adjustment'ları ensemble weight'lere uygula.
+ * Çağrı: `const weights = computeEnsembleWeights(input); applyOnlineAdjustments(weights);`
+ */
+export function applyOnlineAdjustments(weights: EnsembleWeights): void {
+  const adjustments = computeOnlineAdjustments();
+
+  if (adjustments.inplay) weights.inplay *= adjustments.inplay;
+  if (adjustments.ml) weights.ml *= adjustments.ml;
+  if (adjustments.ruleBased) weights.ruleBased *= adjustments.ruleBased;
+  if (adjustments.poisson) weights.poisson *= adjustments.poisson;
+  if (adjustments.elo) weights.elo *= adjustments.elo;
+  if (adjustments.teamStrength) weights.teamStrength *= adjustments.teamStrength;
+
+  // Re-normalize
+  const sum = weights.ruleBased + weights.poisson + weights.elo + weights.ml + weights.teamStrength + weights.inplay;
+  if (sum > 0) {
+    weights.ruleBased /= sum;
+    weights.poisson /= sum;
+    weights.elo /= sum;
+    weights.ml /= sum;
+    weights.teamStrength /= sum;
+    weights.inplay /= sum;
+  }
+}

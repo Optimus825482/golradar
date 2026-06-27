@@ -239,9 +239,12 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
               f"Acc={acc:.3f}, top5={top5_idx.tolist()}, "
               f"imp={[round(importance[i], 4) for i in top5_idx]}")
 
-        # Persist XGBoost JSON artifact
+        # Persist model artifact (XGBoost JSON veya LightGBM booster)
         artifact_path = MODELS_DIR / f"{req.name}-v{req.version}.json"
-        model.save_model(artifact_path)
+        if req.name == 'lightgbm':
+            model.booster_.save_model(artifact_path)
+        else:
+            model.save_model(artifact_path)
 
         # Compute SHA256 of the artifact for the registry
         sha = _sha256_file(artifact_path)

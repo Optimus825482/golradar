@@ -121,13 +121,13 @@ export default function ABTestPage() {
         <>
           {/* KPI Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KPICard title="Toplam Maç" value={result.totalMatches} />
-            <KPICard title="ESKİ Sinyal" value={result.oldSystem.totalSignals}
-              subtitle={result.oldSystem.correctSignals + ' doğru'} />
-            <KPICard title="YENİ Sinyal" value={result.newSystem.totalSignals}
-              subtitle={result.newSystem.correctSignals + ' doğru'} />
-            <KPICard title="Fark" value={(result.improvement.signalCountDelta >= 0 ? '+' : '') + result.improvement.signalCountDelta}
-              color={result.improvement.signalCountDelta <= 0 ? 'green' : 'yellow'} />
+            <KPICard label="Toplam Maç" value={String(result.totalMatches)} color="#6366f1" />
+            <KPICard label="ESKİ Sinyal" value={String(result.oldSystem.totalSignals)}
+              sub={result.oldSystem.correctSignals + ' doğru'} color="#f79520" />
+            <KPICard label="YENİ Sinyal" value={String(result.newSystem.totalSignals)}
+              sub={result.newSystem.correctSignals + ' doğru'} color="#10b981" />
+            <KPICard label="Fark" value={(result.improvement.signalCountDelta >= 0 ? '+' : '') + result.improvement.signalCountDelta}
+              color={result.improvement.signalCountDelta <= 0 ? '#10b981' : '#f79520'} />
           </div>
 
           {/* Comparison Table */}

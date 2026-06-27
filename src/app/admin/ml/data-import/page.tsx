@@ -106,6 +106,12 @@ const SOURCES = [
     desc: '166 lig, 365 gün. Scraping tabanlı, hızlı parallel fetch. Maç sonuçları + detaylı ML verisi.',
     color: '#9178d9',
   },
+  {
+    id: 'nesine',
+    label: 'Nesine (Geçmiş)',
+    desc: '✨ YENİ! Gerçek stats (possession, shots, xG) ile geçmiş maç backfill. Cloudflare yok, hızlı.',
+    color: '#10b981',
+  },
 ] as const;
 
 type SourceId = (typeof SOURCES)[number]['id'];

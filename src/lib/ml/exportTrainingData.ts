@@ -145,7 +145,11 @@ export async function exportTrainingData(
   // Fetch prediction logs in the time window. We cap to a reasonable
   // batch size up front; the trainer is fine with up to ~100k rows.
   const predictionLogs = await db.predictionLog.findMany({
-    where: { createdAt: { gte: cutoff } },
+    where: {
+      createdAt: { gte: cutoff },
+      // Bulk enrichment verilerini eğitimden çıkar (boş stat'lı eski kayıtlar)
+      modelVariant: { not: 'goaloo-bulk' },
+    },
     orderBy: [{ matchCode: "asc" }, { createdAt: "asc" }],
     take: maxRows > 0 ? maxRows : 100_000,
   });

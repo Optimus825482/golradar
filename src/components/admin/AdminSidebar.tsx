@@ -81,6 +81,13 @@ const NAV_ITEMS = [
     icon: "🧠",
     description: "Sinyal motoru akış diyagramı",
   },
+  {
+    key: "ab-test",
+    href: "/admin/ab-test",
+    label: "A/B Test",
+    icon: "🔬",
+    description: "Eski vs Yeni sinyal sistemi karşılaştırması",
+  },
 ] as const;
 
 export function AdminSidebar() {

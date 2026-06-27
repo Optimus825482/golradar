@@ -136,7 +136,7 @@ function parseHistoricalMatch(raw: any): NesineHistoricalMatch | null {
 /**
  * Nesine historical match'leri PredictionLog tablosuna yaz.
  * Goaloo'dan gol events'lerini çekerek goalScored label'larını belirler.
- * Date-based değil, season-based Goaloo API kullanır (tüm sezon verisine erişim).
+ * Sıralı değil, match başına async Goaloo lookup + fallback.
  */
 export async function backfillFromNesine(
   matches: NesineHistoricalMatch[],
@@ -144,44 +144,28 @@ export async function backfillFromNesine(
 ): Promise<{ processed: number; predictions: number }> {
   const { calculateGoalProbability } = await import('@/lib/goalRadar');
   const { extractFeatures, featuresToArray } = await import('@/lib/featureEngineering');
-  const { fetchGoalooSeasonMatches, fetchGoalooMatchEvents } = await import('@/lib/goaloo');
+  const { findGoalooMatchForNesine, fetchGoalooMatchEvents } = await import('@/lib/goaloo');
   const { db } = await import('@/lib/db');
-
-  // Goaloo league mapping: Nesine league adı → Goaloo league (fuzzy)
-  // Bulk enrichment'teki GOALOO_LEAGUES listesini kullan
-  const { GOALOO_LEAGUES } = await import('@/lib/ml/goalooLeagues');
 
   const max = options.maxMatches ?? matches.length;
   let processed = 0;
   let predictions = 0;
-
-  // Pre-fetch all Goaloo season matches for all leagues (cached by Goaloo)
-  const goalooMatchCache = new Map<string, { scheduleId: number; homeTeam: string; awayTeam: string }>();
-  const season = '2025-2026';
-  for (const league of GOALOO_LEAGUES) {
-    try {
-      const seasonMatches = await fetchGoalooSeasonMatches(league.id, season);
-      for (const m of seasonMatches) {
-        const key = `${m.homeTeam.toLowerCase()}|${m.awayTeam.toLowerCase()}`;
-        goalooMatchCache.set(key, { scheduleId: m.scheduleId, homeTeam: m.homeTeam, awayTeam: m.awayTeam });
-      }
-    } catch {}
-  }
-  console.log(`[NesineHistorical] Pre-fetched ${goalooMatchCache.size} Goaloo matches across ${GOALOO_LEAGUES.length} leagues`);
 
   for (const match of matches) {
     if (processed >= max) break;
     processed++;
 
     try {
-      // Goaloo cache'ten bul: takım isimleriyle eşleştir
-      const cacheKey = `${match.homeTeam.toLowerCase()}|${match.awayTeam.toLowerCase()}`;
-      const goalooMatch = goalooMatchCache.get(cacheKey);
+      // Goaloo mapping: Nesine match → Goaloo matchId (date-based, sadece son 30 gün)
+      const goalooMapping = await findGoalooMatchForNesine(
+        match.homeTeam, match.awayTeam,
+        match.date.slice(0, 10),
+      );
 
-      // Fetch goal events from Goaloo (cache varsa)
+      // Fetch goal events from Goaloo
       let goalooGoalMinutes: Array<{ minute: number; isHome: boolean }> = [];
-      if (goalooMatch) {
-        const events = await fetchGoalooMatchEvents(goalooMatch.scheduleId).catch(() => []);
+      if (goalooMapping) {
+        const events = await fetchGoalooMatchEvents(goalooMapping.goalooMatchId).catch(() => []);
         goalooGoalMinutes = events
           .filter((e: any) => e.type === 'goal' && e.minute)
           .map((e: any) => ({ minute: e.minute, isHome: e.team === 'home' }));

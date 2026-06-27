@@ -88,6 +88,13 @@ const NAV_ITEMS = [
     icon: "🔬",
     description: "Eski vs Yeni sinyal sistemi karşılaştırması",
   },
+  {
+    key: "profit",
+    href: "/admin/profit",
+    label: "Kâr Simülasyonu",
+    icon: "💰",
+    description: "Sinyal kârlılığı, ROI, Sharpe",
+  },
 ] as const;
 
 export function AdminSidebar() {

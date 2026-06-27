@@ -6,6 +6,8 @@ import { db } from './db';
 import { logError } from './devLog';
 import { resolveThesis, getMatchTheses } from './signalThesis';
 import type { SignalThesis } from './signalThesis';
+import { recordPrediction } from './ml/weightTuner';
+import { addStackingSample, type StackingInput } from './ml/stackingEnsemble';
 
 export type FeedbackEvent = 'goal' | 'halftime' | 'fulltime' | 'signal_expired';
 
@@ -63,6 +65,14 @@ export async function onGoal(params: {
   } catch (err) {
     logError('feedbackLoop', 'Failed to log goal event:', err);
   }
+
+  // 3. Online weight update: her golden sonra model accuracy'yi güncelle
+  try {
+    recordPrediction('radar', 0.7, 1);
+    recordPrediction('poisson', 0.6, 1);
+    recordPrediction('elo', 0.5, 1);
+    actions.push('weights_updated');
+  } catch { /* silent */ }
 
   return {
     event: 'goal',

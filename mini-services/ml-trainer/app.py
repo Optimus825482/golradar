@@ -198,7 +198,7 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                 random_state=req.random_state,
                 n_jobs=-1,
             )
-            model.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=False)
+            model.fit(Xtr, ytr, eval_set=[(Xte, yte)])
         else:
             # XGBoost (default for xgb, inplay, team-strength, xt-grid)
             model = xgb.XGBClassifier(

@@ -15,14 +15,9 @@ export default function ProfitSimulationPage() {
     setError(null);
     setResult(null);
     try {
-      const res = await authFetch(`/api/admin/signals/backtest?days=${days}&mode=bucket`);
-      const data = await res.json();
-      if (!data.ok) { setError('Failed to fetch signals'); return; }
-
-      // Fetch raw signals for profit simulation
-      const sigRes = await authFetch(`/api/goal-signals?days=${days}&limit=5000`);
-      const sigData = await sigRes.json();
-      const signals = Array.isArray(sigData) ? sigData : sigData?.signals ?? [];
+      const res = await authFetch(`/api/goal-signals?action=stats&days=${days}`);
+      const stats = await res.json();
+      const signals = stats?.recentSignals ?? [];
 
       if (signals.length === 0) { setError('No signals found'); return; }
 

@@ -84,12 +84,16 @@ export const POST = adminRoute(async (req: Request) => {
 
   const logProgress = () => {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-    console.log(`[BulkEnrich] ${totalProcessed} matches, ${totalPredictions} predictions, ${totalErrors} errors (${elapsed}s)`);
+    console.log(`[BulkEnrich] ${totalProcessed} matches, ${totalPredictions} predictions, ${totalEvents} events, ${totalErrors} errors (${elapsed}s)`);
   };
+
+  // ── Concurrent Worker Pool (24 paralel) ──
+  // Tüm liglerdeki bitmiş maçları topla, 24 worker ile işle
+  const CONCURRENCY = 24;
+  const allMatches: Array<{ league: typeof targetLeagues[0]; match: any }> = [];
 
   for (const league of targetLeagues) {
     if (globalDone) break;
-
     try {
       const seasonMatches = await fetchGoalooSeasonMatches(league.id, season);
       const finished = seasonMatches.filter((m: any) => {
@@ -97,162 +101,131 @@ export const POST = adminRoute(async (req: Request) => {
         const parts = m.score.split('-');
         return !isNaN(parseInt(parts[0])) && !isNaN(parseInt(parts[1]));
       });
-
-      let enriched = 0;
-      let leagueErrors = 0;
-
       for (const m of finished) {
-        if (totalProcessed >= maxMatches) {
-          globalDone = true;
-          break;
-        }
-
-        tickEnrich(league.shortName, `${m.homeTeam} vs ${m.awayTeam}`, false);
-
-        try {
-          // Fetch momentum
-          const momentum = await fetchGoalooMomentum(m.scheduleId);
-          if (!momentum) { leagueErrors++; tickEnrich(league.shortName, `${m.homeTeam} vs ${m.awayTeam}`, true); continue; }
-
-          // Fetch events
-          const events = await fetchGoalooMatchEvents(m.scheduleId);
-          const goalEvents = events
-            .filter((e: any) => e.type === 'goal' && e.minute)
-            .map((e: any) => ({
-              minute: e.minute,
-              isHome: e.team === 'home',
-              player: e.player || '',
-            }));
-
-          const scoreParts = m.score.split('-');
-          const homeScore = parseInt(scoreParts[0]) || 0;
-          const awayScore = parseInt(scoreParts[1]) || 0;
-
-          // Write MatchEvent entries
-          for (const ge of goalEvents) {
-            await db.matchEvent
-              .create({
-                data: {
-                  matchCode: m.scheduleId,
-                  minute: ge.minute,
-                  eventType: 'goal',
-                  side: ge.isHome ? 'home' : 'away',
-                  player: ge.player || null,
-                },
-              })
-              .catch(() => {});
-            totalEvents++;
-          }
-
-          // Generate PredictionLog entries
-          const intervals = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
-          const predLogs: any[] = [];
-
-          for (const minNum of intervals) {
-            const emptyStats = {
-              possession: { home: 50, away: 50 },
-              shots_on_target: { home: 0, away: 0 },
-              dangerous_attacks: { home: 0, away: 0 },
-              shots_total: { home: 0, away: 0 },
-              corners: { home: 0, away: 0 },
-              yellow_cards: { home: 0, away: 0 },
-            };
-
-            const nextGoalMinute = goalEvents
-              .map((g: any) => g.minute)
-              .filter((t: number) => t > minNum)
-              .sort((a: number, b: number) => a - b)[0] ?? null;
-
-            try {
-              const prob = calculateGoalProbability(
-                emptyStats,
-                `${minNum}'`,
-                true,
-                [],
-                homeScore,
-                awayScore,
-                m.homeTeam,
-                m.awayTeam,
-              );
-              const features = await extractFeatures({
-                stats: emptyStats,
-                minute: `${minNum}'`,
-                isLive: true,
-                homeGoals: homeScore,
-                awayGoals: awayScore,
-                homeTeam: m.homeTeam,
-                awayTeam: m.awayTeam,
-                pressureHistory: [],
-                skipXtGrid: true,
-              });
-
-              const homeElo = getRating(m.homeTeam)?.rating ?? null;
-              const awayElo = getRating(m.awayTeam)?.rating ?? null;
-
-              predLogs.push({
-                matchCode: m.scheduleId,
-                minute: minNum,
-                rawScore: prob.score,
-                homeScore: prob.homeScore,
-                awayScore: prob.awayScore,
-                calibratedP: prob.calibratedP,
-                side: prob.side ?? 'none',
-                level: prob.level,
-                factorsJson: JSON.stringify(prob.factors),
-                homeTeam: m.homeTeam,
-                awayTeam: m.awayTeam,
-                league: league.fullName,
-                homeElo: homeElo ? Math.round(homeElo) : null,
-                awayElo: awayElo ? Math.round(awayElo) : null,
-                modelVariant: 'goaloo-bulk',
-                featuresJson: JSON.stringify(featuresToArray(features)),
-                goalScored: nextGoalMinute != null,
-                minutesToGoal: nextGoalMinute != null ? nextGoalMinute - minNum : null,
-              });
-            } catch { /* skip interval */ }
-          }
-
-          if (predLogs.length > 0) {
-            await db.predictionLog.createMany({
-              data: predLogs,
-              skipDuplicates: true,
-            });
-          }
-
-          totalPredictions += predLogs.length;
-          totalProcessed++;
-          enriched++;
-        } catch {
-          leagueErrors++;
-        }
-
-        // Rate limit: 800ms between matches (Goaloo anti-bot)
-        await new Promise((r) => setTimeout(r, 800));
+        allMatches.push({ league, match: m });
       }
-
-      results.push({
-        leagueId: league.id,
-        shortName: league.shortName,
-        fullName: league.fullName,
-        seasonMatches: seasonMatches.length,
-        finished: finished.length,
-        enriched,
-        errors: leagueErrors,
-      });
-
-      if (totalProcessed % 100 === 0) logProgress();
     } catch {
-      results.push({
-        leagueId: league.id,
-        shortName: league.shortName,
-        fullName: league.fullName,
-        seasonMatches: 0,
-        finished: 0,
-        enriched: 0,
-        errors: 1,
-      });
       totalErrors++;
     }
+  }
+
+  logProgress();
+  console.log(`[BulkEnrich] Collected ${allMatches.length} matches across ${targetLeagues.length} leagues`);
+
+  // Her worker tek maç işler
+  const processOne = async (item: { league: typeof targetLeagues[0]; match: any }): Promise<{ league: typeof targetLeagues[0]; enriched: number; err: number }> => {
+    const { league, match: m } = item;
+    let enriched = 0;
+    let errCount = 0;
+
+    try {
+      tickEnrich(league.shortName, `${m.homeTeam} vs ${m.awayTeam}`, false);
+
+      const momentum = await fetchGoalooMomentum(m.scheduleId);
+      if (!momentum) { tickEnrich(league.shortName, `${m.homeTeam} vs ${m.awayTeam}`, true); return { league, enriched: 0, err: 1 }; }
+
+      const events = await fetchGoalooMatchEvents(m.scheduleId);
+      const goalEvents = events
+        .filter((e: any) => e.type === 'goal' && e.minute)
+        .map((e: any) => ({ minute: e.minute, isHome: e.team === 'home', player: e.player || '' }));
+
+      const scoreParts = m.score.split('-');
+      const homeScore = parseInt(scoreParts[0]) || 0;
+      const awayScore = parseInt(scoreParts[1]) || 0;
+
+      // MatchEvent batch insert
+      for (const ge of goalEvents) {
+        await db.matchEvent.create({
+          data: { matchCode: m.scheduleId, minute: ge.minute, eventType: 'goal', side: ge.isHome ? 'home' : 'away', player: ge.player || null },
+        }).catch(() => {});
+      }
+
+      // PredictionLog batch
+      const intervals = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
+      const predLogs: any[] = [];
+
+      for (const minNum of intervals) {
+        const nextGoal = goalEvents.map((g: any) => g.minute).filter((t: number) => t > minNum).sort((a: number, b: number) => a - b)[0] ?? null;
+        try {
+          const prob = calculateGoalProbability(
+            { possession: { home: 50, away: 50 }, shots_on_target: { home: 0, away: 0 }, dangerous_attacks: { home: 0, away: 0 }, shots_total: { home: 0, away: 0 }, corners: { home: 0, away: 0 }, yellow_cards: { home: 0, away: 0 } },
+            `${minNum}'`, true, [], homeScore, awayScore, m.homeTeam, m.awayTeam,
+          );
+          const features = await extractFeatures({
+            stats: { possession: { home: 50, away: 50 }, shots_on_target: { home: 0, away: 0 }, dangerous_attacks: { home: 0, away: 0 }, shots_total: { home: 0, away: 0 }, corners: { home: 0, away: 0 }, yellow_cards: { home: 0, away: 0 } },
+            minute: `${minNum}'`, isLive: true, homeGoals: homeScore, awayGoals: awayScore,
+            homeTeam: m.homeTeam, awayTeam: m.awayTeam, pressureHistory: [], skipXtGrid: true,
+          });
+          const homeElo = getRating(m.homeTeam)?.rating ?? null;
+          const awayElo = getRating(m.awayTeam)?.rating ?? null;
+          predLogs.push({
+            matchCode: m.scheduleId, minute: minNum, rawScore: prob.score,
+            homeScore: prob.homeScore, awayScore: prob.awayScore, calibratedP: prob.calibratedP,
+            side: prob.side ?? 'none', level: prob.level, factorsJson: JSON.stringify(prob.factors),
+            homeTeam: m.homeTeam, awayTeam: m.awayTeam, league: league.fullName,
+            homeElo: homeElo ? Math.round(homeElo) : null, awayElo: awayElo ? Math.round(awayElo) : null,
+            modelVariant: 'goaloo-bulk', featuresJson: JSON.stringify(featuresToArray(features)),
+            goalScored: nextGoal != null, minutesToGoal: nextGoal != null ? nextGoal - minNum : null,
+          });
+        } catch { /* skip */ }
+      }
+
+      if (predLogs.length > 0) {
+        await db.predictionLog.createMany({ data: predLogs, skipDuplicates: true });
+      }
+
+      enriched = 1;
+      totalPredictions += predLogs.length;
+      totalEvents += goalEvents.length;
+    } catch {
+      errCount = 1;
+    }
+
+    // Worker başına 200ms rate limit (24 worker × 200ms = ~5s aralık, anti-bot)
+    await new Promise((r) => setTimeout(r, 200));
+    return { league, enriched, err: errCount };
+  };
+
+  // Simple concurrent pool
+  const pool: Promise<void>[] = [];
+  const running = new Set<Promise<void>>();
+  const perLeague: Map<number, { enriched: number; err: number; total: number }> = new Map();
+
+  for (const item of allMatches) {
+    if (totalProcessed >= maxMatches) break;
+    totalProcessed++;
+
+    const p = processOne(item).then((r) => {
+      const leagueId = r.league.id;
+      if (!perLeague.has(leagueId)) perLeague.set(leagueId, { enriched: 0, err: 0, total: 0 });
+      const lr = perLeague.get(leagueId)!;
+      lr.total++;
+      lr.enriched += r.enriched;
+      lr.err += r.err;
+    }).catch(() => { totalErrors++; }).finally(() => running.delete(p as any));
+
+    running.add(p);
+    pool.push(p);
+
+    if (running.size >= CONCURRENCY) {
+      await Promise.race(running);
+    }
+    if (totalProcessed % 100 === 0) logProgress();
+  }
+  await Promise.all(running);
+
+  // Build results
+  for (const league of targetLeagues) {
+    const lr = perLeague.get(league.id) || { enriched: 0, err: 0, total: 0 };
+    results.push({
+      leagueId: league.id,
+      shortName: league.shortName,
+      fullName: league.fullName,
+      seasonMatches: lr.total,
+      finished: lr.total,
+      enriched: lr.enriched,
+      errors: lr.err,
+    });
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

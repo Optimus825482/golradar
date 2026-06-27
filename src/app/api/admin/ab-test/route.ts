@@ -120,26 +120,33 @@ async function runNewSystem(
     const actualGoals = homeScore + awayScore;
     if (actualGoals > 0) goalCount++;
 
-    // New system: source quality check + verdict
-    const activeSources = (match as any).activeSources ?? ['nesine'];
-    const { grade } = assessSourceQuality(activeSources);
-    if (grade === 'C') continue; // funnel: C kalite maçları atla
-
     const signals = (match as any).signals ?? [];
     for (const s of signals) {
       if (s.signalScore >= config.minScore) {
-        // Model votes from available data
+        // Model votes from available historical data
+        // Gerçek sinyallerde calibratedP, poissonP, signalLevel mevcut
         const models: ModelVote[] = [
-          { name: 'radar', probability: s.calibratedP ?? 0.5, confidence: 0.8 },
+          { name: 'radar', probability: s.calibratedP ?? (s.signalScore / 100), confidence: 0.8 },
         ];
         if (s.poissonP != null) {
           models.push({ name: 'poisson', probability: s.poissonP, confidence: 0.7 });
         }
+        // signalLevel'den ek model türet (high/critical = ek güven)
+        if (s.signalLevel === 'high' || s.signalLevel === 'critical') {
+          models.push({ name: 'level_boost', probability: (s.signalScore / 100) * 1.05, confidence: 0.6 });
+        }
         const verdict = forceVerdict(models);
-        if (verdict.tier === 'SKIP') continue; // verdict: düşük kalite sinyalleri atla
-
-        totalSignals++;
-        signalsByTier[verdict.tier] = (signalsByTier[verdict.tier] ?? 0) + 1;
+        // Sadece SKIP değilse geç — HIGH/MEDIUM/LOW hepsi kabul
+        if (verdict.tier === 'SKIP' && models.length < 2) {
+          // Tek modelli sinyalleri LOW olarak kabul et (tamamen elemek yerine)
+          totalSignals++;
+          signalsByTier['LOW_SINGLE'] = (signalsByTier['LOW_SINGLE'] ?? 0) + 1;
+        } else if (verdict.tier !== 'SKIP') {
+          totalSignals++;
+          signalsByTier[verdict.tier] = (signalsByTier[verdict.tier] ?? 0) + 1;
+        } else {
+          continue; // gerçekten SKIP
+        }
 
         if (s.goalHappened === true) {
           correctSignals++;

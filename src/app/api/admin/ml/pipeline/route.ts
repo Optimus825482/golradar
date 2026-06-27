@@ -21,6 +21,7 @@ export const POST = adminRoute(async (request: Request) => {
       'inplay',
       'team-strength',
       'xt-grid',
+      'lightgbm',
     ];
     if (!SUPPORTED_PIPELINE_MODELS.includes(modelName)) {
       return NextResponse.json(

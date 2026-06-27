@@ -22,6 +22,7 @@ const MODEL_NAMES: Record<string, { label: string; color: string; description: s
   inplay: { label: 'InPlay 5dk', color: '#9178d9', description: 'Canlı maç 5-dakikalık gol olasılığı modeli' },
   'team-strength': { label: 'Takım Gücü', color: '#f79520', description: 'Kalman filter takım güç tahmini' },
   'xt-grid': { label: 'xT Grid', color: '#56a6d9', description: 'Expected Threat — pozisyon bazlı tehlike' },
+  lightgbm: { label: 'LightGBM', color: '#f59e0b', description: 'Hızlı eğitim, düşük bellek — GBDT alternatifi' },
 };
 
 interface MLStatus {

@@ -1,7 +1,7 @@
 fastapi==0.115.*
 uvicorn[standard]==0.32.*
 xgboost==2.1.*
-lightgbm==4.6.*
+lightgbm==4.6.*  # 2026-06-27 build cache breaker
 catboost==1.2.*
 pandas==2.2.*
 

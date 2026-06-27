@@ -19,7 +19,7 @@ import {
 import { loadTeamStrength, type TeamStrengthModel } from './teamStrengthKalman';
 import { loadXtGrid, type XtGrid } from './xtGrid';
 
-export type ModelName = 'gbdt' | 'xgb' | 'inplay' | 'team-strength' | 'xt-grid';
+export type ModelName = 'gbdt' | 'xgb' | 'inplay' | 'team-strength' | 'xt-grid' | 'lightgbm';
 
 export interface ModelEntry {
   name: ModelName;

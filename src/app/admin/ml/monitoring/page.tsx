@@ -176,6 +176,45 @@ export default function AdminMLMonitoringPage() {
         })}
       </div>
 
+      {/* New Features Status */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+        <h2 className="text-sm font-bold text-gray-800 mb-2">🚀 Yeni Özellikler Durumu</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
+          <div className="border border-gray-100 rounded-lg p-2">
+            <div className="text-green-600 font-bold">✅ Beta Calibration</div>
+            <div className="text-gray-500">Kalibrasyon sırası: Beta → Isotonic → Sigmoid+T</div>
+          </div>
+          <div className="border border-gray-100 rounded-lg p-2">
+            <div className="text-green-600 font-bold">✅ Temperature Scaling</div>
+            <div className="text-gray-500">T=1.0 (nötr). Kalibrasyonla ayarlanabilir.</div>
+          </div>
+          <div className="border border-gray-100 rounded-lg p-2">
+            <div className="text-green-600 font-bold">✅ Per-Model Calibration</div>
+            <div className="text-gray-500">calibrateModelOutput() — her model ayrı kalibre</div>
+          </div>
+          <div className="border border-gray-100 rounded-lg p-2">
+            <div className="text-green-600 font-bold">✅ Bayesian Model Avg</div>
+            <div className="text-gray-500">Brier-based posterior weights (σ=0.25)</div>
+          </div>
+          <div className="border border-gray-100 rounded-lg p-2">
+            <div className="text-green-600 font-bold">✅ Trend LSTM</div>
+            <div className="text-gray-500">Sliding window pressure + trend detection</div>
+          </div>
+          <div className="border border-gray-100 rounded-lg p-2">
+            <div className="text-green-600 font-bold">✅ Online Weight Update</div>
+            <div className="text-gray-500">Son 500 sinyal accuracy-based weight ayarı</div>
+          </div>
+          <div className="border border-gray-100 rounded-lg p-2">
+            <div className="text-green-600 font-bold">✅ Stacking Meta-Model</div>
+            <div className="text-gray-500">Logistic regression meta-model (ensemble alternatifi)</div>
+          </div>
+          <div className="border border-gray-100 rounded-lg p-2">
+            <div className="text-green-600 font-bold">✅ ClubElo API</div>
+            <div className="text-gray-500">clubelo.com bağımsız takım ratingi</div>
+          </div>
+        </div>
+      </div>
+
       {/* Live Ensemble Weights from API */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
         <div className="flex items-center gap-2 mb-3">

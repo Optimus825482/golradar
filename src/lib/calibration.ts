@@ -40,7 +40,7 @@ const SYSTEM_KEY_ISOTONIC = 'calibration.isotonic';
 // ── Calibration Curve (sigmoid-based) ────────────────────────────
 // Runtime-mutable. autoCalibrateFromDB() DB'ye yazdığında in-memory
 // cache de güncellenir. Startup'ta hydrateFromDB() ile DB'den çekilir.
-export const CALIBRATION_PARAMS: { L: number; k: number; x0: number } = {
+export const CALIBRATION_PARAMS: { L: number; k: number; x0: number; T: number } = {
   ...DEFAULT_CALIBRATION_PARAMS,
 };
 
@@ -127,11 +127,12 @@ export async function hydrateCalibrationFromDB(): Promise<void> {
     });
     for (const row of rows) {
       if (row.key === SYSTEM_KEY_PARAMS) {
-        const v = row.value as { L?: number; k?: number; x0?: number } | null;
+        const v = row.value as { L?: number; k?: number; x0?: number; T?: number } | null;
         if (v && typeof v.L === 'number' && typeof v.k === 'number' && typeof v.x0 === 'number') {
           CALIBRATION_PARAMS.L = v.L;
           CALIBRATION_PARAMS.k = v.k;
           CALIBRATION_PARAMS.x0 = v.x0;
+          if (typeof v.T === 'number') CALIBRATION_PARAMS.T = v.T;
         }
       } else if (row.key === SYSTEM_KEY_ISOTONIC) {
         const v = row.value as IsotonicTable | null;
@@ -153,16 +154,16 @@ export async function hydrateCalibrationFromDB(): Promise<void> {
 async function persistParamsToDB(updatedBy: string): Promise<void> {
   await db.systemConfig.upsert({
     where: { key: SYSTEM_KEY_PARAMS },
-    create: {
-      key: SYSTEM_KEY_PARAMS,
-      value: { L: CALIBRATION_PARAMS.L, k: CALIBRATION_PARAMS.k, x0: CALIBRATION_PARAMS.x0 },
-      updatedBy,
-    },
-    update: {
-      value: { L: CALIBRATION_PARAMS.L, k: CALIBRATION_PARAMS.k, x0: CALIBRATION_PARAMS.x0 },
-      updatedBy,
-    },
-  });
+	    create: {
+	      key: SYSTEM_KEY_PARAMS,
+	      value: { L: CALIBRATION_PARAMS.L, k: CALIBRATION_PARAMS.k, x0: CALIBRATION_PARAMS.x0, T: CALIBRATION_PARAMS.T },
+	      updatedBy,
+	    },
+	    update: {
+	      value: { L: CALIBRATION_PARAMS.L, k: CALIBRATION_PARAMS.k, x0: CALIBRATION_PARAMS.x0, T: CALIBRATION_PARAMS.T },
+	      updatedBy,
+	    },
+	  });
 }
 
 // ── Beta Calibration ──────────────────────────────────────────
@@ -409,14 +410,77 @@ export async function autoCalibrateFromDB(): Promise<{
 	}
 	}
 
+// ── Per-Model Calibration ────────────────────────────────────
+// Her model ayrı kalibrasyon parametrelerine sahip olabilir.
+// Bu sayede iyi kalibre olmuş modeller ezilmez, kötüler düzeltilir.
+interface ModelCalibParams {
+  beta?: BetaParams | null;
+  isotonic?: IsotonicTable | null;
+  sigmoid?: { L: number; k: number; x0: number; T: number };
+}
+
+const perModelCalibration: Map<string, ModelCalibParams> = new Map();
+const SYSTEM_KEY_MODEL_PREFIX = 'calibration.model.';
+
+/**
+ * Bir model için kalibrasyon kaydet.
+ */
+export function setModelCalibration(modelName: string, params: ModelCalibParams): void {
+  perModelCalibration.set(modelName, params);
+}
+
+/**
+ * Bir model için kalibre edilmiş probability döndür.
+ * Önce Beta, sonra Isotonic, sonra sigmoid dener.
+ */
+export function calibrateModelOutput(modelName: string, rawScore: number): number {
+  const mc = perModelCalibration.get(modelName);
+  if (!mc) return calibrateScore(rawScore); // global fallback
+
+  // Beta
+  if (mc.beta) {
+    const p = Math.max(1e-6, Math.min(1 - 1e-6, rawScore / 100));
+    const logit = Math.log(p / (1 - p));
+    const z = mc.beta.c * logit + mc.beta.d;
+    const cal = 1 / (1 + Math.exp(-z));
+    return Math.round(cal * 1000) / 1000;
+  }
+
+  // Isotonic
+  if (mc.isotonic) {
+    const x = Math.max(0, Math.min(1, rawScore / 100));
+    let lo = 0, hi = mc.isotonic.x.length - 1;
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1;
+      if (mc.isotonic.x[mid] <= x) lo = mid;
+      else hi = mid;
+    }
+    const cal = mc.isotonic.y[lo] + (x - mc.isotonic.x[lo]) / (mc.isotonic.x[hi] - mc.isotonic.x[lo]) * (mc.isotonic.y[hi] - mc.isotonic.y[lo]);
+    return Math.round(Math.max(0, Math.min(1, cal)) * 1000) / 1000;
+  }
+
+  // Sigmoid + temperature
+  if (mc.sigmoid) {
+    const { L, k, x0, T } = mc.sigmoid;
+    const z = k * (rawScore - x0);
+    const cal = L / (1 + Math.exp(-z / T));
+    return Math.round(cal * 1000) / 1000;
+  }
+
+  return calibrateScore(rawScore);
+}
+
+// Single global calibrator uses the above for consistency
 export function calibrateScore(rawScore: number): number {
-  // Prefer Beta (best for [0,1] bounded), then isotonic, then sigmoid.
+  // Prefer Beta (best for [0,1] bounded), then isotonic, then sigmoid + temperature.
   const beta = applyBeta(rawScore);
   if (beta != null) return beta;
   const iso = applyIsotonic(rawScore);
   if (iso != null) return Math.round(iso * 1000) / 1000;
-  const { L, k, x0 } = CALIBRATION_PARAMS;
-  const p = L / (1 + Math.exp(-k * (rawScore - x0)));
+  const { L, k, x0, T } = CALIBRATION_PARAMS;
+  // Temperature scaling: logit / T before sigmoid
+  const z = k * (rawScore - x0);
+  const p = L / (1 + Math.exp(-z / T));
   return Math.round(p * 1000) / 1000;
 }
 

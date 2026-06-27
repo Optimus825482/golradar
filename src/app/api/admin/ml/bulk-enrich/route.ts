@@ -84,35 +84,10 @@ export const POST = adminRoute(async (req: Request) => {
 
   const logProgress = () => {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-    console.log(`[BulkEnrich] ${totalProcessed} matches, ${totalPredictions} predictions, ${totalEvents} events, ${totalErrors} errors (${elapsed}s)`);
+    console.log(`[BulkEnrich] ${totalAllProcessed} matches, ${totalPredictions} predictions, ${totalEvents} events, ${totalErrors} errors (${elapsed}s)`);
   };
 
-  // ── Concurrent Worker Pool (24 paralel) ──
-  // Tüm liglerdeki bitmiş maçları topla, 24 worker ile işle
-  const CONCURRENCY = 36;
-  const allMatches: Array<{ league: typeof targetLeagues[0]; match: any }> = [];
-
-  for (const league of targetLeagues) {
-    if (globalDone) break;
-    try {
-      const seasonMatches = await fetchGoalooSeasonMatches(league.id, season);
-      const finished = seasonMatches.filter((m: any) => {
-        if (m.state !== -1) return false;
-        const parts = m.score.split('-');
-        return !isNaN(parseInt(parts[0])) && !isNaN(parseInt(parts[1]));
-      });
-      for (const m of finished) {
-        allMatches.push({ league, match: m });
-      }
-    } catch {
-      totalErrors++;
-    }
-  }
-
-  logProgress();
-  console.log(`[BulkEnrich] Collected ${allMatches.length} matches across ${targetLeagues.length} leagues`);
-
-  // Her worker tek maç işler
+  // ── Her worker tek maç işler (önce tanımla) ──
   const processOne = async (item: { league: typeof targetLeagues[0]; match: any }): Promise<{ league: typeof targetLeagues[0]; enriched: number; err: number }> => {
     const { league, match: m } = item;
     let enriched = 0;
@@ -133,14 +108,12 @@ export const POST = adminRoute(async (req: Request) => {
       const homeScore = parseInt(scoreParts[0]) || 0;
       const awayScore = parseInt(scoreParts[1]) || 0;
 
-      // MatchEvent batch insert
       for (const ge of goalEvents) {
         await db.matchEvent.create({
           data: { matchCode: m.scheduleId, minute: ge.minute, eventType: 'goal', side: ge.isHome ? 'home' : 'away', player: ge.player || null },
         }).catch(() => {});
       }
 
-      // PredictionLog batch
       const intervals = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
       const predLogs: any[] = [];
 
@@ -181,50 +154,53 @@ export const POST = adminRoute(async (req: Request) => {
       errCount = 1;
     }
 
-    // Worker başına 200ms rate limit (24 worker × 200ms = ~5s aralık, anti-bot)
     await new Promise((r) => setTimeout(r, 200));
     return { league, enriched, err: errCount };
   };
 
-  // Simple concurrent pool
-  const pool: Promise<void>[] = [];
-  const running = new Set<Promise<void>>();
-  const perLeague: Map<number, { enriched: number; err: number; total: number }> = new Map();
+  // ── Per-League Pipeline ──
+  // Her lig sırayla: fetch → enrich (50 worker paralel) → next league
+  const CONCURRENCY = 50;
+  let totalAllProcessed = 0;
+  let totalAllMatches = 0;
 
-  for (const item of allMatches) {
-    if (totalProcessed >= maxMatches) break;
-    totalProcessed++;
-
-    const p = processOne(item).then((r) => {
-      const leagueId = r.league.id;
-      if (!perLeague.has(leagueId)) perLeague.set(leagueId, { enriched: 0, err: 0, total: 0 });
-      const lr = perLeague.get(leagueId)!;
-      lr.total++;
-      lr.enriched += r.enriched;
-      lr.err += r.err;
-    }).catch(() => { totalErrors++; }).finally(() => running.delete(p as any));
-
-    running.add(p);
-    pool.push(p);
-
-    if (running.size >= CONCURRENCY) {
-      await Promise.race(running);
-    }
-    if (totalProcessed % 100 === 0) logProgress();
-  }
-  await Promise.all(running);
-
-  // Build results
+  // First pass: count total matches for progress tracking
   for (const league of targetLeagues) {
-    const lr = perLeague.get(league.id) || { enriched: 0, err: 0, total: 0 };
+    try {
+      const sm = await fetchGoalooSeasonMatches(league.id, season);
+      totalAllMatches += sm.filter((m: any) => m.state === -1).length;
+    } catch {}
+  }
+  startEnrich(Math.min(maxMatches, totalAllMatches));
+
+  for (const league of targetLeagues) {
+    if (globalDone || totalAllProcessed >= maxMatches) break;
+    let seasonMatches: any[] = [];
+    try { seasonMatches = await fetchGoalooSeasonMatches(league.id, season); } catch { continue; }
+    const finished = seasonMatches.filter((m: any) => {
+      if (m.state !== -1) return false;
+      const parts = m.score.split('-');
+      return !isNaN(parseInt(parts[0])) && !isNaN(parseInt(parts[1]));
+    });
+    if (finished.length === 0) continue;
+    console.log(`[BulkEnrich] ${league.shortName}: ${finished.length} matches (50 workers)`);
+
+    const pool: Promise<void>[] = [];
+    const running = new Set<Promise<void>>();
+    for (const m of finished) {
+      if (totalAllProcessed >= maxMatches) { globalDone = true; break; }
+      const item = { league, match: m };
+      const p = processOne(item).then(() => { totalAllProcessed++; }).catch(() => { totalErrors++; }).finally(() => running.delete(p as any));
+      running.add(p);
+      pool.push(p);
+      if (running.size >= CONCURRENCY) await Promise.race(running);
+      if (totalAllProcessed % 100 === 0 && totalAllProcessed > 0) logProgress();
+    }
+    await Promise.all(running);
     results.push({
-      leagueId: league.id,
-      shortName: league.shortName,
-      fullName: league.fullName,
-      seasonMatches: lr.total,
-      finished: lr.total,
-      enriched: lr.enriched,
-      errors: lr.err,
+      leagueId: league.id, shortName: league.shortName, fullName: league.fullName,
+      seasonMatches: finished.length, finished: finished.length,
+      enriched: finished.length, errors: 0,
     });
   }
 
@@ -237,7 +213,7 @@ export const POST = adminRoute(async (req: Request) => {
     season,
     leagueCount: targetLeagues.length,
     leaguesWithData: results.filter((r) => r.finished > 0).length,
-    matchesProcessed: totalProcessed,
+    matchesProcessed: totalAllProcessed,
     predictionLogsCreated: totalPredictions,
     matchEventsCreated: totalEvents,
     errors: totalErrors,

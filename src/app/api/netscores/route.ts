@@ -159,6 +159,14 @@ export async function GET(request: Request) {
       const detail = await fetchGameDetail(netscoresUrl);
       if (!detail) return NextResponse.json({ error: "NetScores data not available" }, { status: 404 });
 
+      // NetScores'dan gelen logoları logo map'ine ekle (CSV'de yoksa)
+      import('@/lib/teamLogos').then(({ registerTeamLogos }) => {
+        registerTeamLogos([
+          { name: detail.teams.home?.name || '', logo: detail.teams.home?.logo || null },
+          { name: detail.teams.away?.name || '', logo: detail.teams.away?.logo || null },
+        ]);
+      }).catch(() => {});
+
       const convertedStats = convertNetScoresStatsToMatchStats(detail.stats);
       const convertedEvents = convertNetScoresEvents(detail.events, detail.teams.home?.name || "Home", detail.teams.away?.name || "Away");
 

@@ -18,6 +18,7 @@ import { autoFetchMissingRatings, getRating } from "@/lib/eloRating";
 import { db } from "@/lib/db";
 import { applyCalibration } from "@/lib/calibration";
 import { extractFeatures, featuresToArray, pushFeatureSample } from "@/lib/featureEngineering";
+import { loadTeamLogos, getTeamLogo } from "@/lib/teamLogos";
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
 import { reportGoal } from "@/lib/goalSignalTracker";
@@ -396,7 +397,7 @@ export async function GET(request: Request) {
   // Prune stale entries from in-memory pressure history (older than 4h)
   pruneStale(4 * 60 * 60 * 1000);
 
-  // Resolve FotMob logo URLs from TeamMapping for each team
+  // Resolve FotMob logo URLs from TeamMapping + CSV fallback
   const teamLogos: Record<string, string> = {};
   const allTeamNames = matches.flatMap((m) => [
     m.home.toLowerCase().trim(),
@@ -405,7 +406,7 @@ export async function GET(request: Request) {
   const uniqueNames = [...new Set(allTeamNames)];
   if (uniqueNames.length > 0) {
     try {
-      // Batch lookup: match by nesineName (fuzzy) or canonicalName
+      // Batch lookup from DB
       const mappings = await db.teamMapping.findMany({
         where: {
           OR: uniqueNames.map((n) => ({
@@ -418,14 +419,24 @@ export async function GET(request: Request) {
         select: { canonicalName: true, fotmobLogoUrl: true, nesineName: true },
         take: 200,
       });
+
+      // DB'de logo bulunanları ekle
       for (const mapping of mappings) {
         if (mapping.fotmobLogoUrl) {
-          // Store by lowercase for lookup
           const key = mapping.canonicalName.toLowerCase();
           teamLogos[key] = mapping.fotmobLogoUrl;
           if (mapping.nesineName) {
             teamLogos[mapping.nesineName.toLowerCase()] = mapping.fotmobLogoUrl;
           }
+        }
+      }
+
+      // CSV fallback: DB'de bulunamayanlar için CSV'den dene
+      await loadTeamLogos();
+      for (const teamName of uniqueNames) {
+        if (!teamLogos[teamName]) {
+          const url = getTeamLogo(teamName);
+          if (url) teamLogos[teamName] = url;
         }
       }
     } catch {

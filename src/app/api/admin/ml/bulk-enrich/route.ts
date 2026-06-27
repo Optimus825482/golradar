@@ -21,6 +21,7 @@ import { NextResponse } from 'next/server';
 import { adminRoute } from '@/lib/adminRoute';
 import { db } from '@/lib/db';
 import { GOALOO_LEAGUES } from '@/lib/ml/goalooLeagues';
+import { startEnrich, tickEnrich, finishEnrich, getEnrichProgress } from '@/lib/enrichProgress';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 180;
@@ -78,6 +79,9 @@ export const POST = adminRoute(async (req: Request) => {
   const startTime = Date.now();
   let globalDone = false;
 
+  // Progress tracking başlat — maxMatches üzerinden
+  startEnrich(maxMatches);
+
   const logProgress = () => {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
     console.log(`[BulkEnrich] ${totalProcessed} matches, ${totalPredictions} predictions, ${totalErrors} errors (${elapsed}s)`);
@@ -103,10 +107,12 @@ export const POST = adminRoute(async (req: Request) => {
           break;
         }
 
+        tickEnrich(league.shortName, `${m.homeTeam} vs ${m.awayTeam}`, false);
+
         try {
           // Fetch momentum
           const momentum = await fetchGoalooMomentum(m.scheduleId);
-          if (!momentum) { leagueErrors++; continue; }
+          if (!momentum) { leagueErrors++; tickEnrich(league.shortName, `${m.homeTeam} vs ${m.awayTeam}`, true); continue; }
 
           // Fetch events
           const events = await fetchGoalooMatchEvents(m.scheduleId);
@@ -251,6 +257,7 @@ export const POST = adminRoute(async (req: Request) => {
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   logProgress();
+  finishEnrich();
 
   return NextResponse.json({
     ok: true,

@@ -10,9 +10,41 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { fmtNum } from '@/lib/safeFormat';
 import { authFetch } from '@/lib/adminAuth';
+
+interface BulkEnrichResult {
+  ok: boolean;
+  season: string;
+  leagueCount: number;
+  leaguesWithData: number;
+  matchesProcessed: number;
+  predictionLogsCreated: number;
+  errors: number;
+  perLeague: Array<{
+    leagueId: number;
+    shortName: string;
+    fullName: string;
+    seasonMatches: number;
+    finished: number;
+    enriched: number;
+    errors: number;
+  }>;
+  elapsed: string;
+}
+
+interface EnrichProgress {
+  running: boolean;
+  total: number;
+  processed: number;
+  errors: number;
+  percent: number;
+  elapsed: number;
+  currentMatch: string | null;
+  currentLeague: string | null;
+  recentMatches: string[];
+}
 
 interface BulkEnrichResult {
   ok: boolean;
@@ -92,6 +124,8 @@ export default function AdminDataImportPage() {
   const [error, setError] = useState<string | null>(null);
   const [enrichResult, setEnrichResult] = useState<BulkEnrichResult | null>(null);
   const [enrichLoading, setEnrichLoading] = useState(false);
+  const [enrichProgress, setEnrichProgress] = useState<EnrichProgress | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const days = Math.max(
     1,
@@ -132,13 +166,26 @@ export default function AdminDataImportPage() {
   const startEnrich = useCallback(async () => {
     setEnrichLoading(true);
     setEnrichResult(null);
+    setEnrichProgress({ running: true, total: 500, processed: 0, errors: 0, percent: 0, elapsed: 0, currentMatch: null, currentLeague: null, recentMatches: [] });
     setError(null);
+
+    // Progress polling başlat
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch('/api/admin/ml/bulk-enrich/progress');
+        const data: EnrichProgress = await res.json();
+        setEnrichProgress(data);
+        if (!data.running && data.processed > 0) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      } catch {}
+    }, 2000);
+
     try {
       const res = await authFetch('/api/admin/ml/bulk-enrich', {
         method: 'POST',
-        body: JSON.stringify({
-          maxMatches: 500,
-        }),
+        body: JSON.stringify({ maxMatches: 500 }),
       });
       const data: BulkEnrichResult = await res.json();
       if (!res.ok || !data.ok) {
@@ -150,6 +197,7 @@ export default function AdminDataImportPage() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setEnrichLoading(false);
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     }
   }, []);
 
@@ -350,7 +398,7 @@ export default function AdminDataImportPage() {
               </div>
               <p className="text-[10px] text-gray-500 mt-0.5">
                 Her maç için momentum + events + prediction log çeker. ~1 maç/sn hızla çalışır.
-                500 maç ≈ 8 dakika sürer. Sayfada bekle — tamamlanınca sonuç gösterilir.
+                500 maç ≈ 8 dakika sürer.
               </p>
             </div>
           </div>
@@ -366,6 +414,55 @@ export default function AdminDataImportPage() {
                 ? '🔄 Tekrar Detaylı Çek'
                 : '⚡ Detaylı ML Verilerini Çek'}
           </button>
+
+          {/* ── Dynamic Progress Bar ── */}
+          {enrichProgress && enrichProgress.running && (
+            <div className="mt-4 space-y-2">
+              <div className="flex justify-between text-xs text-gray-600">
+                <span>{enrichProgress.processed} / {enrichProgress.total} maç</span>
+                <span>%{enrichProgress.percent}</span>
+                <span>{enrichProgress.elapsed}s</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500 ease-out"
+                  style={{
+                    width: `${Math.min(100, enrichProgress.percent)}%`,
+                    background: 'linear-gradient(90deg, #8b5cf6, #a78bfa)',
+                  }}
+                />
+              </div>
+              {enrichProgress.currentMatch && (
+                <div className="text-[10px] text-violet-600 font-medium animate-pulse">
+                  🔄 {enrichProgress.currentLeague}: {enrichProgress.currentMatch}
+                </div>
+              )}
+              {enrichProgress.errors > 0 && (
+                <div className="text-[10px] text-red-500">
+                  ⚠️ {enrichProgress.errors} hata
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Live Last 50 Matches ── */}
+          {enrichProgress && enrichProgress.recentMatches.length > 0 && (
+            <div className="mt-3 border border-gray-100 rounded-lg max-h-48 overflow-y-auto">
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-2 bg-gray-50 border-b border-gray-100 sticky top-0">
+                Son {Math.min(enrichProgress.recentMatches.length, 50)} İşlenen Maç
+              </div>
+              <div className="divide-y divide-gray-50">
+                {enrichProgress.recentMatches.map((match, i) => (
+                  <div
+                    key={`${match}-${i}`}
+                    className="px-3 py-1.5 text-[11px] text-gray-700 font-mono"
+                  >
+                    {match}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {enrichResult && (
             <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">

@@ -47,6 +47,7 @@ import {
 import { db } from "./db";
 import { logError } from "./devLog";
 import { loadExcludedMinutes, isExcludedMinute } from "./excludedMinutes";
+import { onGoal as feedbackOnGoal } from "./feedbackLoops";
 
 // ── Local date helper ────────────────────────────────────
 export const getLocalDateString = (d: Date = new Date()): string => {
@@ -367,6 +368,20 @@ export async function reportGoal(
         }),
       ),
     );
+
+    // ── Feedback Loop: golden sonra thesis resolve + kalibrasyon ──
+    // ponytail: tek çağrı, async, başarısız olursa sessiz geç
+    if (withId.length > 0) {
+      const first = withId[0];
+      feedbackOnGoal({
+        matchCode,
+        goalMinute,
+        goalSide,
+        homeTeam: first.homeTeam,
+        awayTeam: first.awayTeam,
+        league: first.league,
+      }).catch(() => {});
+    }
   } catch (err) {
     logError('goalSignalTracker', 'reportGoal failed:', err);
   }

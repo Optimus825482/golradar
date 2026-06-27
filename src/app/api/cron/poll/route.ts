@@ -43,6 +43,10 @@ import {
   pruneStale,
 } from "@/lib/pressureHistory";
 import { logError } from "@/lib/devLog";
+import { assessMatchQuality } from "@/lib/matchQuality";
+import { forceVerdict, type ModelVote } from "@/lib/signalVerdict";
+import { createThesis } from "@/lib/signalThesis";
+import { onGoal, onFulltime } from "@/lib/feedbackLoops";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -122,6 +126,27 @@ async function processMatch(
     return {
       code: 0,
       processed: false,
+      signalsCreated: 0,
+      isHalftime,
+      isFinished,
+      heavyAnalytics: false,
+    };
+  }
+
+  // ── Match Quality Funnel ──────────────────────────────
+  // C kalite maçları (tek veri kaynağı) atla — sinyal üretme
+  const quality = assessMatchQuality({
+    matchCode,
+    homeTeam: home,
+    awayTeam: away,
+    league,
+    activeSources: ['nesine'], // cron poll only uses nesine
+  });
+  if (!quality.passFunnel) {
+    // Yine de poll et, ama sinyal üretme — sadece canlılık takibi
+    return {
+      code: matchCode,
+      processed: true,
       signalsCreated: 0,
       isHalftime,
       isFinished,
@@ -245,30 +270,61 @@ async function processMatch(
 
   let signalsCreated = 0;
   if (prob && prob.score >= 60 && prob.side && prob.side !== "both" && !inExcludedZone) {
-    try {
-      const result = await checkAndRecordSignal(
-        matchCode,
-        home,
-        away,
-        league,
-        String(raw.T || ""),
-        minute,
-        {
-          score: prob.score,
-          homeScore: prob.homeScore,
-          awayScore: prob.awayScore,
-          side: prob.side,
-          level: prob.level,
-          factors: prob.factors,
-          calibratedP: prob.calibratedP,
-          poissonP: prob.poissonP,
-        },
-        homeGoals,
-        awayGoals,
-      );
-      if (result) signalsCreated = 1;
-    } catch (e) {
-      logError("Cron", "checkAndRecordSignal failed:", e);
+    // ── Force Verdict ──────────────────────────────────
+    // Model uyumunu kontrol et: cron'da sadece radar model var,
+    // ama yine de probability tabanlı tier atarız
+    const models: ModelVote[] = [
+      { name: 'radar', probability: prob.calibratedP, confidence: 0.8 },
+      { name: 'poisson', probability: prob.poissonP, confidence: 0.7 },
+    ];
+    const verdict = forceVerdict(models);
+
+    // Sadece HIGH/MEDIUM tier sinyalleri kaydet
+    if (verdict.tier === 'HIGH' || verdict.tier === 'MEDIUM') {
+      try {
+        const result = await checkAndRecordSignal(
+          matchCode,
+          home,
+          away,
+          league,
+          String(raw.T || ""),
+          minute,
+          {
+            score: prob.score,
+            homeScore: prob.homeScore,
+            awayScore: prob.awayScore,
+            side: prob.side,
+            level: prob.level,
+            factors: prob.factors,
+            calibratedP: prob.calibratedP,
+            poissonP: prob.poissonP,
+          },
+          homeGoals,
+          awayGoals,
+        );
+        if (result) {
+          signalsCreated = 1;
+
+          // ── Thesis kaydet ────────────────────────────
+          // ponytail: tek kayıt, amaç uzun vadeli takip
+          createThesis({
+            matchCode,
+            homeTeam: home,
+            awayTeam: away,
+            league,
+            predictedSide: prob.side as 'home' | 'away',
+            predictedMinuteRange: [Math.max(0, sigMin - 5), Math.min(90, sigMin + 10)],
+            predictedProbability: prob.calibratedP,
+            expectedScore: prob.score,
+            tier: verdict.tier === 'HIGH' ? 'HIGH' : 'MEDIUM',
+            keyFactors: prob.factors,
+            dominantModels: ['radar', 'poisson'],
+            dataSourceGrade: 'B',
+          });
+        }
+      } catch (e) {
+        logError("Cron", "checkAndRecordSignal failed:", e);
+      }
     }
   }
 
@@ -288,6 +344,16 @@ async function processMatch(
     } catch (e) {
       logError("Cron", "heavy analytics failed:", e);
     }
+  }
+
+  // ── Fulltime Feedback Loop ──────────────────────────
+  if (status && FINISHED_STATUSES.has(status) && signalsCreated > 0) {
+    onFulltime({
+      matchCode,
+      homeScore,
+      awayScore,
+      league,
+    }).catch(() => {});
   }
 
   return {

@@ -24,7 +24,7 @@ import { GOALOO_LEAGUES } from '@/lib/ml/goalooLeagues';
 import { startEnrich, tickEnrich, finishEnrich, getEnrichProgress } from '@/lib/enrichProgress';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 600;
+export const maxDuration = 1800; // 30 dk (23219 maç × 200ms/worker)
 
 interface EnrichReq {
   leagueIds?: number[];

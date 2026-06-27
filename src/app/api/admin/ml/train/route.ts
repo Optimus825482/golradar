@@ -72,6 +72,7 @@ export const POST = adminRoute(async (request: Request) => {
     "inplay",
     "team-strength",
     "xt-grid",
+    "lightgbm",
   ];
   if (!name || !SUPPORTED_TRAIN_MODELS.includes(name)) {
     return NextResponse.json(

@@ -36,7 +36,6 @@ import { brierToConfidence, UNRANKED_MODEL_BRIER } from '@/config';
 import { FEATURE_NAMES } from './featureEngineering';
 import { predictStacking, type StackingInput } from './ml/stackingEnsemble';
 import { bayesianModelAverage, bmaToEnsembleWeights } from './ml/bayesianAveraging';
-import { getClubElo, eloToWinProbability } from './clubElo';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -355,25 +354,6 @@ export async function predictEnsemble(
     }
   } catch {
     teamStrengthP = 0;
-  }
-
-  // ── Model 6: ClubElo Rating ──
-  // Bağımsız Elo rating'den kazanma olasılığı. clubelo.com üzerinden.
-  let clubEloP = 0;
-  let clubEloConf = 0;
-  let clubEloDetails = "No ClubElo data";
-  try {
-    const [homeElo, awayElo] = await Promise.all([
-      getClubElo(homeTeam || '').catch(() => null),
-      getClubElo(awayTeam || '').catch(() => null),
-    ]);
-    if (homeElo && awayElo) {
-      clubEloP = eloToWinProbability(homeElo.elo, awayElo.elo);
-      clubEloConf = 0.6;
-      clubEloDetails = `ClubElo: ${homeElo.elo} vs ${awayElo.elo}`;
-    }
-  } catch {
-    clubEloP = 0;
   }
 
   // ── Calculate dynamic weights (Brier tier-based) ──

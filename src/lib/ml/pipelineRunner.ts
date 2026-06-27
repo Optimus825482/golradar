@@ -26,7 +26,7 @@ const FEATURE_DIR = process.env.ML_DATA_DIR
   ? '/app/data/ml-training'
   : join(process.cwd(), 'data', 'ml-training');
 
-export type PipelineModel = 'gbdt' | 'xgb' | 'inplay';
+export type PipelineModel = 'gbdt' | 'xgb' | 'inplay' | 'team-strength' | 'xt-grid' | 'lightgbm';
 export type PipelineStatus = 'pending' | 'extracting' | 'training' | 'comparing' | 'done' | 'failed';
 
 interface PipelineConfig {

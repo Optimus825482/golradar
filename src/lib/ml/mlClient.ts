@@ -11,7 +11,7 @@ const TRAINER_URL = process.env.ML_TRAINER_URL ?? '';
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface TrainRequest {
-  name: 'gbdt' | 'xgb' | 'inplay';
+  name: 'gbdt' | 'xgb' | 'inplay' | 'team-strength' | 'xt-grid' | 'lightgbm';
   version: string;
   horizon_min: number;
   dataset_path: string;

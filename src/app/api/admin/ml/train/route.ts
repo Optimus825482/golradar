@@ -150,7 +150,7 @@ export const POST = adminRoute(async (request: Request) => {
 
   // Start the job
   const job = await startTraining({
-    name: name as "gbdt" | "xgb" | "inplay",
+    name: name as "gbdt" | "xgb" | "inplay" | "team-strength" | "xt-grid" | "lightgbm",
     version,
     horizon_min,
     dataset_path: resolvedPath,
@@ -196,7 +196,7 @@ export const POST = adminRoute(async (request: Request) => {
   if (completed.artifactPath) {
     try {
       await registerArtifact({
-        name: name as "gbdt" | "xgb" | "inplay",
+        name: name as "gbdt" | "xgb" | "inplay" | "team-strength" | "xt-grid" | "lightgbm",
         version,
         artifactPath: localArtifactPath,
         metrics: completed.metrics,

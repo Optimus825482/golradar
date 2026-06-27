@@ -35,6 +35,8 @@ import { logError } from '@/lib/devLog';
 import { brierToConfidence, UNRANKED_MODEL_BRIER } from '@/config';
 import { FEATURE_NAMES } from './featureEngineering';
 import { predictStacking, type StackingInput } from './ml/stackingEnsemble';
+import { bayesianModelAverage, bmaToEnsembleWeights } from './ml/bayesianAveraging';
+import { getClubElo, eloToWinProbability } from './clubElo';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -355,6 +357,25 @@ export async function predictEnsemble(
     teamStrengthP = 0;
   }
 
+  // ── Model 6: ClubElo Rating ──
+  // Bağımsız Elo rating'den kazanma olasılığı. clubelo.com üzerinden.
+  let clubEloP = 0;
+  let clubEloConf = 0;
+  let clubEloDetails = "No ClubElo data";
+  try {
+    const [homeElo, awayElo] = await Promise.all([
+      getClubElo(homeTeam || '').catch(() => null),
+      getClubElo(awayTeam || '').catch(() => null),
+    ]);
+    if (homeElo && awayElo) {
+      clubEloP = eloToWinProbability(homeElo.elo, awayElo.elo);
+      clubEloConf = 0.6;
+      clubEloDetails = `ClubElo: ${homeElo.elo} vs ${awayElo.elo}`;
+    }
+  } catch {
+    clubEloP = 0;
+  }
+
   // ── Calculate dynamic weights (Brier tier-based) ──
   // Replaces the old calculateDynamicWeights() heuristic with a
   // Brier-driven tuner. Champion Brier values are extracted from
@@ -382,22 +403,48 @@ export async function predictEnsemble(
     hasPressureHistory: hasHistory,
   });
 
-	  // ── Weighted ensemble blend ──
-	  // Yeni: sadece prediction > 0 olan modeller normalize edilir.
-	  // 0 çıktı üreten modeller (ör: inPlayP=0, teamStrengthP=0) ağırlık
-	  // tüketmez, böylece aktif modeller seyreltilmez.
-	  const activeModels: { weight: number; pred: number }[] = [];
-	  if (ruleBasedP > 0) activeModels.push({ weight: weights.ruleBased, pred: ruleBasedP });
-	  if (poissonP > 0) activeModels.push({ weight: weights.poisson, pred: poissonP });
-	  if (eloP > 0) activeModels.push({ weight: weights.elo, pred: eloP });
-	  if (mlP > 0) activeModels.push({ weight: weights.ml, pred: mlP });
-	  if (teamStrengthP > 0) activeModels.push({ weight: weights.teamStrength, pred: teamStrengthP });
-	  if (inPlayP > 0) activeModels.push({ weight: weights.inplay, pred: inPlayP });
+	  // ── Bayesian Model Averaging ──
+  // Weighted average yerine Brier-based posterior weights.
+  // Her modelin Brier score'undan weight türet: düşük Brier = yüksek weight.
+  const bmaModels = [
+    { name: 'Rule-Based', probability: ruleBasedP, brierScore: null as number | null },
+    { name: 'Poisson', probability: poissonP, brierScore: null as number | null },
+    { name: 'Elo', probability: eloP, brierScore: null as number | null },
+    { name: 'ML', probability: mlP, brierScore: null as number | null },
+    { name: 'TeamStrength', probability: teamStrengthP, brierScore: null as number | null },
+    { name: 'InPlay5m', probability: inPlayP, brierScore: null as number | null },
+  ].filter(m => m.probability > 0);
 
-	  const totalActiveWeight = activeModels.reduce((s, m) => s + m.weight, 0);
-		  const ensembleP = totalActiveWeight > 0
-		    ? activeModels.reduce((s, m) => s + m.pred * (m.weight / totalActiveWeight), 0)
-		    : ruleBasedP; // fallback: hiçbir model aktif değilse rule-based kullan
+  // Get Brier scores from champion models
+  const brierMap: Record<string, number | null> = {};
+  try {
+    const [rbBrier, poBrier, elBrier, mlBr, tsBrier, ipBrier] = await Promise.all([
+      getChampionBrier('gbdt').catch(() => null),
+      getChampionBrier('xgb').catch(() => null),
+      null, // Elo has no Brier
+      getChampionBrier('gbdt').catch(() => null),
+      getChampionBrier('team-strength').catch(() => null),
+      getChampionBrier('inplay').catch(() => null),
+    ]);
+    brierMap['Rule-Based'] = rbBrier;
+    brierMap['Poisson'] = poBrier;
+    brierMap['Elo'] = null;
+    brierMap['ML'] = mlBr;
+    brierMap['TeamStrength'] = tsBrier;
+    brierMap['InPlay5m'] = ipBrier;
+  } catch {}
+
+  const bmaInputs = bmaModels.map(m => ({
+    name: m.name,
+    probability: m.probability,
+    brierScore: brierMap[m.name] ?? null,
+  }));
+
+  const bmaResult = bmaInputs.length > 0
+    ? bayesianModelAverage(bmaInputs)
+    : { probability: ruleBasedP, modelWeights: {}, modelProbs: {}, bayesianBrier: 0 };
+
+  const ensembleP = bmaResult.probability;
 
   // ── Stacking Ensemble (meta-model alternatifi) ──
   // Logistic regression meta-model: tüm modellerin çıktılarını öğrenip birleştirir.

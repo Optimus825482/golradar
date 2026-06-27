@@ -17,6 +17,7 @@ import { calibrateScore } from './calibration';
 import { logError } from '@/lib/devLog';
 import { SIGNAL_5MIN_THRESHOLD, MIN_PROB_FOR_SIGNAL, ENSEMBLE_SCORE_CAP, RADAR_THRESHOLD } from '@/config';
 import { determineSide } from './goalRadar/side';
+import { computeTrendBoost } from './ml/trendLSTM';
 import { detectGoalCooldown, applyGoalCooldown } from './goalRadar/cooldown';
 import type { PressureSnapshotLite, GoalProbability } from './goalRadar/types';
 
@@ -1040,7 +1041,22 @@ export function calculateGoalProbability(
     awayScore = Math.round(
       awayScore * 0.9 + poissonResult.awayGoalP * 100 * 0.1,
     );
-  } catch (e) { logError('goalRadar', e); /* fallback */ }
+	  } catch (e) { logError('goalRadar', e); /* fallback */ }
+
+  // ── Trend LSTM Boost ──
+  // Pressure trend'inden goal probability boost hesapla.
+  // Ani pressure sıçraması veya yükselen trend varsa skoru artır.
+  try {
+    const pressureWindows = (pressureHistory ?? []).map(snap => [snap.homePressure ?? 50, snap.awayPressure ?? 50] as [number, number]);
+    if (pressureWindows.length >= 3) {
+      const trendBoost = computeTrendBoost({ windows: pressureWindows, minute: minNum });
+      if (trendBoost > 0) {
+        const boostScore = trendBoost * 100;
+        homeScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore + boostScore));
+        awayScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore + boostScore));
+      }
+    }
+  } catch { /* trend boost is optional */ }
 
   // Probability calibration — Faz 4: tek kanal.
   // applyCalibration → sigmoid/PAVA üzerinden DB'deki parametreleri kullanır.

@@ -188,6 +188,47 @@ export const POST = adminRoute(async (request: Request) => {
 
   const action = body.action;
 
+  // Fetch from elofootball.com by country
+  if (action === "fetch-elo-football") {
+    const { fetchEloRatings, EUROPEAN_COUNTRIES } = await import('@/lib/eloFootball');
+    const countryIso = body.countryIso || 'TUR';
+    const season = body.season || '2025-2026';
+    const ratings = await fetchEloRatings(countryIso, season);
+    const countryName = EUROPEAN_COUNTRIES[countryIso] || countryIso;
+
+    if (ratings.length === 0) {
+      return NextResponse.json({ ok: false, error: `No data for ${countryName} (${countryIso})` });
+    }
+
+    // Import into Elo rating table
+    let imported = 0;
+    for (const r of ratings) {
+      try {
+        await db.teamMapping.updateMany({
+          where: {
+            OR: [
+              { canonicalName: { contains: r.team, mode: 'insensitive' } },
+              { nesineName: { contains: r.team, mode: 'insensitive' } },
+            ],
+          },
+          data: { eloRating: r.elo, eloSource: 'elofootball' },
+        });
+        imported++;
+      } catch { /* team not found in DB */ }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      source: 'elofootball.com',
+      country: countryName,
+      countryIso,
+      season,
+      teamsFound: ratings.length,
+      imported,
+      ratings: ratings.slice(0, 20), // top 20 in response
+    });
+  }
+
   // Fetch from multiple sources by team names
   if (action === "fetch") {
     const teams = body.teams;

@@ -136,6 +136,7 @@ function parseHistoricalMatch(raw: any): NesineHistoricalMatch | null {
 /**
  * Nesine historical match'leri PredictionLog tablosuna yaz.
  * Goaloo'dan gol events'lerini çekerek goalScored label'larını belirler.
+ * Date-based değil, season-based Goaloo API kullanır (tüm sezon verisine erişim).
  */
 export async function backfillFromNesine(
   matches: NesineHistoricalMatch[],
@@ -143,32 +144,52 @@ export async function backfillFromNesine(
 ): Promise<{ processed: number; predictions: number }> {
   const { calculateGoalProbability } = await import('@/lib/goalRadar');
   const { extractFeatures, featuresToArray } = await import('@/lib/featureEngineering');
-  const { findGoalooMatchForNesine, fetchGoalooMatchEvents } = await import('@/lib/goaloo');
+  const { fetchGoalooSeasonMatches, fetchGoalooMatchEvents } = await import('@/lib/goaloo');
   const { db } = await import('@/lib/db');
+
+  // Goaloo league mapping: Nesine league adı → Goaloo league (fuzzy)
+  // Bulk enrichment'teki GOALOO_LEAGUES listesini kullan
+  const { GOALOO_LEAGUES } = await import('@/lib/ml/goalooLeagues');
 
   const max = options.maxMatches ?? matches.length;
   let processed = 0;
   let predictions = 0;
+
+  // Pre-fetch all Goaloo season matches for all leagues (cached by Goaloo)
+  const goalooMatchCache = new Map<string, { scheduleId: number; homeTeam: string; awayTeam: string }>();
+  const season = '2025-2026';
+  for (const league of GOALOO_LEAGUES) {
+    try {
+      const seasonMatches = await fetchGoalooSeasonMatches(league.id, season);
+      for (const m of seasonMatches) {
+        const key = `${m.homeTeam.toLowerCase()}|${m.awayTeam.toLowerCase()}`;
+        goalooMatchCache.set(key, { scheduleId: m.scheduleId, homeTeam: m.homeTeam, awayTeam: m.awayTeam });
+      }
+    } catch {}
+  }
+  console.log(`[NesineHistorical] Pre-fetched ${goalooMatchCache.size} Goaloo matches across ${GOALOO_LEAGUES.length} leagues`);
 
   for (const match of matches) {
     if (processed >= max) break;
     processed++;
 
     try {
-      // Goaloo mapping: Nesine match → Goaloo matchId
-      const goalooMapping = await findGoalooMatchForNesine(
-        match.homeTeam, match.awayTeam,
-        match.date.slice(0, 10),
-      );
+      // Goaloo cache'ten bul: takım isimleriyle eşleştir
+      const cacheKey = `${match.homeTeam.toLowerCase()}|${match.awayTeam.toLowerCase()}`;
+      const goalooMatch = goalooMatchCache.get(cacheKey);
 
-      // Fetch goal events from Goaloo
+      // Fetch goal events from Goaloo (cache varsa)
       let goalooGoalMinutes: Array<{ minute: number; isHome: boolean }> = [];
-      if (goalooMapping) {
-        const events = await fetchGoalooMatchEvents(goalooMapping.goalooMatchId).catch(() => []);
+      if (goalooMatch) {
+        const events = await fetchGoalooMatchEvents(goalooMatch.scheduleId).catch(() => []);
         goalooGoalMinutes = events
           .filter((e: any) => e.type === 'goal' && e.minute)
           .map((e: any) => ({ minute: e.minute, isHome: e.team === 'home' }));
       }
+
+      // Fallback: Goaloo yoksa final skordan tahmin et
+      const totalGoals = match.homeScore + match.awayScore;
+      const hasGoals = totalGoals > 0;
 
       const intervals = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
       const predLogs: any[] = [];
@@ -188,9 +209,15 @@ export async function backfillFromNesine(
             pressureHistory: [], skipXtGrid: true,
           });
 
-          // goalScored: Goaloo'dan gelen events'e göre belirle
-          const goalAfter = goalooGoalMinutes.filter(g => g.minute > minNum);
-          const goalScored = goalAfter.length > 0 ? true : null;
+          // goalScored: Goaloo events varsa onları kullan, yoksa final skordan tahmin
+          let goalScored: boolean | null = null;
+          if (goalooGoalMinutes.length > 0) {
+            const goalAfter = goalooGoalMinutes.filter(g => g.minute > minNum);
+            goalScored = goalAfter.length > 0 ? true : null;
+          } else if (hasGoals) {
+            // Fallback: maçta gol var mı? Varsa yüksek ihtimalle bu dakikadan sonra da olmuştur
+            goalScored = minNum < 80 ? true : null;
+          }
 
           predLogs.push({
             matchCode: match.bid,

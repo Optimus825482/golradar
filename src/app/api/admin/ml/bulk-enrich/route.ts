@@ -24,7 +24,7 @@ import { GOALOO_LEAGUES } from '@/lib/ml/goalooLeagues';
 import { startEnrich, tickEnrich, finishEnrich, getEnrichProgress } from '@/lib/enrichProgress';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 180;
+export const maxDuration = 600;
 
 interface EnrichReq {
   leagueIds?: number[];
@@ -89,7 +89,7 @@ export const POST = adminRoute(async (req: Request) => {
 
   // ── Concurrent Worker Pool (24 paralel) ──
   // Tüm liglerdeki bitmiş maçları topla, 24 worker ile işle
-  const CONCURRENCY = 24;
+  const CONCURRENCY = 36;
   const allMatches: Array<{ league: typeof targetLeagues[0]; match: any }> = [];
 
   for (const league of targetLeagues) {

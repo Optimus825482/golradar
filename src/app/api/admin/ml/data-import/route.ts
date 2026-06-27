@@ -99,12 +99,32 @@ export const POST = adminRoute(async (request: Request) => {
 
   try {
     const backfill = await backfillTeamHistory(start, end, source as BackfillSource);
+
+    // ── Auto-trigger Phase 2 enrichment for Goaloo ──
+    // After import, immediately enrich matches with momentum + events + prediction logs.
+    let enrichResult = null;
+    if (source === 'goaloo' && backfill.inserted && backfill.inserted > 0) {
+      try {
+        const enrichUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3012'}/api/admin/ml/bulk-enrich`;
+        const enrichRes = await fetch(enrichUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Cron-Secret': process.env.CRON_SECRET || '' },
+          body: JSON.stringify({ maxMatches: Math.min(backfill.inserted, 100000) }),
+          signal: AbortSignal.timeout(30000),
+        });
+        if (enrichRes.ok) enrichResult = await enrichRes.json();
+      } catch {
+        // Enrichment is best-effort — don't fail the import
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       dryRun: false,
       source,
       dateRange,
       ...backfill,
+      enrichResult,
     });
   } catch (err) {
     return NextResponse.json(

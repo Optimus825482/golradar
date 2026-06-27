@@ -29,6 +29,7 @@ const MODEL_OPTIONS = [
   { value: 'gbdt', label: 'GBDT (Champion)', color: '#10b981', desc: 'Gradient Boosted Decision Trees' },
   { value: 'xgb', label: 'XGBoost', color: '#3b82f6', desc: 'Yüksek doğruluk potansiyeli' },
   { value: 'inplay', label: 'InPlay 5dk', color: '#8b5cf6', desc: 'Canlı maç 5dk gol modeli' },
+  { value: 'lightgbm', label: 'LightGBM', color: '#f59e0b', desc: 'Hızlı eğitim, düşük bellek' },
 ];
 
 function nextVersion(artifacts: ArtifactInfo[]): string {

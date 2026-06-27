@@ -166,7 +166,7 @@ export default function AdminDataImportPage() {
   const startEnrich = useCallback(async () => {
     setEnrichLoading(true);
     setEnrichResult(null);
-    setEnrichProgress({ running: true, total: 500, processed: 0, errors: 0, percent: 0, elapsed: 0, currentMatch: null, currentLeague: null, recentMatches: [] });
+    setEnrichProgress({ running: true, total: 25000, processed: 0, errors: 0, percent: 0, elapsed: 0, currentMatch: null, currentLeague: null, recentMatches: [] });
     setError(null);
 
     // Progress polling başlat
@@ -185,7 +185,7 @@ export default function AdminDataImportPage() {
     try {
       const res = await authFetch('/api/admin/ml/bulk-enrich', {
         method: 'POST',
-        body: JSON.stringify({ maxMatches: 500 }),
+        body: JSON.stringify({ maxMatches: 25000 }),
       });
       const data: BulkEnrichResult = await res.json();
       if (!res.ok || !data.ok) {
@@ -397,8 +397,7 @@ export default function AdminDataImportPage() {
                 🧠 Detaylı ML Verisi (Phase 2)
               </div>
               <p className="text-[10px] text-gray-500 mt-0.5">
-                Her maç için momentum + events + prediction log çeker. ~1 maç/sn hızla çalışır.
-                500 maç ≈ 8 dakika sürer.
+                Her maç için momentum + events + prediction log çeker. 50 worker paralel. 25000 maç ≈ 10 dk.
               </p>
             </div>
           </div>

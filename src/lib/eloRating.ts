@@ -29,8 +29,8 @@ const path = s?.path;
 const DATA_DIR = path ? path.join(process.cwd(), 'data', 'elo-ratings') : '';
 const RATINGS_FILE = DATA_DIR && path ? path.join(DATA_DIR, 'ratings.json') : '';
 
-const K_BASE = 30;
-const HOME_ADVANTAGE = 80;
+const K_BASE = 50;
+const HOME_ADVANTAGE = 50;
 const INITIAL_RATING = 1500;
 const PROVISIONAL_THRESHOLD = 10;
 
@@ -183,7 +183,7 @@ export function predictFromElo(home: string, away: string): EloPrediction {
   const awayR = ratings.get(awayKey)?.rating ?? INITIAL_RATING;
   const eHome = expectedScore(homeR + HOME_ADVANTAGE, awayR);
   const eAway = 1 - eHome;
-  const eDraw = 0.08 + Math.random() * 0.04;
+  const eDraw = 0.25;
   const adjustedHome = eHome * (1 - eDraw);
   const adjustedAway = eAway * (1 - eDraw);
   return {

@@ -67,7 +67,9 @@ export function parseMinute(minute: string | number): number {
     return Math.max(0, Math.min(120, total));
   }
   const num = parseInt(minute.replace(/[^0-9]/g, ''), 10);
-  return isNaN(num) ? 0 : Math.max(0, Math.min(120, num));
+  // Non-numeric input ("MS", "HT", ""): return 45 as midpoint default.
+  // reportGoal handles goalMinute<=0 with signalMinute fallback per-signal.
+  return isNaN(num) ? 45 : Math.max(0, Math.min(120, num));
 }
 
 // ── Types ────────────────────────────────────────────────────────
@@ -384,27 +386,30 @@ export async function reportGoal(
   goalMinute: number,
 ): Promise<void> {
   try {
-    // FIX: goalMinute=0 geldiginde minutesAfterSignal hesaplanamaz.
-    // minute 0 → kaydetme, eski pending kalsin (goal olmadigi anlamina gelmez).
-    if (!goalMinute || goalMinute <= 0) {
-      logError('reportGoal', `Invalid goalMinute=0 for match ${matchCode}/${goalSide}`);
-      return;
-    }
     const allPending = await repoFindAllPending(matchCode);
     const withId = allPending.filter((s): s is GoalSignalRecord & { id: string } => !!s.id);
+    const useFallback = !goalMinute || goalMinute <= 0;
+
+    if (useFallback && withId.length > 0) {
+      logError('reportGoal', `goalMinute=0 for match ${matchCode}/${goalSide}, using signalMinute fallback`);
+    }
 
     await Promise.all(
-      withId.map((s) =>
-        repoUpdateVerification(s.id, {
+      withId.map((s) => {
+        // goalMinute=0 means unparseable input (e.g. minute="MS" on finished match).
+        // Use signalMinute as fallback so the signal gets resolved instead of
+        // staying pending forever. minutesAfterSignal=0 is conservative.
+        const gm = goalMinute > 0 ? goalMinute : s.signalMinute;
+        return repoUpdateVerification(s.id, {
           goalHappened: true,
-          goalMinute,
+          goalMinute: gm,
           goalSide,
           // P0: "both" sinyallerinde yön bilinmez — correctPrediction undefined
           correctPrediction: s.signalSide === 'both' ? undefined : goalSide === s.signalSide,
-          minutesAfterSignal: Math.max(0, goalMinute - s.signalMinute),
+          minutesAfterSignal: Math.max(0, gm - s.signalMinute),
           goalTimestamp: Date.now(),
-        }),
-      ),
+        });
+      }),
     );
 
     // ── Feedback Loop: golden sonra thesis resolve + kalibrasyon ──

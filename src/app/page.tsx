@@ -60,7 +60,9 @@ function parseGoalMinute(minute: string | number): number {
     return parseInt(plusMatch[1], 10) + parseInt(plusMatch[2], 10)
   }
   const num = parseInt(minute.replace(/[^0-9]/g, ''), 10)
-  return isNaN(num) ? 0 : num
+  // Non-numeric input (e.g. "MS", "HT", ""): return 45 as midpoint default.
+  // The caller (reportGoal) will use signalMinute fallback per-signal.
+  return isNaN(num) ? 45 : Math.max(1, num)
 }
 
 export default function OptimusGolRadariPage() {

@@ -86,7 +86,9 @@ function parseGoalMinute(minute: string | number): number {
     return parseInt(plusMatch[1], 10) + parseInt(plusMatch[2], 10);
   }
   const num = parseInt(minute.replace(/[^0-9]/g, ""), 10);
-  return isNaN(num) ? 0 : num;
+  // Non-numeric (e.g. "MS", "HT", ""): return 45 midpoint default.
+  // reportGoal uses signalMinute fallback per-signal when goalMinute<=0.
+  return isNaN(num) ? 45 : Math.max(1, num);
 }
 
 interface GoalDelta {

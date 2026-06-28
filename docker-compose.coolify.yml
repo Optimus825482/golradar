@@ -27,69 +27,47 @@ services:
       - golradar-net
 
   # ── Ana Web Uygulaması (Next.js) ──
-    golradar:
-      build:
-        context: .
-        dockerfile: Dockerfile.coolify
-      container_name: golradar-app
-      restart: unless-stopped
-      depends_on:
-        postgres:
-          condition: service_started
-      ports:
+  golradar:
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+    container_name: golradar-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_started
+    ports:
       - "3012:3012"
     networks:
       - golradar-net
-    # Traefik service port tanımı — olmazsa Coolify otomatik oluşturamıyor
     labels:
       traefik.http.services.golradar.loadbalancer.server.port: "3012"
       traefik.http.services.golradar.loadbalancer.server.scheme: "http"
     environment:
-      # Database — PostgreSQL container'ına bağlanır
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
-
-      # App Configuration
       NODE_ENV: "production"
       PORT: "3012"
       HOSTNAME: "0.0.0.0"
       NEXT_PUBLIC_APP_URL: "https://radar.erkanerdem.online"
-
-      # Goal Radar Configuration
       RADAR_THRESHOLD: "${RADAR_THRESHOLD:-65}"
       SIGNAL_5MIN_THRESHOLD: "${SIGNAL_5MIN_THRESHOLD:-0.25}"
       POISSON_BLEND_WEIGHT: "${POISSON_BLEND_WEIGHT:-0.25}"
       MAX_PRESSURE_SNAPSHOTS: "${MAX_PRESSURE_SNAPSHOTS:-540}"
-
-      # API Timeouts (ms)
       NESINE_API_TIMEOUT: "${NESINE_API_TIMEOUT:-10000}"
       FOTMOB_API_TIMEOUT: "${FOTMOB_API_TIMEOUT:-10000}"
       GOALOO_API_TIMEOUT: "${GOALOO_API_TIMEOUT:-15000}"
       SCOREMER_API_TIMEOUT: "${SCOREMER_API_TIMEOUT:-15000}"
-
-      # ML Trainer sidecar URL (Docker internal network)
       ML_TRAINER_URL: "http://ml-trainer:9100"
-
-      # ML data directory — shared volume mount point
       ML_DATA_DIR: "/app/data"
-
-      # PWA
       NEXT_PUBLIC_PWA_THEME_COLOR: "${NEXT_PUBLIC_PWA_THEME_COLOR:-#10b981}"
-
-      # Socket.IO (Nesine live relay) — aynı container içinde çalışır
       NESINE_LIVE_PORT: "3003"
       NEXT_PUBLIC_SOCKET_URL: "https://radar.erkanerdem.online:3003"
       SOCKET_CORS_ORIGIN: "https://radar.erkanerdem.online"
-
-      # Admin CORS
       ALLOWED_ORIGINS: "radar.erkanerdem.online"
-
-      # Destructive ops (varsayılan 0 — ilk kurulumda 1 yapılır)
       SIGNAL_RESET: "0"
       IMPORT_FOTMOB_TEAMS: "${IMPORT_FOTMOB_TEAMS:-0}"
     volumes:
       - golradar_ml_data:/app/data
-    networks:
-      - golradar-net
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3012/api >/dev/null 2>&1 || curl -sf http://localhost:3012/api >/dev/null 2>&1"]
       interval: 30s
@@ -98,8 +76,6 @@ services:
       start_period: 120s
 
   # ── ML Trainer Sidecar (XGBoost) ──
-  # Python ile XGBoost model eğitimi için.
-  # Çalışmazsa uygulama built-in GBDT model ile devam eder.
   ml-trainer:
     build:
       context: ./mini-services/ml-trainer
@@ -124,9 +100,6 @@ services:
       start_period: 60s
 
   # ── Real-time Pipeline Service ──
-  # Nesine WebSocket'inden canlı veri alır, sinyal işleme için Next.js API'ye gönderir.
-  # HTTP polling'in yerini alır — her 30sn'de bir tüm maçları poll etmek yerine
-  # WebSocket üzerinden anlık güncellemeleri işler.
   pipeline:
     build:
       context: ./mini-services/pipeline-service

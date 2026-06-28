@@ -39,6 +39,12 @@ services:
     ports:
       - "3012:3012"
     labels:
+      traefik.enable: "true"
+      traefik.http.routers.golradar.rule: "Host(`radar.erkanerdem.online`)"
+      traefik.http.routers.golradar.entrypoints: "websecure"
+      traefik.http.routers.golradar.tls: "true"
+      traefik.http.routers.golradar.tls.certresolver: "letsencrypt"
+      traefik.http.routers.golradar.service: "golradar"
       traefik.http.services.golradar.loadbalancer.server.port: "3012"
       traefik.http.services.golradar.loadbalancer.server.scheme: "http"
     networks:

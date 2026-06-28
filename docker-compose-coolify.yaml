@@ -41,6 +41,12 @@ services:
     labels:
       traefik.enable: "true"
       traefik.docker.network: "coolify"
+      traefik.http.routers.golradar.rule: "Host(`radar.erkanerdem.online`) && PathPrefix(`/`)"
+      traefik.http.routers.golradar.entrypoints: "https"
+      traefik.http.routers.golradar.tls: "true"
+      traefik.http.routers.golradar.tls.certresolver: "letsencrypt"
+      traefik.http.routers.golradar.service: "golradar"
+      traefik.http.routers.golradar.priority: "100"
       traefik.http.services.golradar.loadbalancer.server.port: "3012"
       traefik.http.services.golradar.loadbalancer.server.scheme: "http"
     networks:

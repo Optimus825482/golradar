@@ -106,12 +106,14 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
   // → 30 → cap at 0.30) since early-match in-play data is too noisy.
   const TIER_CAPS: Record<keyof EnsembleWeights, number> = {
     inplay: 0.30,
-    ml: 0.30,
-    ruleBased: 0.35,
-    poisson: 0.30,
-    elo: 0.20,
+    ml: 0.35,
+    ruleBased: 0.45,    // grid search: 0.35→0.45
+    poisson: 0.35,      // grid search: 0.30→0.35
+    elo: 0.25,          // grid search: 0.20→0.25
     teamStrength: 0.15,
   };
+  // ⚠️  Applies grid search result but only on 51 records — recalibrate
+  // when predictionLog reaches 500+ goalScored labels.
 
   for (const slot of slots) {
     // Cap the tier weight first.

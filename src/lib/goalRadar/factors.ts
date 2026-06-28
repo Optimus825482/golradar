@@ -2,28 +2,14 @@
 // Her faktör bağımsız, test edilebilir fonksiyon. calculateGoalProbability
 // bunları sırayla çağırır, sonuçları toplar.
 
-import type { MatchStats, PressureSnapshotLite } from '../nesineTypes';
-import type { GoalooEnrichment } from '../goalRadar';
+import type { MatchStats } from '../nesineTypes';
+import type { PressureSnapshotLite } from './types';
+import { calculatePressure } from '../nesineTypes';
 import { estimateXgFromShots } from '../estimateXg';
 import { calibrateF8Sync, loadCalibrationModeSync } from '../smartCalibration';
-import type { MatchIntelligence } from '../fotmobIntelligence';
-import { calculatePressure } from '../nesineTypes';
+import { logError } from '@/lib/devLog';
 
 // ── Shared types ────────────────────────────────────────────────
-export interface FactorContext {
-  stats: MatchStats;
-  minNum: number;
-  pressureHistory?: PressureSnapshotLite[];
-  currentHomeGoals?: number;
-  currentAwayGoals?: number;
-  homeTeam?: string;
-  awayTeam?: string;
-  leagueId?: number | null;
-  oddsMovementBoost?: { homeBoost: number; awayBoost: number; significance: string } | null;
-  goalooData?: GoalooEnrichment | null;
-  fotmobData?: import('../fotmob').FotMobMatchDetails | null;
-}
-
 export interface FactorResult {
   homePts: number;
   awayPts: number;
@@ -37,7 +23,7 @@ const noResult = (): FactorResult => ({ homePts: 0, awayPts: 0, homeFactors: [],
 // ── F1: Pressure dominance ──────────────────────────────────────
 export function calcFactorPressure(stats: MatchStats): FactorResult {
   const pressure = calculatePressure(stats);
-  const r: FactorResult = noResult();
+  const r = noResult();
   if (pressure.home > 55) {
     const pts = Math.min(8, Math.round((pressure.home - 50) * 0.65));
     r.homePts = pts;
@@ -54,7 +40,7 @@ export function calcFactorPressure(stats: MatchStats): FactorResult {
 // ── F2: Dangerous attack rate ───────────────────────────────────
 export function calcFactorDangerousAttack(stats: MatchStats, minNum: number): FactorResult {
   const dangerAttacks = stats.dangerous_attacks;
-  const r: FactorResult = noResult();
+  const r = noResult();
   if (dangerAttacks?.home != null) {
     const rate = (dangerAttacks.home / Math.max(1, minNum)) * 15;
     if (rate >= 1.5) {
@@ -72,13 +58,10 @@ export function calcFactorDangerousAttack(stats: MatchStats, minNum: number): Fa
   return r;
 }
 
-// ── F3: Shot quality + xG ───────────────────────────────────────
-export function calcFactorShotQuality(
-  stats: MatchStats, minNum: number,
-  xg: { home: number; away: number },
-): FactorResult {
+// ── F3: Shot quality ────────────────────────────────────────────
+export function calcFactorShotQuality(stats: MatchStats, minNum: number): FactorResult {
   const shotsOnTarget = stats.shots_on_target;
-  const r: FactorResult = noResult();
+  const r = noResult();
   const homeSotCount = shotsOnTarget?.home ?? 0;
   const awaySotCount = shotsOnTarget?.away ?? 0;
   const homeSotRate = (homeSotCount / Math.max(1, minNum)) * 15;
@@ -99,32 +82,30 @@ export function calcFactorShotQuality(
   return r;
 }
 
-// ── xG hesaplama (yardımcı) ─────────────────────────────────────
-export function calcExpectedGoals(stats: MatchStats, minNum: number): { home: number; away: number } {
-  const shotsOnTarget = stats.shots_on_target;
-  const homeSotCount = shotsOnTarget?.home ?? 0;
-  const awaySotCount = shotsOnTarget?.away ?? 0;
-  const homeShotsTotal = stats.shots_total?.home ?? 0;
-  const awayShotsTotal = stats.shots_total?.away ?? 0;
-  const homeBlocked = stats.shots_blocked?.home ?? 0;
-  const awayBlocked = stats.shots_blocked?.away ?? 0;
-  const homeOffTarget = Math.max(0, homeShotsTotal - homeSotCount - homeBlocked);
-  const awayOffTarget = Math.max(0, awayShotsTotal - awaySotCount - awayBlocked);
-  const apiXg = stats.xg;
-  const dangerAttacks = stats.dangerous_attacks;
+// ── xG hesaplama ────────────────────────────────────────────────
+export function calcExpectedGoals(stats: MatchStats): { home: number; away: number } {
+  const { shots_on_target, shots_total, shots_blocked, xg: apiXg, corners, dangerous_attacks } = stats;
+  const homeSot = shots_on_target?.home ?? 0;
+  const awaySot = shots_on_target?.away ?? 0;
+  const homeShots = shots_total?.home ?? 0;
+  const awayShots = shots_total?.away ?? 0;
+  const homeBlocked = shots_blocked?.home ?? 0;
+  const awayBlocked = shots_blocked?.away ?? 0;
+  const homeOffTarget = Math.max(0, homeShots - homeSot - homeBlocked);
+  const awayOffTarget = Math.max(0, awayShots - awaySot - awayBlocked);
   return {
     home: apiXg?.home != null && apiXg.home > 0
       ? apiXg.home
-      : homeSotCount * 0.38 + homeOffTarget * 0.05 + homeBlocked * 0.03 + (stats.corners?.home ?? 0) * 0.04 + (dangerAttacks?.home ?? 0) * 0.01,
+      : homeSot * 0.38 + homeOffTarget * 0.05 + homeBlocked * 0.03 + (corners?.home ?? 0) * 0.04 + (dangerous_attacks?.home ?? 0) * 0.01,
     away: apiXg?.away != null && apiXg.away > 0
       ? apiXg.away
-      : awaySotCount * 0.38 + awayOffTarget * 0.05 + awayBlocked * 0.03 + (stats.corners?.away ?? 0) * 0.04 + (dangerAttacks?.away ?? 0) * 0.01,
+      : awaySot * 0.38 + awayOffTarget * 0.05 + awayBlocked * 0.03 + (corners?.away ?? 0) * 0.04 + (dangerous_attacks?.away ?? 0) * 0.01,
   };
 }
 
 // ── F4: xG accumulation ─────────────────────────────────────────
 export function calcFactorXgAccumulation(xg: { home: number; away: number }, minNum: number): FactorResult {
-  const r: FactorResult = noResult();
+  const r = noResult();
   if (xg.home > 0.3) {
     const xgPts = Math.min(7, Math.round(xg.home * 7));
     const xgRate = (xg.home / Math.max(1, minNum)) * 15;
@@ -145,7 +126,7 @@ export function calcFactorXgAccumulation(xg: { home: number; away: number }, min
 // ── F5: Stat spike detection ────────────────────────────────────
 export function calcFactorSpikeDetection(pressureHistory: PressureSnapshotLite[]): FactorResult {
   if (pressureHistory.length < 3) return noResult();
-  const r: FactorResult = noResult();
+  const r = noResult();
   const current = pressureHistory[pressureHistory.length - 1];
   const compareIdx = Math.max(0, pressureHistory.length - 4);
   const previous = pressureHistory[compareIdx];
@@ -159,28 +140,26 @@ export function calcFactorSpikeDetection(pressureHistory: PressureSnapshotLite[]
 
   if (homeDADelta >= 3) { r.homePts = Math.min(5, homeDADelta * 2.5); r.homeFactors.push(`Hücum patlaması +${homeDADelta}`); }
   if (awayDADelta >= 3) { r.awayPts = Math.min(5, awayDADelta * 2.5); r.awayFactors.push(`Hücum patlaması +${awayDADelta}`); }
-  if (homeShotDelta >= 2) { r.homePts = (r.homePts || 0) + Math.min(4, homeShotDelta * 3); r.homeFactors.push(`Şut atağı +${homeShotDelta}`); }
-  if (awayShotDelta >= 2) { r.awayPts = (r.awayPts || 0) + Math.min(4, awayShotDelta * 3); r.awayFactors.push(`Şut atağı +${awayShotDelta}`); }
-  if (homeCornerDelta >= 2) { r.homePts = (r.homePts || 0) + Math.min(4, homeCornerDelta * 2); r.homeFactors.push(`Korner atağı +${homeCornerDelta}`); }
-  if (awayCornerDelta >= 2) { r.awayPts = (r.awayPts || 0) + Math.min(4, awayCornerDelta * 2); r.awayFactors.push(`Korner atağı +${awayCornerDelta}`); }
+  if (homeShotDelta >= 2) { r.homePts += Math.min(4, homeShotDelta * 3); r.homeFactors.push(`Şut atağı +${homeShotDelta}`); }
+  if (awayShotDelta >= 2) { r.awayPts += Math.min(4, awayShotDelta * 3); r.awayFactors.push(`Şut atağı +${awayShotDelta}`); }
+  if (homeCornerDelta >= 2) { r.homePts += Math.min(4, homeCornerDelta * 2); r.homeFactors.push(`Korner atağı +${homeCornerDelta}`); }
+  if (awayCornerDelta >= 2) { r.awayPts += Math.min(4, awayCornerDelta * 2); r.awayFactors.push(`Korner atağı +${awayCornerDelta}`); }
   return r;
 }
 
 // ── F6: Momentum acceleration ───────────────────────────────────
 export function calcFactorMomentum(pressureHistory: PressureSnapshotLite[]): FactorResult {
-  const r: FactorResult = noResult();
-
+  const r = noResult();
   if (pressureHistory.length >= 5) {
     const recent = pressureHistory.slice(-5);
     const homeTrend = recent[4].homePressure - recent[0].homePressure;
     const awayTrend = recent[4].awayPressure - recent[0].awayPressure;
     const homeAccel = recent[4].homePressure - recent[2].homePressure - (recent[2].homePressure - recent[0].homePressure);
     const awayAccel = recent[4].awayPressure - recent[2].awayPressure - (recent[2].awayPressure - recent[0].awayPressure);
-
     if (homeTrend > 10) { r.homePts = Math.min(5, Math.round(homeTrend * 0.45)); if (r.homePts >= 3) r.homeFactors.push('Baskı artışı'); }
     if (awayTrend > 10) { r.awayPts = Math.min(5, Math.round(awayTrend * 0.45)); if (r.awayPts >= 3) r.awayFactors.push('Baskı artışı'); }
-    if (homeAccel > 5) { r.homePts = (r.homePts || 0) + Math.min(3, Math.round(homeAccel * 0.4)); r.homeFactors.push('İvmeli baskı'); }
-    if (awayAccel > 5) { r.awayPts = (r.awayPts || 0) + Math.min(3, Math.round(awayAccel * 0.4)); r.awayFactors.push('İvmeli baskı'); }
+    if (homeAccel > 5) { r.homePts += Math.min(3, Math.round(homeAccel * 0.4)); r.homeFactors.push('İvmeli baskı'); }
+    if (awayAccel > 5) { r.awayPts += Math.min(3, Math.round(awayAccel * 0.4)); r.awayFactors.push('İvmeli baskı'); }
   } else if (pressureHistory.length >= 3) {
     const last3 = pressureHistory.slice(-3);
     const homeTrend = last3[2].homePressure - last3[0].homePressure;
@@ -194,7 +173,7 @@ export function calcFactorMomentum(pressureHistory: PressureSnapshotLite[]): Fac
 // ── F7: Sustained pressure ──────────────────────────────────────
 export function calcFactorSustainedPressure(pressureHistory: PressureSnapshotLite[]): FactorResult {
   if (pressureHistory.length < 3) return noResult();
-  const r: FactorResult = noResult();
+  const r = noResult();
   const last5 = pressureHistory.slice(-5);
   const homeSustained = last5.filter(s => s.homePressure > 55).length;
   const awaySustained = last5.filter(s => s.awayPressure > 55).length;
@@ -203,10 +182,8 @@ export function calcFactorSustainedPressure(pressureHistory: PressureSnapshotLit
   return r;
 }
 
-// ── F8: Minute context multiplier ────────────────────────────────
+// ── F8: Minute context multiplier ───────────────────────────────
 export function calcMinuteMultiplier(minNum: number, leagueId?: number | null): number {
-  const { calibrateF8Sync } = require('../smartCalibration');
-  const { logError } = require('@/lib/devLog');
   try {
     const _calMode = loadCalibrationModeSync();
     const cal = calibrateF8Sync(leagueId ?? null, _calMode);
@@ -215,7 +192,6 @@ export function calcMinuteMultiplier(minNum: number, leagueId?: number | null): 
     const dampenerEnd1H = 5 + cal.dampenerZoneShift;
     const dampenerStart2H = 46;
     const dampenerEnd2H = 50 + cal.dampenerZoneShift;
-
     if ((minNum >= 1 && minNum <= dampenerEnd1H) || (minNum >= dampenerStart2H && minNum <= dampenerEnd2H))
       return cal.calibratedDampener;
     if (minNum >= halftimeStart && minNum <= 45) return 1.15;
@@ -233,11 +209,10 @@ export function calcMinuteMultiplier(minNum: number, leagueId?: number | null): 
 }
 
 // ── F9: Corner + set-piece rate ─────────────────────────────────
-export function calcFactorCornerSetPiece(stats: MatchStats, minNum: number, xg: { home: number; away: number }): FactorResult {
+export function calcFactorCornerSetPiece(stats: MatchStats, minNum: number): FactorResult {
   const corners = stats.corners;
-  const r: FactorResult = noResult();
+  const r = noResult();
   const secondHalfBoost = minNum >= 45 ? 1.2 : 1.0;
-
   const homeCornerRate = ((corners?.home ?? 0) / Math.max(1, minNum)) * 15;
   const awayCornerRate = ((corners?.away ?? 0) / Math.max(1, minNum)) * 15;
 
@@ -245,7 +220,7 @@ export function calcFactorCornerSetPiece(stats: MatchStats, minNum: number, xg: 
     let pts = Math.min(6, Math.round(homeCornerRate * 2.5 * secondHalfBoost));
     const homeAttacks = stats.attacks?.home ?? 1;
     if (corners.home / Math.max(1, homeAttacks) > 0.15) pts += Math.min(3, Math.round((corners.home / Math.max(1, homeAttacks)) * 20));
-    if ((stats.shots_total?.home ?? 0) > 0 && (stats.shots_on_target?.home ?? 0) / Math.max(1, stats.shots_total?.home ?? 0) > 0.4) pts += 4;
+    if ((stats.shots_total?.home ?? 0) > 0 && (stats.shots_on_target?.home ?? 0) / Math.max(1, stats.shots_total?.home ?? 1) > 0.4) pts += 4;
     r.homePts = pts;
     r.homeFactors.push(`Korner ${homeCornerRate.toFixed(1)}/15dk${minNum >= 45 ? ' (2Y)' : ''}`);
   }
@@ -253,7 +228,7 @@ export function calcFactorCornerSetPiece(stats: MatchStats, minNum: number, xg: 
     let pts = Math.min(6, Math.round(awayCornerRate * 2.5 * secondHalfBoost));
     const awayAttacks = stats.attacks?.away ?? 1;
     if (corners.away / Math.max(1, awayAttacks) > 0.15) pts += Math.min(3, Math.round((corners.away / Math.max(1, awayAttacks)) * 20));
-    if ((stats.shots_total?.away ?? 0) > 0 && (stats.shots_on_target?.away ?? 0) / Math.max(1, stats.shots_total?.away ?? 0) > 0.4) pts += 4;
+    if ((stats.shots_total?.away ?? 0) > 0 && (stats.shots_on_target?.away ?? 0) / Math.max(1, stats.shots_total?.away ?? 1) > 0.4) pts += 4;
     r.awayPts = pts;
     r.awayFactors.push(`Korner ${awayCornerRate.toFixed(1)}/15dk${minNum >= 45 ? ' (2Y)' : ''}`);
   }
@@ -264,7 +239,7 @@ export function calcFactorCornerSetPiece(stats: MatchStats, minNum: number, xg: 
 export function calcFactorXgDominance(xg: { home: number; away: number }): FactorResult {
   const totalXg = xg.home + xg.away;
   if (totalXg <= 0.5) return noResult();
-  const r: FactorResult = noResult();
+  const r = noResult();
   const homeXgRatio = xg.home / totalXg;
   const awayXgRatio = xg.away / totalXg;
   if (homeXgRatio > 0.70 && xg.home > 0.4) {
@@ -282,7 +257,7 @@ export function calcFactorXgDominance(xg: { home: number; away: number }): Facto
 export function calcFactorCompositeThreat(
   stats: MatchStats, minNum: number, pressureHistory?: PressureSnapshotLite[],
 ): FactorResult {
-  const r: FactorResult = noResult();
+  const r = noResult();
   const elapsed15 = Math.max(1, minNum / 15);
   let homeAtkRate5min = (stats.dangerous_attacks?.home ?? 0) / elapsed15;
   let awayAtkRate5min = (stats.dangerous_attacks?.away ?? 0) / elapsed15;
@@ -339,10 +314,10 @@ export function calcFactorCompositeThreat(
   }
   const threatGap = homeThreatIdx - awayThreatIdx;
   if (threatGap > 20) {
-    r.homePts = (r.homePts || 0) + Math.min(3, Math.round(threatGap * 0.08));
+    r.homePts += Math.min(3, Math.round(threatGap * 0.08));
     if (threatGap > 30) r.homeFactors.push('Tehdit üstünlüğü');
   } else if (threatGap < -20) {
-    r.awayPts = (r.awayPts || 0) + Math.min(3, Math.round(Math.abs(threatGap) * 0.08));
+    r.awayPts += Math.min(3, Math.round(Math.abs(threatGap) * 0.08));
     if (threatGap < -30) r.awayFactors.push('Tehdit üstünlüğü');
   }
   return r;
@@ -351,7 +326,7 @@ export function calcFactorCompositeThreat(
 // ── F13: xG flow momentum ──────────────────────────────────────
 export function calcFactorXgFlow(pressureHistory: PressureSnapshotLite[], minNum: number): FactorResult {
   if (pressureHistory.length < 6) return noResult();
-  const r: FactorResult = noResult();
+  const r = noResult();
   const recent = pressureHistory.slice(-3), older = pressureHistory.slice(-6, -3);
   const avgXg = (s: PressureSnapshotLite[], side: 'home' | 'away'): number =>
     s.reduce((sum, p) => sum + (p.stats.xg?.[side] ?? estimateXgFromShots(p.stats, side, minNum)), 0) / s.length;
@@ -367,7 +342,7 @@ export function calcFactorXgFlow(pressureHistory: PressureSnapshotLite[], minNum
 // ── F16: Dangerous sequence detector ────────────────────────────
 export function calcFactorDangerousSequence(pressureHistory: PressureSnapshotLite[]): FactorResult {
   if (pressureHistory.length < 12) return noResult();
-  const r: FactorResult = noResult();
+  const r = noResult();
   const window = pressureHistory.slice(-12), first = window[0], last = window[window.length - 1];
 
   const homeDADelta = (last.stats.dangerous_attacks?.home ?? 0) - (first.stats.dangerous_attacks?.home ?? 0);
@@ -390,17 +365,17 @@ export function calcFactorDangerousSequence(pressureHistory: PressureSnapshotLit
     r.awayFactors.push(`Tehlikeli sıralı atak! (+${r.awayPts})`);
   }
 
-  // Counter-press: opponent possession drop + attack surge
+  // Counter-press
   const homePossDrop = (first.stats.possession?.away ?? 50) - (last.stats.possession?.away ?? 50);
   const awayPossDrop = (first.stats.possession?.home ?? 50) - (last.stats.possession?.home ?? 50);
   if (homeDADelta >= 3 && homePossDrop > 10 && awaySOTDelta >= 1) {
     const boost = Math.min(8, 3 + homeDADelta * 1.5);
-    r.homePts = (r.homePts || 0) + boost;
+    r.homePts += boost;
     if (boost >= 3) r.homeFactors.push(`Kontra atak +${boost}`);
   }
   if (awayDADelta >= 3 && awayPossDrop > 10 && homeSOTDelta >= 1) {
     const boost = Math.min(8, 3 + awayDADelta * 1.5);
-    r.awayPts = (r.awayPts || 0) + boost;
+    r.awayPts += boost;
     if (boost >= 3) r.awayFactors.push(`Kontra atak +${boost}`);
   }
 
@@ -410,14 +385,14 @@ export function calcFactorDangerousSequence(pressureHistory: PressureSnapshotLit
   const possSwingAway = (first.stats.possession?.away ?? 50) - (last.stats.possession?.away ?? 50);
   if (possSwingHome > 20 && homeDADelta >= 2 && firstHomePoss < 45 && lastHomePoss > 60) {
     const pts = Math.min(6, 2 + Math.round(homeDADelta * 0.8));
-    r.homePts = (r.homePts || 0) + pts;
+    r.homePts += pts;
     if (pts >= 3) r.homeFactors.push(`Kontra atak dalgası +${pts}`);
   }
   if (possSwingAway > 20 && awayDADelta >= 2) {
     const firstAwayPoss = first.stats.possession?.away ?? 50, lastAwayPoss = last.stats.possession?.away ?? 50;
     if (firstAwayPoss < 45 && lastAwayPoss > 60) {
       const pts = Math.min(6, 2 + Math.round(awayDADelta * 0.8));
-      r.awayPts = (r.awayPts || 0) + pts;
+      r.awayPts += pts;
       if (pts >= 3) r.awayFactors.push(`Kontra atak dalgası +${pts}`);
     }
   }
@@ -435,7 +410,7 @@ export function calcConcurrentThreat(count: number): { pts: number; label?: stri
 
 // ── F17: Pass quality + fouls ───────────────────────────────────
 export function calcFactorPassQuality(stats: MatchStats): FactorResult {
-  const r: FactorResult = noResult();
+  const r = noResult();
   const homePassAcc = stats.pass_accuracy?.home ?? null;
   const awayPassAcc = stats.pass_accuracy?.away ?? null;
   const homeFouls = stats.fouls?.home ?? 0;
@@ -443,24 +418,24 @@ export function calcFactorPassQuality(stats: MatchStats): FactorResult {
 
   if (homePassAcc != null && homePassAcc > 0) {
     if (homePassAcc > 75) { r.homePts = Math.min(5, Math.round((homePassAcc - 75) * 0.2)); if (r.homePts >= 2) r.homeFactors.push(`Pas kalitesi %${homePassAcc}`); }
-    if (homePassAcc < 65 && (stats.dangerous_attacks?.home ?? 0) > 5) { r.homePts = (r.homePts || 0) + Math.min(4, Math.round((65 - homePassAcc) * 0.15)); if (r.homePts >= 2) r.homeFactors.push('Kontra atak stili'); }
+    if (homePassAcc < 65 && (stats.dangerous_attacks?.home ?? 0) > 5) { r.homePts += Math.min(4, Math.round((65 - homePassAcc) * 0.15)); if (r.homePts >= 2) r.homeFactors.push('Kontra atak stili'); }
   }
   if (awayPassAcc != null && awayPassAcc > 0) {
     if (awayPassAcc > 75) { r.awayPts = Math.min(5, Math.round((awayPassAcc - 75) * 0.2)); if (r.awayPts >= 2) r.awayFactors.push(`Pas kalitesi %${awayPassAcc}`); }
-    if (awayPassAcc < 65 && (stats.dangerous_attacks?.away ?? 0) > 5) { r.awayPts = (r.awayPts || 0) + Math.min(4, Math.round((65 - awayPassAcc) * 0.15)); if (r.awayPts >= 2) r.awayFactors.push('Kontra atak stili'); }
+    if (awayPassAcc < 65 && (stats.dangerous_attacks?.away ?? 0) > 5) { r.awayPts += Math.min(4, Math.round((65 - awayPassAcc) * 0.15)); if (r.awayPts >= 2) r.awayFactors.push('Kontra atak stili'); }
   }
-  if (awayFouls >= 8) { r.homePts = (r.homePts || 0) + Math.min(5, awayFouls * 0.5); if (r.homePts >= 3) r.homeFactors.push(`Rakip ${awayFouls} faul`); }
-  if (homeFouls >= 8) { r.awayPts = (r.awayPts || 0) + Math.min(5, homeFouls * 0.5); if (r.awayPts >= 3) r.awayFactors.push(`Rakip ${homeFouls} faul`); }
+  if (awayFouls >= 8) { r.homePts += Math.min(5, awayFouls * 0.5); if (r.homePts >= 3) r.homeFactors.push(`Rakip ${awayFouls} faul`); }
+  if (homeFouls >= 8) { r.awayPts += Math.min(5, homeFouls * 0.5); if (r.awayPts >= 3) r.awayFactors.push(`Rakip ${homeFouls} faul`); }
   return r;
 }
 
 // ── F18: Goalkeeper saves ──────────────────────────────────────
 export function calcFactorGoalkeeper(stats: MatchStats): FactorResult {
-  const r: FactorResult = noResult();
+  const r = noResult();
   const homeSaves = stats.saves?.home ?? 0;
   const awaySaves = stats.saves?.away ?? 0;
-  const homeBlocks = stats.shots_blocked?.home ?? 0;
   const awayBlocks = stats.shots_blocked?.away ?? 0;
+  const homeBlocks = stats.shots_blocked?.home ?? 0;
   if (awaySaves >= 3) { r.homePts = Math.min(8, awaySaves * 1.5 + awayBlocks * 0.5); if (r.homePts >= 4) r.homeFactors.push(`Kaleci ${awaySaves} kurtarış`); }
   if (homeSaves >= 3) { r.awayPts = Math.min(8, homeSaves * 1.5 + homeBlocks * 0.5); if (r.awayPts >= 4) r.awayFactors.push(`Kaleci ${homeSaves} kurtarış`); }
   return r;
@@ -468,7 +443,7 @@ export function calcFactorGoalkeeper(stats: MatchStats): FactorResult {
 
 // ── F19: Offside ────────────────────────────────────────────────
 export function calcFactorOffside(stats: MatchStats): FactorResult {
-  const r: FactorResult = noResult();
+  const r = noResult();
   const homeOffsides = stats.offsides?.home ?? 0;
   const awayOffsides = stats.offsides?.away ?? 0;
   if (awayOffsides >= 3) { r.homePts = Math.min(4, awayOffsides * 1); if (r.homePts >= 3) r.homeFactors.push(`Rakip ${awayOffsides} ofsayt`); }
@@ -478,7 +453,7 @@ export function calcFactorOffside(stats: MatchStats): FactorResult {
 
 // ── Card advantage ─────────────────────────────────────────────
 export function calcFactorCardAdvantage(stats: MatchStats): FactorResult {
-  const r: FactorResult = noResult();
+  const r = noResult();
   const homeYellowCards = stats.yellow_cards?.home ?? 0;
   const awayYellowCards = stats.yellow_cards?.away ?? 0;
   const homeRedCards = (stats.red_cards?.home ?? 0) + (stats.two_yellow_red?.home ?? 0);
@@ -496,8 +471,8 @@ export function calcFactorCardAdvantage(stats: MatchStats): FactorResult {
 // ── Set-piece threat spike ─────────────────────────────────────
 export function calcFactorSetPieceThreat(pressureHistory: PressureSnapshotLite[]): FactorResult {
   if (pressureHistory.length < 6) return noResult();
-  const r: FactorResult = noResult();
-  const window6 = pressureHistory.slice(-6), wFirst = window6[0], wLast = window6[window6.length - 1];
+  const r = noResult();
+  const win6 = pressureHistory.slice(-6), wFirst = win6[0], wLast = win6[win6.length - 1];
   const hFK = (wLast.stats.free_kicks?.home ?? 0) - (wFirst.stats.free_kicks?.home ?? 0);
   const aFK = (wLast.stats.free_kicks?.away ?? 0) - (wFirst.stats.free_kicks?.away ?? 0);
   const hDA = (wLast.stats.dangerous_attacks?.home ?? 0) - (wFirst.stats.dangerous_attacks?.home ?? 0);
@@ -516,12 +491,12 @@ export function calcFactorSetPieceThreat(pressureHistory: PressureSnapshotLite[]
   return r;
 }
 
-// ── Bayesian win-prob adjustment ────────────────────────────────
+// ── Bayesian win-prob adjustment ───────────────────────────────
 export function calcBayesianAdjustment(
   currentHomeGoals: number, currentAwayGoals: number, minNum: number,
   homeRedCards: number, awayRedCards: number, homeYellowCards: number, awayYellowCards: number,
 ): { homeAdj: number; awayAdj: number } {
-  const scoreDiff = (currentHomeGoals ?? 0) - (currentAwayGoals ?? 0);
+  const scoreDiff = currentHomeGoals - currentAwayGoals;
   const minutePct = minNum / 90;
   let homeAdj = 0, awayAdj = 0;
   if (scoreDiff < 0) {
@@ -538,11 +513,10 @@ export function calcBayesianAdjustment(
 
 // ── Score situation factor (P1) ─────────────────────────────────
 export function calcScoreSituation(
-  currentHomeGoals?: number, currentAwayGoals?: number, minNum?: number,
+  currentHomeGoals: number, currentAwayGoals: number, minNum: number,
 ): FactorResult {
-  if (currentHomeGoals == null || currentAwayGoals == null || !minNum) return noResult();
-  const r: FactorResult = noResult();
-  const hg = currentHomeGoals, ag = currentAwayGoals, gd = Math.abs(hg - ag);
+  const r = noResult();
+  const gd = Math.abs(currentHomeGoals - currentAwayGoals);
   if (gd === 0 && minNum > 60 && minNum < 85) {
     const pts = Math.min(6, Math.round((minNum - 60) / 5) * 1.5);
     r.homePts = Math.round(pts * 0.5);
@@ -550,32 +524,32 @@ export function calcScoreSituation(
     if (pts >= 3) r.sharedFactors.push('Beraberlikte risk');
   } else if (gd === 1 && minNum > 75) {
     const loserBoost = Math.min(5, (minNum - 75) * 0.3);
-    if (hg < ag) { r.homePts = loserBoost; if (loserBoost >= 2) r.homeFactors.push('Farkı kovalıyor'); }
+    if (currentHomeGoals < currentAwayGoals) { r.homePts = loserBoost; if (loserBoost >= 2) r.homeFactors.push('Farkı kovalıyor'); }
     else { r.awayPts = loserBoost; if (loserBoost >= 2) r.awayFactors.push('Farkı kovalıyor'); }
   }
   return r;
 }
 
-// ── Yakın dövüş: NetScores özel alanları ────────────────────────
+// ── NetScores özel alanları ────────────────────────────────────
 export function calcFactorNetScores(fotmobData?: import('../fotmob').FotMobMatchDetails | null): FactorResult {
-  const r: FactorResult = noResult();
+  const r = noResult();
   try {
     const ns = fotmobData?._netscores?.rawStats;
     if (!ns) return r;
-    const homeCrosses = ns.crosses?.home != null ? Number(ns.crosses.home) : 0;
-    const awayCrosses = ns.crosses?.away != null ? Number(ns.crosses.away) : 0;
-    const homeCrossAcc = ns.crossing_accuracy?.home != null ? Number(ns.crossing_accuracy.home) : 0;
-    const awayCrossAcc = ns.crossing_accuracy?.away != null ? Number(ns.crossing_accuracy.away) : 0;
-    if (homeCrosses >= 3) { const pts = Math.min(6, homeCrosses * 0.8 + (homeCrossAcc > 30 ? 2 : 0)); r.homePts += pts; if (pts >= 3) r.homeFactors.push(`Kanat atak ${homeCrosses} orta`); }
-    if (awayCrosses >= 3) { const pts = Math.min(6, awayCrosses * 0.8 + (awayCrossAcc > 30 ? 2 : 0)); r.awayPts += pts; if (pts >= 3) r.awayFactors.push(`Kanat atak ${awayCrosses} orta`); }
-    const homePen = ns.penalties?.home != null ? Number(ns.penalties.home) : 0;
-    const awayPen = ns.penalties?.away != null ? Number(ns.penalties.away) : 0;
-    if (homePen > 0) { r.homePts += 15; r.homeFactors.push('Penaltı kazanıldı! (+15)'); }
-    if (awayPen > 0) { r.awayPts += 15; r.awayFactors.push('Penaltı kazanıldı! (+15)'); }
-    const homeKp = ns.key_passes?.home != null ? Number(ns.key_passes.home) : 0;
-    const awayKp = ns.key_passes?.away != null ? Number(ns.key_passes.away) : 0;
-    if (homeKp >= 3) { const pts = Math.min(5, homeKp * 0.7); r.homePts += pts; if (pts >= 3) r.homeFactors.push(`Anahtar pas ${homeKp}`); }
-    if (awayKp >= 3) { const pts = Math.min(5, awayKp * 0.7); r.awayPts += pts; if (pts >= 3) r.awayFactors.push(`Anahtar pas ${awayKp}`); }
+    const hCrosses = ns.crosses?.home != null ? Number(ns.crosses.home) : 0;
+    const aCrosses = ns.crosses?.away != null ? Number(ns.crosses.away) : 0;
+    const hAcc = ns.crossing_accuracy?.home != null ? Number(ns.crossing_accuracy.home) : 0;
+    const aAcc = ns.crossing_accuracy?.away != null ? Number(ns.crossing_accuracy.away) : 0;
+    if (hCrosses >= 3) { const pts = Math.min(6, hCrosses * 0.8 + (hAcc > 30 ? 2 : 0)); r.homePts += pts; if (pts >= 3) r.homeFactors.push(`Kanat atak ${hCrosses} orta`); }
+    if (aCrosses >= 3) { const pts = Math.min(6, aCrosses * 0.8 + (aAcc > 30 ? 2 : 0)); r.awayPts += pts; if (pts >= 3) r.awayFactors.push(`Kanat atak ${aCrosses} orta`); }
+    const hPen = ns.penalties?.home != null ? Number(ns.penalties.home) : 0;
+    const aPen = ns.penalties?.away != null ? Number(ns.penalties.away) : 0;
+    if (hPen > 0) { r.homePts += 15; r.homeFactors.push('Penaltı kazanıldı! (+15)'); }
+    if (aPen > 0) { r.awayPts += 15; r.awayFactors.push('Penaltı kazanıldı! (+15)'); }
+    const hKp = ns.key_passes?.home != null ? Number(ns.key_passes.home) : 0;
+    const aKp = ns.key_passes?.away != null ? Number(ns.key_passes.away) : 0;
+    if (hKp >= 3) { const pts = Math.min(5, hKp * 0.7); r.homePts += pts; if (pts >= 3) r.homeFactors.push(`Anahtar pas ${hKp}`); }
+    if (aKp >= 3) { const pts = Math.min(5, aKp * 0.7); r.awayPts += pts; if (pts >= 3) r.awayFactors.push(`Anahtar pas ${aKp}`); }
   } catch { /* NetScores optional */ }
   return r;
 }

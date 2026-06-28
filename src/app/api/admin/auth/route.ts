@@ -11,6 +11,7 @@ import {
   verifyPassword,
 } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { rateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,16 @@ export async function POST(request: Request) {
 
     // ── Login ────────────────────────────────────────────────
     if (action === "login") {
+      // FIX: Brute force korumasi — IP bazli 5 deneme / 60sn
+      const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+      const rlKey = `login:${clientIp}`;
+      if (!rateLimit(rlKey, { windowMs: 60000, maxRequests: 5 }).allowed) {
+        return NextResponse.json(
+          { ok: false, reason: "too many attempts, try again in 60s" },
+          { status: 429 },
+        );
+      }
+
       if (!username || !password) {
         return NextResponse.json(
           { ok: false, reason: "username and password required" },

@@ -1,5 +1,6 @@
 'use client';
 
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { useEffect, useState, useCallback } from 'react';
 import { authFetch } from '@/lib/adminAuth';
 
@@ -39,6 +40,13 @@ export default function AdminEloPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Elo chart data (top 20)
+  const chartData = [...ratings]
+    .sort((a, b) => b.elo - a.elo)
+    .slice(0, 20)
+    .map(r => ({ name: (r.teamName ?? '').slice(0, 14), elo: r.elo }))
+    .reverse();
 
   const load = useCallback(async () => {
     try {
@@ -189,7 +197,20 @@ export default function AdminEloPage() {
             Henüz rating verisi yok. Yukarıdaki butonlardan import başlatın.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            {chartData.length > 0 && (
+              <div className="h-48 mb-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} layout="vertical" margin={{ left: 100, right: 10 }}>
+                    <XAxis type="number" domain={[1000, 2000]} tick={{fontSize:10}} />
+                    <YAxis type="category" dataKey="name" tick={{fontSize:10}} width={90} />
+                    <Tooltip contentStyle={{fontSize:11,borderRadius:6}} formatter={(v:unknown)=>[typeof v==="number"?v.toFixed(0):"-","Elo"]} />
+                    <Bar dataKey="elo" fill="#6366f1" radius={[0,3,3,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            <div className="overflow-x-auto">
             <table className="w-full text-[11px]">
               <thead>
                 <tr className="border-b border-gray-200 text-gray-500">
@@ -228,6 +249,7 @@ export default function AdminEloPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>

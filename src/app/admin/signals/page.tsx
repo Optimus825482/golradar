@@ -23,6 +23,7 @@ export default function AdminSignalsPage() {
   const [stats, setStats] = useState<SignalStats | null>(null);
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -37,6 +38,26 @@ export default function AdminSignalsPage() {
   }, [days]);
 
   useEffect(() => { load(); }, [load]);
+
+  // CSV export
+  const exportCSV = async () => {
+    setExporting(true);
+    try {
+      const resp = await fetch('/api/goal-signals?action=list');
+      if (!resp.ok) return;
+      const json = await resp.json();
+      const rows = json.signals ?? [];
+      const header = 'matchCode,homeTeam,awayTeam,league,minute,side,score,level,calibratedP,goalHappened,goalMinute\n';
+      const csv = header + rows.map((r: any) =>
+        `${r.matchCode},"${r.homeTeam}","${r.awayTeam}","${r.league}",${r.minute},${r.side},${r.score},${r.level},${r.calibratedP ?? ''},${r.goalHappened ?? ''},${r.goalMinute ?? ''}`
+      ).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `signals-${days}g.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setExporting(false); }
+  };
 
   if (loading || !stats) {
     return (
@@ -58,15 +79,21 @@ export default function AdminSignalsPage() {
             Tüm gol sinyalleri — level, taraf, dakika, sonuç bazlı analiz
           </p>
         </div>
-        <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
-          {[7, 30, 90].map(d => (
-            <button key={d} onClick={() => setDays(d)}
-              className={`text-[11px] px-3 py-1.5 rounded-md font-semibold transition-all ${
-                days === d ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}>
-              {d === 7 ? '7g' : d === 30 ? '30g' : '90g'}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
+            {[7, 30, 90].map(d => (
+              <button key={d} onClick={() => setDays(d)}
+                className={`text-[11px] px-3 py-1.5 rounded-md font-semibold transition-all ${
+                  days === d ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}>
+                {d === 7 ? '7g' : d === 30 ? '30g' : '90g'}
+              </button>
+            ))}
+          </div>
+          <button onClick={exportCSV} disabled={exporting}
+            className="text-[11px] px-3 py-1.5 rounded-md font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all disabled:opacity-50">
+            {exporting ? '⏳' : '⬇ CSV'}
+          </button>
         </div>
       </div>
 

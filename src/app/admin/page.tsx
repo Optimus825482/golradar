@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
+import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 // ── Helpers ───────────────────────────────────────────────────────
 function asPct(v: number | null | undefined, d = 1): string {
@@ -55,15 +56,17 @@ export default function AdminPage() {
 
   const loadData = async () => {
     try {
-      const [mlRes, signalRes, dailyRes] = await Promise.all([
+      const [mlRes, signalRes, dailyRes, monRes] = await Promise.all([
         authFetch('/api/admin/ml/status'),
         authFetch('/api/goal-signals?action=stats&days=30'),
         authFetch('/api/daily-metrics'),
+        authFetch('/api/admin/ml/monitoring?days=7'),
       ]);
       const ml = mlRes.ok ? await mlRes.json() : null;
       const signals = signalRes.ok ? await signalRes.json() : null;
       const daily = dailyRes.ok ? await dailyRes.json() : null;
-      setData({ ml, signals, daily });
+      const mon = monRes.ok ? await monRes.json() : null;
+      setData({ ml, signals, daily, mon });
     } catch { /* connection error */ }
   };
 
@@ -112,16 +115,44 @@ export default function AdminPage() {
             <p className="text-sm text-gray-400">Henüz veri yok</p>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <KpiBox label="Bugün Başarı" value={asPct(daily.today.successRate, 0)}
-                color={daily.today.successRate >= 0.6 ? '#16a34a' : daily.today.successRate >= 0.4 ? '#d97706' : '#dc2626'}
-                sub={`${daily.today.goalsHit}/${daily.today.resolved} gol`} />
-              <KpiBox label="Verilen Sinyal" value={String(daily.today.signalsTotal)}
-                color="#d97706" sub={`${daily.today.pending} bekliyor`} />
-              <KpiBox label="Oynanacak Maç" value={String(daily.upcoming.total)}
-                color="#7c3aed" sub={`${daily.upcoming.liveNow} canlı`} />
-              <KpiBox label="Genel (90g)" value={asPct(daily.allTime.successRate, 0)}
-                color={daily.allTime.successRate >= 0.6 ? '#16a34a' : '#d97706'}
-                sub={`${daily.allTime.totalSignals} sinyal`} />
+              <KpiBox label="Bugün Başarı" value={asPct(daily.today?.successRate, 0)}
+                color={(daily.today?.successRate ?? 0) >= 0.6 ? '#16a34a' : (daily.today?.successRate ?? 0) >= 0.4 ? '#d97706' : '#dc2626'}
+                sub={`${daily.today?.goalsHit ?? 0}/${daily.today?.resolved ?? 0} gol`} />
+              <KpiBox label="Verilen Sinyal" value={String(daily.today?.signalsTotal ?? 0)}
+                color="#d97706" sub={`${daily.today?.pending ?? 0} bekliyor`} />
+              <KpiBox label="Oynanacak Maç" value={String(daily.upcoming?.total ?? 0)}
+                color="#7c3aed" sub={`${daily.upcoming?.liveNow ?? 0} canlı`} />
+              <KpiBox label="Genel (90g)" value={asPct(daily.allTime?.successRate, 0)}
+                color={(daily.allTime?.successRate ?? 0) >= 0.6 ? '#16a34a' : '#d97706'}
+                sub={`${daily.allTime?.totalSignals ?? 0} sinyal`} />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Brier Trend Mini Chart */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Activity className="size-4 text-indigo-500" />
+            Brier Trend (7g)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!data && loading ? (
+            <Skeleton className="h-32 w-full rounded-lg" />
+          ) : !data?.mon?.series?.length ? (
+            <p className="text-sm text-gray-400">Henüz Brier verisi yok</p>
+          ) : (
+            <div className="h-32">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data.mon.series.filter((s: any) => s.brierScore != null)}>
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v?.slice(5) ?? ''} stroke="#9ca3af" />
+                  <YAxis domain={[0, 1]} tick={{ fontSize: 10 }} tickFormatter={(v: number) => v.toFixed(1)} stroke="#9ca3af" width={30} />
+                  <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} formatter={(v: unknown) => [typeof v === 'number' ? v.toFixed(4) : '—', 'Brier']} />
+                  <Line type="monotone" dataKey="brierScore" stroke="#6366f1" strokeWidth={2} dot={{ r: 2 }} />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           )}
         </CardContent>

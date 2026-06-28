@@ -14,6 +14,7 @@ const KEY_LEN = 64;
 const DIGEST = "sha256";
 const SESSION_BYTES = 64;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const SESSION_REFRESH_MS = 1 * 60 * 60 * 1000; // refresh after 1 hour
 
 // ── Password Hashing ──────────────────────────────────────────────
 
@@ -65,12 +66,23 @@ export async function validateSession(
   const user = await db.user.findUnique({ where: { sessionToken: token } });
   if (!user) return { ok: false, reason: "invalid token" };
   if (user.sessionExpiresAt && new Date() > user.sessionExpiresAt) {
-    // Expired — clear it
     await db.user.update({
       where: { id: user.id },
       data: { sessionToken: null, sessionExpiresAt: null },
     });
     return { ok: false, reason: "session expired" };
+  }
+  // FIX: Auto-refresh — session 1 saatten eskiyse token yenile
+  const sessionAge = user.sessionExpiresAt
+    ? user.sessionExpiresAt.getTime() - SESSION_TTL_MS
+    : 0;
+  const needsRefresh = user.sessionExpiresAt && (Date.now() - sessionAge) > SESSION_REFRESH_MS;
+  if (needsRefresh) {
+    const newExpiry = new Date(Date.now() + SESSION_TTL_MS);
+    await db.user.update({
+      where: { id: user.id },
+      data: { sessionExpiresAt: newExpiry },
+    });
   }
   return { ok: true, userId: user.id, mustChange: user.mustChangePassword };
 }

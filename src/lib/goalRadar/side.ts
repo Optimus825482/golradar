@@ -34,9 +34,10 @@ export function determineSide(
   const homeRatio = homeScore / Math.max(1, totalScore);
   const awayRatio = 1 - homeRatio;
 
-  // Eşikler: 0.62/0.35 — baskın tarafı tespit et (dep eşiği: awayRatio > 0.65 = homeRatio < 0.35)
+  // Eşikler: away deplasmanda daha az baskı üretir → eşik 0.58
+  // home 0.62, away 0.58 — deplasman baskısı daha değerli
   if (homeRatio > 0.62 && homeScore >= RADAR_THRESHOLD) return "home";
-  if (awayRatio > 0.65 && awayScore >= RADAR_THRESHOLD) return "away";
+  if (awayRatio > 0.58 && awayScore >= RADAR_THRESHOLD) return "away";
 
   // Sustained pressure spike (eski logic koru)
   const last3 = pressureHistory?.slice(-3) ?? [];

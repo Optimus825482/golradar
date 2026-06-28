@@ -25,7 +25,7 @@ import { computeECE } from '@/lib/calibration';
 export interface DailyMetricsResult {
   date: string; // YYYY-MM-DD
   modelMetricsId: string | null;
-  championBrier: number;
+  championBrier: number | null;
   perVariant: Record<string, { brier: number; n: number; artifact: string | null }>;
   shadowBrierDelta: number;
   nShadowSamples: number;
@@ -64,7 +64,7 @@ export async function evaluateDailyShadows(
     return {
       date: dateStr,
       modelMetricsId: null,
-      championBrier: 0,
+      championBrier: null,
       perVariant: {},
       shadowBrierDelta: 0,
       nShadowSamples: 0,
@@ -106,11 +106,13 @@ export async function evaluateDailyShadows(
     }
   }
 
-  // Champion Brier
+  // Champion Brier — FIX: null when no champion predictions exist (was 0, which looked like perfect score)
   const championAgg = perVariantAgg.get('champion');
-  const championBrier = championAgg && championAgg.n > 0
+  const championBrier: number | null = championAgg && championAgg.n > 0
     ? championAgg.sum / championAgg.n
-    : 0;
+    : null;
+  // Safe fallback for arithmetic (null→0)
+  const safeBrier = championBrier ?? 0;
 
   // Build per-variant result map
   const perVariant: Record<string, { brier: number; n: number; artifact: string | null }> = {};
@@ -130,7 +132,7 @@ export async function evaluateDailyShadows(
     }
   }
   if (!isFinite(bestShadowBrier)) bestShadowBrier = 0;
-  const shadowBrierDelta = championBrier > 0 ? bestShadowBrier - championBrier : 0;
+  const shadowBrierDelta = safeBrier > 0 ? bestShadowBrier - safeBrier : 0;
 
   // Per-name column picks: take the most-recent artifact for that
   // name (so ModelMetrics tracks the *current* version of "xgb" rather
@@ -154,7 +156,7 @@ export async function evaluateDailyShadows(
   // Auto-suspend check: a shadow variant > 0.02 worse than champion
   // for 2+ consecutive days. We look at the previous day's row.
   const suspendedVariants: string[] = [];
-  if (championBrier > 0) {
+  if (safeBrier > 0) {
     const yesterday = new Date(dayStart.getTime() - 24 * 60 * 60 * 1000);
     const prevMetrics = await db.modelMetrics.findUnique({
       where: { date: yesterday },
@@ -168,7 +170,7 @@ export async function evaluateDailyShadows(
         for (const [v, agg] of perVariantAgg.entries()) {
           if (v === 'champion') continue;
           const brier = agg.sum / agg.n;
-          if (brier - championBrier > 0.02) {
+          if (brier - safeBrier > 0.02) {
             suspendedVariants.push(v);
             variantBrier.set(v, brier);
           }
@@ -189,7 +191,7 @@ export async function evaluateDailyShadows(
               });
               if (!art) continue;
               const stamp = new Date().toISOString();
-              const note = `[AUTO-SUSPENDED ${stamp}] Brier ${(variantB - championBrier).toFixed(4)} worse than champion for 2 consecutive days.`;
+              const note = `[AUTO-SUSPENDED ${stamp}] Brier ${(variantB - safeBrier).toFixed(4)} worse than champion for 2 consecutive days.`;
               await db.modelArtifact.update({
                 where: { id: art.id },
                 data: {
@@ -197,7 +199,7 @@ export async function evaluateDailyShadows(
                 },
               });
               logWarn('shadowEvaluator',
-                `Archived ${name}@${version}: 2-day Brier gap ${(variantB - championBrier).toFixed(4)}`);
+                `Archived ${name}@${version}: 2-day Brier gap ${(variantB - safeBrier).toFixed(4)}`);
             } catch (e) {
               logWarn('shadowEvaluator',
                 `Archive failed for ${variant}:`, e);
@@ -220,46 +222,46 @@ export async function evaluateDailyShadows(
     ? logs.reduce((s, l) => s + l.calibratedP, 0) / logs.length
     : 0;
 
-  // Persist to ModelMetrics
-  let modelMetricsId: string | null = null;
-  if (persist) {
-    const updated = await db.modelMetrics.upsert({
-      where: { date: dayStart },
-      create: {
-        date: dayStart,
-        brierScore: championBrier,
-        logLoss: 0,
-        accuracy,
-        totalPredictions: logs.length,
-        totalGoals,
-        avgCalibratedP,
-        goalAfterSignalP: 0,
-        avgMinutesToGoal: 0,
-        calibrationError: ece,
-        gbdtBrier: perNameBrier['gbdt'] ?? null,
-        xgbBrier: perNameBrier['xgb'] ?? null,
-        teamStrengthBrier: perNameBrier['team-strength'] ?? null,
-        inPlayBrier: perNameBrier['inplay'] ?? null,
-        shadowBrierDelta: championBrier > 0 ? shadowBrierDelta : null,
-        nShadowSamples,
-      },
-      update: {
-        brierScore: championBrier,
-        accuracy,
-        totalPredictions: logs.length,
-        totalGoals,
-        avgCalibratedP,
-        calibrationError: ece,
-        gbdtBrier: perNameBrier['gbdt'] ?? null,
-        xgbBrier: perNameBrier['xgb'] ?? null,
-        teamStrengthBrier: perNameBrier['team-strength'] ?? null,
-        inPlayBrier: perNameBrier['inplay'] ?? null,
-        shadowBrierDelta: championBrier > 0 ? shadowBrierDelta : null,
-        nShadowSamples,
-      },
-    });
-    modelMetricsId = updated.id;
-  }
+	  // Persist to ModelMetrics
+	  let modelMetricsId: string | null = null;
+	  if (persist) {
+	    const updated = await db.modelMetrics.upsert({
+	      where: { date: dayStart },
+	      create: {
+	        date: dayStart,
+	        brierScore: safeBrier,
+	        logLoss: 0,
+	        accuracy,
+	        totalPredictions: logs.length,
+	        totalGoals,
+	        avgCalibratedP,
+	        goalAfterSignalP: 0,
+	        avgMinutesToGoal: 0,
+	        calibrationError: ece,
+	        gbdtBrier: perNameBrier['gbdt'] ?? null,
+	        xgbBrier: perNameBrier['xgb'] ?? null,
+	        teamStrengthBrier: perNameBrier['team-strength'] ?? null,
+	        inPlayBrier: perNameBrier['inplay'] ?? null,
+	        shadowBrierDelta: safeBrier > 0 ? shadowBrierDelta : null,
+	        nShadowSamples,
+	      },
+	      update: {
+	        brierScore: safeBrier,
+	        accuracy,
+	        totalPredictions: logs.length,
+	        totalGoals,
+	        avgCalibratedP,
+	        calibrationError: ece,
+	        gbdtBrier: perNameBrier['gbdt'] ?? null,
+	        xgbBrier: perNameBrier['xgb'] ?? null,
+	        teamStrengthBrier: perNameBrier['team-strength'] ?? null,
+	        inPlayBrier: perNameBrier['inplay'] ?? null,
+	        shadowBrierDelta: safeBrier > 0 ? shadowBrierDelta : null,
+	        nShadowSamples,
+	      },
+	    });
+	    modelMetricsId = updated.id;
+	  }
 
   return {
     date: dateStr,

@@ -41,7 +41,7 @@ export const POST = adminRoute(async (request: Request) => {
   await persistDriftReport(today, driftReport, "admin-manual");
 
   logInfo("admin-shadow-eval",
-    `Manual eval done for ${today}: champion=${shadow.championBrier.toFixed(4)}, ` +
+    `Manual eval done for ${today}: champion=${shadow.championBrier?.toFixed(4) ?? 'N/A'}, ` +
     `delta=${shadow.shadowBrierDelta.toFixed(4)}, drift=${driftReport.driftPct?.toFixed(2) ?? "N/A"}%`);
 
   return NextResponse.json({

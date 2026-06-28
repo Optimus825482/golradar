@@ -252,9 +252,9 @@ function checkAndRunDaily(): void {
 	      state.lastCalibrationDate = today;
 	    }
 
-	    logInfo('MLScheduler',
-	      `Daily shadow eval done — champion=${shadow.championBrier.toFixed(4)}, ` +
-	      `delta=${shadow.shadowBrierDelta.toFixed(4)}, suspended=${shadow.suspendedVariants.length}`);
+		    logInfo('MLScheduler',
+		      `Daily shadow eval done — champion=${shadow.championBrier?.toFixed(4) ?? 'N/A'}, ` +
+		      `delta=${shadow.shadowBrierDelta.toFixed(4)}, suspended=${shadow.suspendedVariants.length}`);
 	  } catch (e) {
 	    const msg = e instanceof Error ? e.message : String(e);
 	    logError('MLScheduler', `Daily shadow eval failed: ${msg}`);

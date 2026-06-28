@@ -316,12 +316,13 @@ export async function exportTrainingData(
 	    select: { id: true, createdAt: true },
 	    orderBy: { createdAt: 'desc' },
 	  });
-	  if (existingRows.length >= 3) {
-	    const toDelete = existingRows.slice(2); // keep top 2 newest
-	    for (const old of toDelete) {
-	      await db.trainingDataset.delete({ where: { id: old.id } }).catch(() => {});
-	    }
-	  }
+		  if (existingRows.length >= 3) {
+		    const toDelete = existingRows.slice(2); // keep top 2 newest
+		    // FIX: deleteMany — delete() record yoksa prisma:error firlatir,
+		    // .catch() sessize alsa bile log'a yazilir.
+		    const idsToDelete = toDelete.map(x => x.id);
+		    await db.trainingDataset.deleteMany({ where: { id: { in: idsToDelete } } });
+		  }
 
 	  // Create the TrainingDataset row
 	  const dataset = await db.trainingDataset.create({

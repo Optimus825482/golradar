@@ -45,7 +45,7 @@ import { authFetch, KPICard } from '@/lib/adminAuth';
       const res = await authFetch('/api/calibration?action=autocalibrate');
       const data = await res.json();
       if (data.success) {
-        setCalRunMsg(`✓ Brier ${data.brierBefore.toFixed(4)} → ${data.brierAfter.toFixed(4)} (${data.improvement})`);
+        setCalRunMsg(`✓ Brier ${data.brierBefore != null ? data.brierBefore.toFixed(4) : '?'} → ${data.brierAfter != null ? data.brierAfter.toFixed(4) : '?'} (${data.improvement})`);
         load();
       } else {
         setCalRunMsg(`✗ ${data.message || 'Başarısız'}`);

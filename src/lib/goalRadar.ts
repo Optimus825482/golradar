@@ -20,6 +20,7 @@ import { determineSide } from './goalRadar/side';
 import { computeTrendBoost } from './ml/trendLSTM';
 import { detectGoalCooldown, applyGoalCooldown } from './goalRadar/cooldown';
 import type { PressureSnapshotLite, GoalProbability } from './goalRadar/types';
+import { parseMinute } from './goalSignalTracker';
 
 // ── Goaloo canlı zenginleştirme verisi (opsiyonel) ──────────────
 export interface GoalooEnrichment {
@@ -85,16 +86,12 @@ export function calculateGoalProbability(
     awayFactors: string[] = [],
     sharedFactors: string[] = [];
 
-  // Parse minute: handle stoppage correctly.
-  // Regular time: 1-90. Stoppage time: 45+ ≤ 95, 90+ ≤ 105.
-  let minNum = parseInt(minute.replace(/[^0-9]/g, ""), 10);
-  const isStoppage = /\d+\s*\+\s*\d+/.test(minute);
-  const MAX_MIN = isStoppage ? 105 : 90;
-  if (!minNum || minNum === 0) minNum = 1;
-  // Early-game fallback: if real minute < 5, use a conservative 5
-  // to avoid rate-based factors being inflated by division-by-small.
-  if (minNum < 5 && !isStoppage) minNum = 5;
-  minNum = Math.max(1, Math.min(MAX_MIN, minNum));
+  // FIX A: Stoppage minute parse was BROKEN ("45+2" → 452 → cap to 105).
+  // Use parseMinute() from goalSignalTracker which handles "45+2" correctly (→ 47).
+  // Early-game: use conservative 5 to avoid rate inflation by small denominator.
+  let minNum = parseMinute(minute);
+  if (minNum === 0) minNum = 1;
+  if (minNum < 5) minNum = 5;
 
   // Factor 1: Pressure dominance (no gap gate — close games also signal)
   const pressure = calculatePressure(stats);
@@ -588,31 +585,33 @@ export function calculateGoalProbability(
       awayDADelta >= 2 &&
       awayCornerDelta >= 1 &&
       (awaySOTDelta >= 1 || awayBlkDelta >= 1);
-	  if (homeSequence) {
-	      const seqBoost = Math.min(15, Math.round(homeScore * 0.4));
-	      homeScore += seqBoost;
-	      homeFactors.push(`Tehlikeli sıralı atak! (+${seqBoost})`);
-	    }
-	    if (awaySequence) {
-	      const seqBoost = Math.min(15, Math.round(awayScore * 0.4));
-	      awayScore += seqBoost;
-	      awayFactors.push(`Tehlikeli sıralı atak! (+${seqBoost})`);
-	    }
+		  if (homeSequence) {
+		      // FIX E: Yuzde boost yerine absolute. Eski: min(15, score*0.4)
+		      // Bu "zengin daha zengin" feedback loop yaratiyordu.
+		      const seqBoost = Math.min(12, 4 + homeDADelta * 1.5 + homeSOTDelta * 2);
+		      homeScore += seqBoost;
+		      homeFactors.push(`Tehlikeli sıralı atak! (+${seqBoost})`);
+		    }
+		    if (awaySequence) {
+		      const seqBoost = Math.min(12, 4 + awayDADelta * 1.5 + awaySOTDelta * 2);
+		      awayScore += seqBoost;
+		      awayFactors.push(`Tehlikeli sıralı atak! (+${seqBoost})`);
+		    }
 	    // Karşı baskı (counter-press): sadece takım topu kaptıktan sonra
 	    // hızlı hücum yapıyorsa. Gerçek kontra-atak pattern'i:
 	    // kendi SOT/corner artarken rakip possession düşüyorsa.
 	    const homePossDrop = (first.stats.possession?.away ?? 50) - (last.stats.possession?.away ?? 50);
 	    const awayPossDrop = (first.stats.possession?.home ?? 50) - (last.stats.possession?.home ?? 50);
-	    if (homeDADelta >= 3 && homePossDrop > 10 && awaySOTDelta >= 1) {
-	      const resetBoost = Math.min(10, Math.round(homeScore * 0.15));
-	      homeScore += resetBoost;
-	      if (resetBoost >= 3) homeFactors.push(`Kontra atak +${resetBoost}`);
-	    }
-	    if (awayDADelta >= 3 && awayPossDrop > 10 && homeSOTDelta >= 1) {
-	      const resetBoost = Math.min(10, Math.round(awayScore * 0.15));
-	      awayScore += resetBoost;
-	      if (resetBoost >= 3) awayFactors.push(`Kontra atak +${resetBoost}`);
-	    }
+		    if (homeDADelta >= 3 && homePossDrop > 10 && awaySOTDelta >= 1) {
+		      const resetBoost = Math.min(8, 3 + homeDADelta * 1.5);
+		      homeScore += resetBoost;
+		      if (resetBoost >= 3) homeFactors.push(`Kontra atak +${resetBoost}`);
+		    }
+		    if (awayDADelta >= 3 && awayPossDrop > 10 && homeSOTDelta >= 1) {
+		      const resetBoost = Math.min(8, 3 + awayDADelta * 1.5);
+		      awayScore += resetBoost;
+		      if (resetBoost >= 3) awayFactors.push(`Kontra atak +${resetBoost}`);
+		    }
     const firstHomePoss = first.stats.possession?.home ?? 50,
       lastHomePoss = last.stats.possession?.home ?? 50;
     const possSwingHome = lastHomePoss - firstHomePoss,
@@ -625,7 +624,8 @@ export function calculateGoalProbability(
       firstHomePoss < 45 &&
       lastHomePoss > 60
     ) {
-      const counterPts = Math.round(homeScore * 0.25);
+      // FIX: Yuzde boost → absolute
+      const counterPts = Math.min(6, 2 + Math.round(homeDADelta * 0.8));
       homeScore += counterPts;
       if (counterPts >= 3)
         homeFactors.push(`Kontra atak dalgası +${counterPts}`);
@@ -634,7 +634,7 @@ export function calculateGoalProbability(
       const firstAwayPoss = first.stats.possession?.away ?? 50,
         lastAwayPoss = last.stats.possession?.away ?? 50;
       if (firstAwayPoss < 45 && lastAwayPoss > 60) {
-        const counterPts = Math.round(awayScore * 0.25);
+        const counterPts = Math.min(6, 2 + Math.round(awayDADelta * 0.8));
         awayScore += counterPts;
         if (counterPts >= 3)
           awayFactors.push(`Kontra atak dalgası +${counterPts}`);
@@ -642,31 +642,32 @@ export function calculateGoalProbability(
     }
   }
 
-  // Concurrent threat multiplier
+  // Concurrent threat multiplier — REDUCED (Fix G: faktor sayisi zaten puanlanmis.
+  // Eski +10/+8/+5/+2 gereksiz sisirme. Simdi +5/+3/+2/+1.)
   const homeActiveCount = homeFactors.length,
     awayActiveCount = awayFactors.length;
   if (homeActiveCount >= 12) {
-    homeScore += 10;
+    homeScore += 5;
     homeFactors.push("Fırtına!");
   } else if (homeActiveCount >= 10) {
-    homeScore += 8;
+    homeScore += 3;
     homeFactors.push("Kritik eşik!");
   } else if (homeActiveCount >= 8) {
-    homeScore += 5;
-  } else if (homeActiveCount >= 6) {
     homeScore += 2;
+  } else if (homeActiveCount >= 6) {
+    homeScore += 1;
   }
   if (awayActiveCount >= 12) {
-    awayScore += 10;
+    awayScore += 5;
     awayFactors.push("Fırtına!");
   } else if (awayActiveCount >= 10) {
-    awayScore += 8;
+    awayScore += 3;
     awayFactors.push("Kritik eşik!");
   } else if (awayActiveCount >= 8) {
-    awayScore += 5;
-	  } else if (awayActiveCount >= 6) {
-	    awayScore += 2;
-	  }
+    awayScore += 2;
+  } else if (awayActiveCount >= 6) {
+    awayScore += 1;
+  }
 
 	  // ── F17: Organizasyon kalitesi (pass_accuracy) + Fouls ─────────
 	  // Yüksek pas yüzdesi + düşük faul = organize atak
@@ -893,33 +894,10 @@ export function calculateGoalProbability(
     }
   }
 
-	  // Poisson anchor
-	  {
-	    const homeLambda = xg.home / Math.max(1, minNum),
-	      awayLambda = xg.away / Math.max(1, minNum);
-	    const remainingMin = Math.max(1, 90 - minNum); // 90+ dk'da negatif olmasın
-	    const homePoissonP = 1 - Math.exp(-homeLambda * remainingMin);
-	    const awayPoissonP = 1 - Math.exp(-awayLambda * remainingMin);
-	    const poissonWeight = 0.15 + (minNum / 90) * 0.25; // 0.15 → 0.40 arası dinamik
-	    const homePoissonPts = Math.round(homePoissonP * 100 * poissonWeight),
-	      awayPoissonPts = Math.round(awayPoissonP * 100 * poissonWeight);
-    if (homePoissonPts >= 2) {
-      homeScore += Math.min(10, homePoissonPts);
-      if (homePoissonPts >= 5)
-        homeFactors.push(
-          `Poisson taban ${(homePoissonP * 100).toFixed(0)}% → +${homePoissonPts}`,
-        );
-    }
-    if (awayPoissonPts >= 2) {
-      awayScore += Math.min(10, awayPoissonPts);
-      if (awayPoissonPts >= 5)
-        awayFactors.push(
-          `Poisson taban ${(awayPoissonP * 100).toFixed(0)}% → +${awayPoissonPts}`,
-        );
-    }
-  }
+		  // Poisson anchor — REMOVED (Fix F: Poisson zaten %10 blend'de.
+		  // F14 ayri puan eklemek cift sayim. Blend yeterli.)
 
-  // Bayesian win-prob update
+		  // Bayesian win-prob update
   {
     const scoreDiff = (currentHomeGoals ?? 0) - (currentAwayGoals ?? 0);
     const minutePct = minNum / 90;
@@ -1049,20 +1027,31 @@ export function calculateGoalProbability(
     );
 	  } catch (e) { logError('goalRadar', e); /* fallback */ }
 
-  // ── Trend LSTM Boost ──
-  // Pressure trend'inden goal probability boost hesapla.
-  // Ani pressure sıçraması veya yükselen trend varsa skoru artır.
-  try {
-    const pressureWindows = (pressureHistory ?? []).map(snap => [snap.homePressure ?? 50, snap.awayPressure ?? 50] as [number, number]);
-    if (pressureWindows.length >= 3) {
-      const trendBoost = computeTrendBoost({ windows: pressureWindows, minute: minNum });
-      if (trendBoost > 0) {
-        const boostScore = trendBoost * 100;
-        homeScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore + boostScore));
-        awayScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore + boostScore));
-      }
-    }
-  } catch { /* trend boost is optional */ }
+	  // ── Trend LSTM Boost ──
+	  // Pressure trend'inden goal probability boost hesapla.
+	  // FIX H: Boost sadece trendin kaynagi olan takima uygula.
+	  try {
+	    const pressureWindows = (pressureHistory ?? []).map(snap => [snap.homePressure ?? 50, snap.awayPressure ?? 50] as [number, number]);
+	    if (pressureWindows.length >= 3) {
+	      const trendBoost = computeTrendBoost({ windows: pressureWindows, minute: minNum });
+	      if (trendBoost > 0) {
+	        const lastHomeP = pressureHistory![pressureHistory!.length - 1].homePressure;
+	        const lastAwayP = pressureHistory![pressureHistory!.length - 1].awayPressure;
+	        // Boost sadece baskin takima git
+	        const boostScore = trendBoost * 100;
+	        if (lastHomeP > lastAwayP + 10) {
+	          homeScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore + boostScore));
+	        } else if (lastAwayP > lastHomeP + 10) {
+	          awayScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore + boostScore));
+	        } else {
+	          // Esit baskı → iki tarafa da yari
+	          const half = Math.round(boostScore / 2);
+	          homeScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore + half));
+	          awayScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore + half));
+	        }
+	      }
+	    }
+	  } catch { /* trend boost is optional */ }
 
   // Probability calibration — Faz 4: tek kanal.
   // applyCalibration → sigmoid/PAVA üzerinden DB'deki parametreleri kullanır.
@@ -1079,32 +1068,25 @@ export function calculateGoalProbability(
     calibratedP = 0.5;
   }
 
-  // Time multiplier
-  let timeMultiplier = 1.0;
-  try {
-    timeMultiplier = getTimeBasedGoalMultiplier(minNum);
-  } catch (e) { logError('goalRadar', e); /* fallback */ }
-
-  let finalHomeScore = Math.round(
-    Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore * timeMultiplier))),
-  );
-  let finalAwayScore = Math.round(
-    Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore * timeMultiplier))),
-  );
+  // Time multiplier — REMOVED (Fix C: F8 zaten dakika bazli ayarlama yapiyor.
+  // getTimeBasedGoalMultiplier F8 ile ayni amaci farkli kaynaktan uyguluyordu.
+  // Cift carpan (F8 × timeMultiplier) gereksiz sisirme. F8 tek kaynak.)
+  let finalHomeScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore)));
+  let finalAwayScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore)));
   let finalScore = Math.max(finalHomeScore, finalAwayScore);
 
-	  // 5-minute goal probability — homojen Poisson
-	  // minuteScale KALDIRILDI: F8 zaten score'u dakikaya göre ayarlıyor.
-	  // Çift çarpan (F8 + minuteScale) gereksiz şişirme yapıyordu.
-	  let goalProbability5min = 0;
-	  try {
-	    const homeXgRate = xg.home / Math.max(1, minNum),
-	      awayXgRate = xg.away / Math.max(1, minNum);
-	    const totalXgRate = homeXgRate + awayXgRate;
-	    const lambda5min = totalXgRate * 5;
-	    goalProbability5min = 1 - Math.exp(-lambda5min);
-	    goalProbability5min = Math.min(0.95, goalProbability5min);
-	  } catch (e) { logError('goalRadar', e); /* fallback */ }
+		  // 5-minute goal probability — rate-based xG
+		  // FIX D: xg.home kumulatif, per-minute rate olarak kullanilamaz.
+		  // estimateXgFromShots anlik snapshot verisinden dogru xG rate verir.
+		  let goalProbability5min = 0;
+		  try {
+		    const homeXgRate = estimateXgFromShots(stats, 'home', minNum),
+		      awayXgRate = estimateXgFromShots(stats, 'away', minNum);
+		    const totalXgRate = homeXgRate + awayXgRate;
+		    const lambda5min = Math.max(0, totalXgRate * 5);
+		    goalProbability5min = 1 - Math.exp(-lambda5min);
+		    goalProbability5min = Math.min(0.95, goalProbability5min);
+		  } catch (e) { logError('goalRadar', e); /* fallback */ }
 
   // P0.5: Critical multi-confirmation gate — score ≥80 is necessary but
   // insufficient. Requires ≥3 of 4 independent confirms to prevent
@@ -1349,23 +1331,25 @@ export function calculateGoalProbability(
 	  }
 
 
-	  // Trend-adjusted threshold: if momentum is rising, accept signals
-	  // with slightly lower 5-min prob (0.20 vs 0.25). Preserves "warning"
-	  // signals at score 55-69 with rising momentum — these historically
-	  // precede the actual goal by 2-4 minutes.
-	  const isMomentumRising = homeFactors.length + awayFactors.length >= 3;
-	  const effectiveThreshold = isMomentumRising ? MIN_PROB_FOR_SIGNAL : SIGNAL_5MIN_THRESHOLD;
-	  // Critical seviye için ayrı düşük eşik (0.15). Tamamen muaf DEĞİL.
-	  const gateThreshold = level === "critical" ? 0.15 : effectiveThreshold;
-	
-	  if (goalProbability5min < gateThreshold) {
-	    level = "low";
-	    side = null;
-	    if (finalScore < RADAR_THRESHOLD) {
-	      finalScore = Math.min(finalScore, 59);
-	      finalHomeScore = Math.min(finalHomeScore, 59);
-	      finalAwayScore = Math.min(finalAwayScore, 59);
-	    }
+		  // FIX B: Dinamik 5-dk esigi — gec dakikalarda dusur, yoksa tum sinyaller olur.
+		  // Eski sabit threshold (0.25) 75+ dk'da tum sinyalleri olduruyordu.
+		  const isMomentumRising = homeFactors.length + awayFactors.length >= 3;
+		  const baseThreshold =
+		    minNum <= 30 ? SIGNAL_5MIN_THRESHOLD :
+		    minNum <= 60 ? 0.20 :
+		    minNum <= 75 ? 0.12 : 0.08;
+		  const effectiveThreshold = isMomentumRising ? Math.max(0.06, baseThreshold - 0.04) : baseThreshold;
+		  // Critical multi-confirmation: 0.06 sabit esik
+		  const gateThreshold = level === "critical" ? 0.06 : effectiveThreshold;
+
+		  if (goalProbability5min < gateThreshold) {
+		    level = "low";
+		    side = null;
+		    if (finalScore < RADAR_THRESHOLD) {
+		      finalScore = Math.min(finalScore, 59);
+		      finalHomeScore = Math.min(finalHomeScore, 59);
+		      finalAwayScore = Math.min(finalAwayScore, 59);
+		    }
 	  }
 
   const allFactors = [
@@ -1384,7 +1368,7 @@ export function calculateGoalProbability(
     eloAdj,
     overUnder25,
     btts: bttsP,
-    timeMultiplier,
+    timeMultiplier: 1.0, // FIX C: removed double multiplier, kept for backward compat
     goalProbability5min,
   };
 }

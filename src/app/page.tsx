@@ -561,9 +561,11 @@ export default function OptimusGolRadariPage() {
 	  const postedSignalsRef = useRef<Set<string>>(new Set())
 	  useEffect(() => {
 	    const posted = postedSignalsRef.current
-	    for (const [code, prob] of goalProbabilities) {
-	      if (!prob || !prob.side || prob.side === 'both') continue
-	      // goalProbabilities artık side'ı validate edilmiş olarak döndürür
+        for (const [code, prob] of goalProbabilities) {
+          if (!prob || !prob.side) continue
+          // FIX: side='both' sinyallerini gecir — algoritma hangi takimdan
+          // gol geleceginden emin degil ama gol olacagini dusunuyor demektir.
+          // Sinyal kaybi yasanmasin. Dedup key'de side='both' kullanilir.
 	      const m = matches.find(x => x.code === code)
 	      if (!m) continue
 	      const signalKey = `${code}:${prob.side}:${parseGoalMinute(m.minute)}`

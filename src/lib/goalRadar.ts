@@ -1013,27 +1013,20 @@ const xgPts = Math.min(7, Math.round(xg.home * 7));
     }
   }
 
-  // Threshold + side determination
-  // Faz 7 — tek side helper (dosya sonunda). Eski RADAR_THRESHOLD/SUSTAINED_THRESHOLD
-  // const'ları ve 4 unused local kaldırıldı; helper'da sabitler yeniden tanımlı.
-  let side: GoalProbability["side"] = determineSide(
-    homeScore,
-    awayScore,
-    pressureHistory,
-  );
+	  // Threshold + side determination
+	  // Faz 7 — tek side helper (dosya sonunda). Eski RADAR_THRESHOLD/SUSTAINED_THRESHOLD
+	  // const'ları ve 4 unused local kaldırıldı; helper'da sabitler yeniden tanımlı.
+	  let side: GoalProbability["side"] = determineSide(
+	    homeScore,
+	    awayScore,
+	    pressureHistory,
+	  );
 
-  // Levels calibrated to observed goal rates:
-  //   score 60-69 → medium    (~39% goal rate)
-  //   score 70-79 → high   (~42% goal rate)
-  //   score 80+   → critical   (~55% goal rate)
-  let level: GoalProbability["level"] = "low";
-  if (score >= 80) level = "critical";
-  else if (score >= 70) level = "high";
-  else if (score >= 60) level = "medium";
-
-  homeScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, homeScore));
+	  // FIX Level ordering: level + calibration Poisson blend + LSTM boost
+	  // SONRASINDA hesaplanir (asagida). Buradaki eski hesaplama kaldirildi.
+	
+	  homeScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, homeScore));
   awayScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, awayScore));
-  const clampedScore = blendedThreatScore(homeScore, awayScore);
 
   // Dixon-Coles Poisson blend (light anchor, 10% weight)
   // Kept low to avoid double-counting — xG is already represented
@@ -1067,46 +1060,56 @@ const xgPts = Math.min(7, Math.round(xg.home * 7));
     awayScore = Math.round(
       awayScore * invBlend + poissonResult.awayGoalP * 100 * blendWeight,
     );
-	  } catch (e) { logError('goalRadar', e); /* fallback */ }
+	} catch (e) { logError('goalRadar', e); /* fallback */ }
 
-	  // ── Trend LSTM Boost ──
-	  // Pressure trend'inden goal probability boost hesapla.
-	  // FIX H: Boost sadece trendin kaynagi olan takima uygula.
-	  try {
-	    const pressureWindows = (pressureHistory ?? []).map(snap => [snap.homePressure ?? 50, snap.awayPressure ?? 50] as [number, number]);
-	    if (pressureWindows.length >= 3) {
-	      const trendBoost = computeTrendBoost({ windows: pressureWindows, minute: minNum });
-	      if (trendBoost > 0) {
-	        const lastHomeP = pressureHistory![pressureHistory!.length - 1].homePressure;
-	        const lastAwayP = pressureHistory![pressureHistory!.length - 1].awayPressure;
-	        // Boost sadece baskin takima git
-	        const boostScore = trendBoost * 100;
-	        if (lastHomeP > lastAwayP + 10) {
-	          homeScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore + boostScore));
-	        } else if (lastAwayP > lastHomeP + 10) {
-	          awayScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore + boostScore));
-	        } else {
-	          // Esit baskı → iki tarafa da yari
-	          const half = Math.round(boostScore / 2);
-	          homeScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore + half));
-	          awayScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore + half));
-	        }
+	// ── Trend LSTM Boost ──
+	// Pressure trend'inden goal probability boost hesapla.
+	// FIX H: Boost sadece trendin kaynagi olan takima uygula.
+	try {
+	  const pressureWindows = (pressureHistory ?? []).map(snap => [snap.homePressure ?? 50, snap.awayPressure ?? 50] as [number, number]);
+	  if (pressureWindows.length >= 3) {
+	    const trendBoost = computeTrendBoost({ windows: pressureWindows, minute: minNum });
+	    if (trendBoost > 0) {
+	      const lastHomeP = pressureHistory![pressureHistory!.length - 1].homePressure;
+	      const lastAwayP = pressureHistory![pressureHistory!.length - 1].awayPressure;
+	      // Boost sadece baskin takima git
+	      const boostScore = trendBoost * 100;
+	      if (lastHomeP > lastAwayP + 10) {
+	        homeScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore + boostScore));
+	      } else if (lastAwayP > lastHomeP + 10) {
+	        awayScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore + boostScore));
+	      } else {
+	        // Esit baskı → iki tarafa da yari
+	        const half = Math.round(boostScore / 2);
+	        homeScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore + half));
+	        awayScore = Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore + half));
 	      }
 	    }
-	  } catch { /* trend boost is optional */ }
+	  }
+	} catch { /* trend boost is optional */ }
 
-  // Probability calibration — Faz 4: tek kanal.
-  // applyCalibration → sigmoid/PAVA üzerinden DB'deki parametreleri kullanır.
-  // Calibration henüz DB'de yoksa (cold-start) sigmoid default'a düşer
-  // (calibration.ts:DEFAULT_CALIBRATION_PARAMS). Eski fallback `Math.min(0.8, s/100)`
-  // tek-kanal prensibini kırıyordu — kaldırıldı.
+  // ── FIX Level ordering: level + calibration SUREKLI olarak
+  // Poisson blend ve LSTM boost'tan SONRA hesapla (onceden sadece factor score'dan
+  // hesaplaniyordu, blend skoru degistirdigi halde level guncellenmiyordu).
+  homeScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, homeScore));
+  awayScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, awayScore));
+  const postBlendScore = blendedThreatScore(homeScore, awayScore);
+
+  // Levels calibrated to observed goal rates:
+  //   score 60-69 → medium    (~39% goal rate)
+  //   score 70-79 → high   (~42% goal rate)
+  //   score 80+   → critical   (~55% goal rate)
+  let level: GoalProbability["level"] = "low";
+  if (postBlendScore >= 80) level = "critical";
+  else if (postBlendScore >= 70) level = "high";
+  else if (postBlendScore >= 60) level = "medium";
+
+  // Probability calibration — post-blend score uzerinden
   let calibratedP: number;
   try {
-    calibratedP = calibrateScore(clampedScore);
+    calibratedP = calibrateScore(postBlendScore);
   } catch (e) {
     logError('goalRadar', e);
-    // Calibration çağrısı tamamen başarısız olursa son çare linear cap.
-    // Tek-kanal kuralının istisnası: import/parse hatası durumunda 0.5 default.
     calibratedP = 0.5;
   }
 

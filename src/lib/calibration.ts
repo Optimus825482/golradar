@@ -11,7 +11,7 @@
 // in terms of probability." Monthly Weather Review.
 
 import { db } from "./db";
-import { logError } from '@/lib/devLog';
+import { logError, logInfo } from '@/lib/devLog';
 import { DEFAULT_CALIBRATION_PARAMS } from '@/config';
 
 export interface CalibrationBin {
@@ -386,12 +386,13 @@ export async function autoCalibrateFromDB(): Promise<{
 	    CALIBRATION_PARAMS.L = bestL;
 	    try {
 	      await persistParamsToDB('autoCalibrateFromDB');
-	    } catch (e) {
-	      logError('calibration', 'persist failed:', e);
-	    }
-	    console.log(
-	      `[Calibration] Optimized: x0=${bestX0}, k=${bestK.toFixed(4)}, L=${bestL.toFixed(2)}, TrainBrier ${currentBrier.toFixed(4)} → ValBrier ${bestValBrier.toFixed(4)}`,
-	    );
+    } catch (e) {
+      logError('calibration', 'persist failed:', e);
+    }
+    logInfo(
+      'calibration',
+      `Optimized: x0=${bestX0}, k=${bestK.toFixed(4)}, L=${bestL.toFixed(2)}, TrainBrier ${currentBrier.toFixed(4)} → ValBrier ${bestValBrier.toFixed(4)}`,
+    );
 	    return {
 	      x0: bestX0,
 	      k: bestK,
@@ -401,8 +402,9 @@ export async function autoCalibrateFromDB(): Promise<{
 	    };
 	  }
 	
-	  console.log(
-	    `[Calibration] No improvement needed (TrainBrier ${currentBrier.toFixed(4)}, ValBrier ${bestValBrier.toFixed(4)})`,
+  logInfo(
+    'calibration',
+    `No improvement needed (TrainBrier ${currentBrier.toFixed(4)}, ValBrier ${bestValBrier.toFixed(4)})`,
 	  );
 	  return null;
 	} finally {

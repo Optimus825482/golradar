@@ -53,12 +53,16 @@ interface MonitorData {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
-function fmt(v: number | null | undefined, d = "—"): string {
-  return v != null && Number.isFinite(v) ? v.toFixed(4) : d;
+function fmt(v: unknown, d = "—"): string {
+  return typeof v === "number" && Number.isFinite(v) ? v.toFixed(4) : d;
 }
 
-function fmtPct(v: number | null | undefined): string {
-  return v != null ? `${(v * 100).toFixed(1)}%` : "—";
+function fmtPct(v: unknown): string {
+  return typeof v === "number" ? `${(v * 100).toFixed(1)}%` : "—";
+}
+
+function fmt1(v: unknown): string {
+  return typeof v === "number" ? v.toFixed(1) : "0.0";
 }
 
 const TIER_COLORS: Record<string, string> = {
@@ -157,41 +161,52 @@ export default function MonitoringPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // ── Derive metrics ───────────────────────────────────────────
-  const series = data?.series ?? [];
-  const drift = data?.drift;
-  const latest = series.length > 0 ? series[series.length - 1] : null;
-  const recent7 = series.slice(-7);
-  const avgBrier7 = recent7.length > 0
-    ? recent7.reduce((s, r) => s + (r.brierScore ?? 0), 0) / recent7.length
-    : null;
+  // ── Derive metrics (try-catch to prevent null .toFixed crashes) ──
+  let series: MonitorSerie[] = [];
+  let drift: DriftReport | null = null;
+  let latest: MonitorSerie | null = null;
+  let avgBrier7: number | null = null;
+  let recent7: MonitorSerie[] = [];
+  let chartSeries: MonitorSerie[] = [];
+  let gbdtSeries: MonitorSerie[] = [];
+  let xgbSeries: MonitorSerie[] = [];
+  let inplaySeries: MonitorSerie[] = [];
+  let weightChartData: { name: string; weight: number; brier: number; fill: string }[] = [];
+  let driftBadge: { label: string; variant: "default" | "secondary" | "destructive" | "outline" } = { label: "—", variant: "outline" };
+  let hasGoalRateData = false;
 
-  const hasGoalRateData = latest?.totalPredictions != null && (latest.totalPredictions ?? 0) > 0;
+  try {
+    series = data?.series ?? [];
+    drift = data?.drift ?? null;
+    latest = series.length > 0 ? series[series.length - 1] : null;
+    recent7 = series.slice(-7);
+    avgBrier7 = recent7.length > 0
+      ? recent7.reduce((s, r) => s + (typeof r.brierScore === "number" ? r.brierScore : 0), 0) / recent7.length
+      : null;
+    hasGoalRateData = !!(latest?.totalPredictions && latest.totalPredictions > 0);
 
-  // ── Chart series (filter null brier) ─────────────────────────
-  const chartSeries = series.filter(s => s.brierScore != null);
-  const gbdtSeries = series.filter(s => s.gbdtBrier != null);
-  const xgbSeries = series.filter(s => s.xgbBrier != null);
-  const inplaySeries = series.filter(s => s.inPlayBrier != null);
+    chartSeries = series.filter(s => typeof s.brierScore === "number");
+    gbdtSeries = series.filter(s => typeof s.gbdtBrier === "number");
+    xgbSeries = series.filter(s => typeof s.xgbBrier === "number");
+    inplaySeries = series.filter(s => typeof s.inPlayBrier === "number");
 
-  // ── Weight chart data ────────────────────────────────────────
-  const weightChartData = weights
-    .filter(w => w.isChampion)
-    .map(w => ({
-      name: w.name,
-      weight: +(w.weight * 100).toFixed(1),
-      brier: w.brierScore ?? 0,
-      fill: tierColor(w.weight),
-    }));
+    weightChartData = weights
+      .filter(w => w.isChampion)
+      .map(w => ({
+        name: w.name,
+        weight: +(typeof w.weight === "number" ? w.weight * 100 : 0).toFixed(1),
+        brier: typeof w.brierScore === "number" ? w.brierScore : 0,
+        fill: tierColor(typeof w.weight === "number" ? w.weight : 0),
+      }));
 
-  // ── Drift indicator ──────────────────────────────────────────
-  const driftBadge = !drift
-    ? { label: "—", variant: "outline" as const }
-    : drift.direction === "worse"
-    ? { label: `⚠ ${(drift.driftPct ?? 0).toFixed(1)}%`, variant: "destructive" as const }
-    : drift.direction === "better"
-    ? { label: `✓ ${(drift.driftPct ?? 0).toFixed(1)}%`, variant: "default" as const }
-    : { label: "✓ Stabil", variant: "secondary" as const };
+    driftBadge = !drift
+      ? { label: "—", variant: "outline" as const }
+      : drift.direction === "worse"
+      ? { label: `⚠ ${typeof drift.driftPct === "number" ? drift.driftPct.toFixed(1) : "0.0"}%`, variant: "destructive" as const }
+      : drift.direction === "better"
+      ? { label: `✓ ${typeof drift.driftPct === "number" ? drift.driftPct.toFixed(1) : "0.0"}%`, variant: "default" as const }
+      : { label: "✓ Stabil", variant: "secondary" as const };
+  } catch { /* derived metrics computation failed — render empty state */ }
 
   // ── Render ──────────────────────────────────────────────────
   if (error) {
@@ -255,7 +270,7 @@ export default function MonitoringPage() {
         <KpiCard
           title="Toplam Tahmin"
           value={loading ? "—" : latest?.totalPredictions?.toLocaleString() ?? "—"}
-          subtitle={hasGoalRateData ? `%${((latest.totalGoals! / latest.totalPredictions!) * 100).toFixed(1)} gol oranı` : undefined}
+          subtitle={latest && (latest.totalPredictions ?? 0) > 0 ? `%${((latest.totalGoals! / latest.totalPredictions!) * 100).toFixed(1)} gol oranı` : undefined}
           icon={BarChart3}
           loading={loading}
         />

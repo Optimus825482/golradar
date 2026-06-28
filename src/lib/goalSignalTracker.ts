@@ -384,6 +384,12 @@ export async function reportGoal(
   goalMinute: number,
 ): Promise<void> {
   try {
+    // FIX: goalMinute=0 geldiginde minutesAfterSignal hesaplanamaz.
+    // minute 0 → kaydetme, eski pending kalsin (goal olmadigi anlamina gelmez).
+    if (!goalMinute || goalMinute <= 0) {
+      logError('reportGoal', `Invalid goalMinute=0 for match ${matchCode}/${goalSide}`);
+      return;
+    }
     const allPending = await repoFindAllPending(matchCode);
     const withId = allPending.filter((s): s is GoalSignalRecord & { id: string } => !!s.id);
 

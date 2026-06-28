@@ -21,7 +21,7 @@ import { extractFeatures, featuresToArray, pushFeatureSample } from "@/lib/featu
 import { loadTeamLogos, getTeamLogo } from "@/lib/teamLogos";
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
-import { reportGoal } from "@/lib/goalSignalTracker";
+import { reportGoal, parseMinute } from "@/lib/goalSignalTracker";
 import type { GoalooEnrichment } from "@/lib/goalRadar";
 import {
   ensureMatch,
@@ -188,12 +188,12 @@ export async function GET(request: Request) {
       const prev = lastSeenGoals.get(parsed.code);
       if (prev != null) {
         if (parsed.homeGoals > prev.home) {
-          const goalMin = parseInt(parsed.minute.replace(/[^0-9]/g, ""), 10) || 0;
+          const goalMin = parseMinute(parsed.minute);
           void reportGoal(parsed.code, "home", goalMin).catch((e) => {
             logError("matches-route", "reportGoal home failed:", e);
           });
         } else if (parsed.awayGoals > prev.away) {
-          const goalMin = parseInt(parsed.minute.replace(/[^0-9]/g, ""), 10) || 0;
+          const goalMin = parseMinute(parsed.minute);
           void reportGoal(parsed.code, "away", goalMin).catch((e) => {
             logError("matches-route", "reportGoal away failed:", e);
           });

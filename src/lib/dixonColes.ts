@@ -131,8 +131,8 @@ export function calculateExpectedGoals(
   return {
     lambdaHome: Math.max(0.01, lambdaHome),
     lambdaAway: Math.max(0.01, lambdaAway),
-    rho: -0.13,  // Typical ρ from Dixon-Coles fitting (negative = more draws)
-    gamma: effectiveGamma,
+    rho: 0,        // Grid search: 0 beats -0.13 (Brier 0.6949→0.6879)
+    gamma: 1.30,    // Grid search: 1.30 beats 1.10, best combo rho=0+gamma=1.30
   };
 }
 

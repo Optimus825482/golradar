@@ -86,6 +86,13 @@ export function calculateGoalProbability(
     awayFactors: string[] = [],
     sharedFactors: string[] = [];
 
+  // DEDUP/MAX FIX: Factor scoring caps and blended threat score
+  // blendedThreatScore: max(home,away) tek taraflı dominansı yakalar,
+  // (home+away)/2 iki taraf da aktifken bilgi ekler.
+  // alpha=0.7: dominans %70, ortalama %30 ağırlık.
+  const blendedThreatScore = (h: number, a: number): number =>
+    Math.round(0.7 * Math.max(h, a) + 0.3 * ((h + a) / 2));
+
   // FIX A: Stoppage minute parse was BROKEN ("45+2" → 452 → cap to 105).
   // Use parseMinute() from goalSignalTracker which handles "45+2" correctly (→ 47).
   // Early-game: use conservative 5 to avoid rate inflation by small denominator.
@@ -94,24 +101,26 @@ export function calculateGoalProbability(
   if (minNum < 5) minNum = 5;
 
   // Factor 1: Pressure dominance (no gap gate — close games also signal)
+  // DEDUP FIX: Pressure 3 faktor (F1+F6+F7). F1 cap 12→8.
   const pressure = calculatePressure(stats);
   if (pressure.home > 55) {
-    const pts = Math.min(12, Math.round((pressure.home - 50) * 0.65));
+    const pts = Math.min(8, Math.round((pressure.home - 50) * 0.65));
     homeScore += pts;
-    if (pts >= 6) homeFactors.push(`Baskı ${pressure.home}%`);
+    if (pts >= 5) homeFactors.push(`Baskı ${pressure.home}%`);
   }
   if (pressure.away > 55) {
-    const pts = Math.min(12, Math.round((pressure.away - 50) * 0.65));
+    const pts = Math.min(8, Math.round((pressure.away - 50) * 0.65));
     awayScore += pts;
-    if (pts >= 6) awayFactors.push(`Baskı ${pressure.away}%`);
+    if (pts >= 5) awayFactors.push(`Baskı ${pressure.away}%`);
   }
 
   // Factor 2: Dangerous attack rate
+  // DEDUP FIX: DA 4 faktor. F2 cap 14→10.
   const dangerAttacks = stats.dangerous_attacks;
   if (dangerAttacks?.home != null) {
     const rate = (dangerAttacks.home / Math.max(1, minNum)) * 15;
     if (rate >= 1.5) {
-      const pts = Math.min(14, Math.round(rate * 3.5));
+      const pts = Math.min(10, Math.round(rate * 3.5));
       homeScore += pts;
       homeFactors.push(`Tehl. hücum ${rate.toFixed(1)}/15dk`);
     }
@@ -186,7 +195,8 @@ export function calculateGoalProbability(
   // Factor 4: Attack accumulation (consolidated: F4 + F11)
   // Replaces: old F4 (xG accumulation) + old F11 (xG dominance ratio)
   if (xg.home > 0.3) {
-    const xgPts = Math.min(10, Math.round(xg.home * 7));
+    // DEDUP FIX: xG 5 faktorde; F4 cap 10→7
+const xgPts = Math.min(7, Math.round(xg.home * 7));
     const xgRate = (xg.home / Math.max(1, minNum)) * 15;
     const velocityPts = xgRate > 0.3 ? Math.min(4, Math.round(xgRate * 4)) : 0;
     homeScore += xgPts + velocityPts;
@@ -195,7 +205,7 @@ export function calculateGoalProbability(
     );
   }
   if (xg.away > 0.3) {
-    const xgPts = Math.min(10, Math.round(xg.away * 7));
+    const xgPts = Math.min(7, Math.round(xg.away * 7));
     const xgRate = (xg.away / Math.max(1, minNum)) * 15;
     const velocityPts = xgRate > 0.3 ? Math.min(4, Math.round(xgRate * 4)) : 0;
     awayScore += xgPts + velocityPts;
@@ -216,12 +226,13 @@ export function calculateGoalProbability(
       (current.stats.dangerous_attacks?.away ?? 0) -
       (previous.stats.dangerous_attacks?.away ?? 0);
     if (homeDangerDelta >= 3) {
-      const pts = Math.min(8, homeDangerDelta * 2.5);
+      // DEDUP FIX: DA spike cap 8→5
+      const pts = Math.min(5, homeDangerDelta * 2.5);
       homeScore += pts;
       homeFactors.push(`Hücum patlaması +${homeDangerDelta}`);
     }
     if (awayDangerDelta >= 3) {
-      const pts = Math.min(8, awayDangerDelta * 2.5);
+      const pts = Math.min(5, awayDangerDelta * 2.5);
       awayScore += pts;
       awayFactors.push(`Hücum patlaması +${awayDangerDelta}`);
     }
@@ -232,12 +243,13 @@ export function calculateGoalProbability(
       (current.stats.shots_on_target?.away ?? 0) -
       (previous.stats.shots_on_target?.away ?? 0);
     if (homeShotDelta >= 2) {
-      const pts = Math.min(6, homeShotDelta * 3);
+      // DEDUP FIX: SOT spike cap 6→4
+      const pts = Math.min(4, homeShotDelta * 3);
       homeScore += pts;
       homeFactors.push(`Şut atağı +${homeShotDelta}`);
     }
     if (awayShotDelta >= 2) {
-      const pts = Math.min(6, awayShotDelta * 3);
+      const pts = Math.min(4, awayShotDelta * 3);
       awayScore += pts;
       awayFactors.push(`Şut atağı +${awayShotDelta}`);
     }
@@ -269,14 +281,14 @@ export function calculateGoalProbability(
       recent[2].awayPressure -
       (recent[2].awayPressure - recent[0].awayPressure);
     if (homeTrend > 10) {
-      const pts = Math.min(7, Math.round(homeTrend * 0.45));
+      const pts = Math.min(5, Math.round(homeTrend * 0.45));
       homeScore += pts;
-      if (pts >= 4) homeFactors.push("Baskı artışı");
+      if (pts >= 3) homeFactors.push("Baskı artışı");
     }
     if (awayTrend > 10) {
-      const pts = Math.min(7, Math.round(awayTrend * 0.45));
+      const pts = Math.min(5, Math.round(awayTrend * 0.45));
       awayScore += pts;
-      if (pts >= 4) awayFactors.push("Baskı artışı");
+      if (pts >= 3) awayFactors.push("Baskı artışı");
     }
     if (homeAccel > 5) {
       homeScore += Math.min(3, Math.round(homeAccel * 0.4));
@@ -291,11 +303,11 @@ export function calculateGoalProbability(
     const homeTrend = last3[2].homePressure - last3[0].homePressure;
     const awayTrend = last3[2].awayPressure - last3[0].awayPressure;
     if (homeTrend > 12) {
-      homeScore += Math.min(7, Math.round(homeTrend * 0.45));
+      homeScore += Math.min(5, Math.round(homeTrend * 0.45));
       homeFactors.push("Baskı artışı");
     }
     if (awayTrend > 12) {
-      awayScore += Math.min(7, Math.round(awayTrend * 0.45));
+      awayScore += Math.min(5, Math.round(awayTrend * 0.45));
       awayFactors.push("Baskı artışı");
     }
   }
@@ -306,12 +318,13 @@ export function calculateGoalProbability(
     const homeSustained = last5.filter((s) => s.homePressure > 55).length;
     const awaySustained = last5.filter((s) => s.awayPressure > 55).length;
     if (homeSustained >= 3) {
-      const pts = Math.min(6, homeSustained * 1.5);
+      // DEDUP FIX: sustained cap 6→4
+      const pts = Math.min(4, homeSustained * 1.5);
       homeScore += pts;
       homeFactors.push(`Sürekli baskı ${homeSustained}/5`);
     }
     if (awaySustained >= 3) {
-      const pts = Math.min(6, awaySustained * 1.5);
+      const pts = Math.min(4, awaySustained * 1.5);
       awayScore += pts;
       awayFactors.push(`Sürekli baskı ${awaySustained}/5`);
     }
@@ -362,11 +375,11 @@ export function calculateGoalProbability(
 	  const awayCornerRate = ((corners?.away ?? 0) / Math.max(1, minNum)) * 15;
 	  const secondHalfBoost = minNum >= 45 ? 1.2 : 1.0;
 	  if (corners?.home != null && homeCornerRate >= 1.5) {
-	    let pts = Math.min(8, Math.round(homeCornerRate * 2.5 * secondHalfBoost));
+	    let pts = Math.min(6, Math.round(homeCornerRate * 2.5 * secondHalfBoost));
 	    // Set-piece oranı bonus: corners/attacks oranı yüksekse takım set-piece oynuyordur
 	    const homeAttacks = stats.attacks?.home ?? 1;
 	    const homeSpRate = (corners.home) / Math.max(1, homeAttacks);
-	    if (homeSpRate > 0.15) pts += Math.min(4, Math.round(homeSpRate * 20));
+	    if (homeSpRate > 0.15) pts += Math.min(3, Math.round(homeSpRate * 20));
 	    if (homeShotsTotal > 0 && homeSotCount / homeShotsTotal > 0.4) pts += 4;
 	    homeScore += pts;
 	    homeFactors.push(
@@ -374,10 +387,10 @@ export function calculateGoalProbability(
 	    );
 	  }
 	  if (corners?.away != null && awayCornerRate >= 1.5) {
-	    let pts = Math.min(8, Math.round(awayCornerRate * 2.5 * secondHalfBoost));
+	    let pts = Math.min(6, Math.round(awayCornerRate * 2.5 * secondHalfBoost));
 	    const awayAttacks = stats.attacks?.away ?? 1;
 	    const awaySpRate = (corners.away) / Math.max(1, awayAttacks);
-	    if (awaySpRate > 0.15) pts += Math.min(4, Math.round(awaySpRate * 20));
+	    if (awaySpRate > 0.15) pts += Math.min(3, Math.round(awaySpRate * 20));
 	    if (awayShotsTotal > 0 && awaySotCount / awayShotsTotal > 0.4) pts += 4;
 	    awayScore += pts;
 	    awayFactors.push(
@@ -394,18 +407,19 @@ export function calculateGoalProbability(
 	  if (totalXg > 0.5) {
 	    const homeXgRatio = xg.home / totalXg,
 	      awayXgRatio = xg.away / totalXg;
-	    if (homeXgRatio > 0.70 && xg.home > 0.4) {
-	      const pts = Math.min(8, Math.round((homeXgRatio - 0.5) * 30));
-	      homeScore += pts;
-	      if (pts >= 4)
-	        homeFactors.push(`xG üstünlük %${Math.round(homeXgRatio * 100)}`);
-	    }
-	    if (awayXgRatio > 0.70 && xg.away > 0.4) {
-	      const pts = Math.min(8, Math.round((awayXgRatio - 0.5) * 30));
-	      awayScore += pts;
-	      if (pts >= 4)
-	        awayFactors.push(`xG üstünlük %${Math.round(awayXgRatio * 100)}`);
-	    }
+    if (homeXgRatio > 0.70 && xg.home > 0.4) {
+      // DEDUP FIX: xG ratio cap 8→5
+      const pts = Math.min(5, Math.round((homeXgRatio - 0.5) * 30));
+      homeScore += pts;
+      if (pts >= 4)
+        homeFactors.push(`xG üstünlük %${Math.round(homeXgRatio * 100)}`);
+    }
+    if (awayXgRatio > 0.70 && xg.away > 0.4) {
+      const pts = Math.min(5, Math.round((awayXgRatio - 0.5) * 30));
+      awayScore += pts;
+      if (pts >= 4)
+        awayFactors.push(`xG üstünlük %${Math.round(awayXgRatio * 100)}`);
+    }
 	  }
 
   // Factor 12: Composite Threat (consolidated from old F12 80-pt formula → 30-pt)
@@ -479,17 +493,18 @@ export function calculateGoalProbability(
         awayFlow = Math.min(5, Math.max(0, (rDAa - oDAa) * 1.2));
       }
     }
-    const homeThreatIdx = Math.min(30, homeAtkP + homeTerr + homeFlow);
-    const awayThreatIdx = Math.min(30, awayAtkP + awayTerr + awayFlow);
+    const homeThreatIdx = Math.min(25, homeAtkP + homeTerr + homeFlow);
+    const awayThreatIdx = Math.min(25, awayAtkP + awayTerr + awayFlow);
     if (homeThreatIdx > 15) {
-      const pts = Math.min(8, Math.round((homeThreatIdx - 15) * 0.5));
+      // DEDUP FIX: threat score cap 8→6
+      const pts = Math.min(6, Math.round((homeThreatIdx - 15) * 0.5));
       homeScore += pts;
-      if (pts >= 3) homeFactors.push(`Tehdit ${Math.round(homeThreatIdx)}`);
+      if (pts >= 3) homeFactors.push(`Bileşik tehdit ${homeThreatIdx}`);
     }
     if (awayThreatIdx > 15) {
-      const pts = Math.min(8, Math.round((awayThreatIdx - 15) * 0.5));
+      const pts = Math.min(6, Math.round((awayThreatIdx - 15) * 0.5));
       awayScore += pts;
-      if (pts >= 3) awayFactors.push(`Tehdit ${Math.round(awayThreatIdx)}`);
+      if (pts >= 3) awayFactors.push(`Bileşik tehdit ${awayThreatIdx}`);
     }
     const threatGap = homeThreatIdx - awayThreatIdx;
     if (threatGap > 20) {
@@ -807,7 +822,7 @@ export function calculateGoalProbability(
     } catch (e) { logError('goalRadar', e); /* fallback */ }
   }
 
-  const score = Math.max(homeScore, awayScore);
+	  const score = blendedThreatScore(homeScore, awayScore);
 
   // Factor 17: Card advantage
   const homeYellowCards = stats.yellow_cards?.home ?? 0,
@@ -995,7 +1010,7 @@ export function calculateGoalProbability(
 
   homeScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, homeScore));
   awayScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, awayScore));
-  const clampedScore = Math.max(homeScore, awayScore);
+  const clampedScore = blendedThreatScore(homeScore, awayScore);
 
   // Dixon-Coles Poisson blend (light anchor, 10% weight)
   // Kept low to avoid double-counting — xG is already represented
@@ -1073,7 +1088,7 @@ export function calculateGoalProbability(
   // Cift carpan (F8 × timeMultiplier) gereksiz sisirme. F8 tek kaynak.)
   let finalHomeScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, Math.round(homeScore)));
   let finalAwayScore = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, Math.round(awayScore)));
-  let finalScore = Math.max(finalHomeScore, finalAwayScore);
+  let finalScore = blendedThreatScore(finalHomeScore, finalAwayScore);
 
 		  // 5-minute goal probability — rate-based xG
 		  // FIX D: xg.home kumulatif, per-minute rate olarak kullanilamaz.

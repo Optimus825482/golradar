@@ -49,7 +49,9 @@ export interface MinuteRange {
 export const EXCLUDED_MINUTE_RANGES: readonly MinuteRange[] = [
   { start: 0, end: 2, reason: "Maç bağlamı henüz oluşmuyor" },
   { start: 43, end: 45, reason: "Devre arası öncesi taktiksel belirsizlik" },
-  { start: 89, end: MAX_MINUTE, reason: "Uzatma oylamaları" },
+  // FIX: 89+ tamamen engelleme — uzatma dakikalarında gol oluyor.
+  // Sadece 90+3 sonrasi engelle (gereksiz uzatma).
+  { start: 93, end: MAX_MINUTE, reason: "Aşırı uzatma" },
 ];
 
 // ── Shared Brier Tier System ──────────────────────────────────────────

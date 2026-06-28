@@ -126,7 +126,6 @@ export const POST = adminRoute(async (request: Request) => {
     // mode === "replay"
     // For each labeled row, compare rawScore vs calibratedP vs observed outcome
     let wouldFire = 0;
-    let correctSide = 0;
     let totalBrierRaw = 0;
     let totalBrierCal = 0;
     let posLabel = 0;
@@ -137,11 +136,18 @@ export const POST = adminRoute(async (request: Request) => {
       totalBrierRaw += Math.pow((r.rawScore / 100) - (isGoal ? 1 : 0), 2);
       totalBrierCal += Math.pow(r.calibratedP - (isGoal ? 1 : 0), 2);
       if (isGoal) posLabel++;
-      // Replay: would algorithm have fired a signal for this row?
-      const fires = r.rawScore >= 60 && r.side !== "none" && r.side !== "both";
+      // FIX: side null/none/both filtrele. Eski kod `!== "none"` yapiyordu
+      // ama null'i geciriyordu (side null olan satirlar fire sayiliyordu).
+      // Ayrica "both" da geciriliyordu, bu da yanlis.
+      const side = r.side as string | null;
+      const hasValidSide = side != null && side !== "none" && side !== "both";
+      const fires = r.rawScore >= 60 && hasValidSide;
       if (fires) wouldFire++;
-      if (fires && r.side === (isGoal ? r.side : "")) correctSide++; // simplified
-      if (fires && isGoal && r.calibratedP >= 0.4) posPredAndFire++;
+      // FIX: calibratedP filtreyi kaldir — sinyal esigi zaten rawScore>=60.
+      // calibratedP>=0.4 ayri bir metrik (calibration quality), burda degil.
+      // NOT: correctSide hesaplamasi burada mumkun degil cunku PredictionLog'ta
+      // goalSide alani yok. Signal tablosu uzerinden backtestEngine.ts'de yapilir.
+      if (fires && isGoal) posPredAndFire++;
     }
 
     return NextResponse.json({

@@ -66,9 +66,20 @@ export async function getChampionBrier(
   name: ModelName,
 ): Promise<number | null> {
   const meta = await getChampionPath(name);
-  if (!meta) return null;
+  if (!meta) {
+    // FIX: Log warning when model has no champion — ensemble is working blind
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(`[ModelRouter] No champion for "${name}" — ensemble uses unranked baseline`);
+    }
+    return null;
+  }
   const brier = meta.metrics.brier;
-  if (typeof brier !== 'number' || !Number.isFinite(brier)) return null;
+  if (typeof brier !== 'number' || !Number.isFinite(brier)) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(`[ModelRouter] Champion "${name}" has no valid Brier metric — check metricsJson`);
+    }
+    return null;
+  }
   return brier;
 }
 

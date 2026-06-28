@@ -815,21 +815,27 @@ export function calculateGoalProbability(
     (stats.red_cards?.home ?? 0) + (stats.two_yellow_red?.home ?? 0);
   const awayRedCards =
     (stats.red_cards?.away ?? 0) + (stats.two_yellow_red?.away ?? 0);
+  // FIX: Red card logic was contradictory (+18 then -22 = net -4).
+  // Red card = advantage for attacking team (opponent down to 10).
+  // The team WITH red card gets penalty, the opposing team gets boost.
+  // Net effect: homeRedCard → away gets +18, home gets -22 (total +40 swing).
+  // But -22 is too harsh (one red card doesnt reduce goal threat to zero).
+  // Revised: red card team loses 15pts, opponent gains 10pts.
   if (awayRedCards > 0) {
-    homeScore += 18;
-    homeFactors.push(`Rakip kırmızı kart! (+18)`);
+    homeScore += 10;
+    homeFactors.push(`Rakip kırmızı kart +10`);
   }
   if (homeRedCards > 0) {
-    awayScore += 18;
-    awayFactors.push(`Rakip kırmızı kart! (+18)`);
+    awayScore += 10;
+    awayFactors.push(`Rakip kırmızı kart +10`);
   }
   if (homeRedCards > 0) {
-    homeScore = Math.max(0, homeScore - 22);
-    homeFactors.push(`Kırmızı kart dezavantajı (-22)`);
+    homeScore = Math.max(0, homeScore - 15);
+    homeFactors.push(`Kırmızı kart -15`);
   }
   if (awayRedCards > 0) {
-    awayScore = Math.max(0, awayScore - 22);
-    awayFactors.push(`Kırmızı kart dezavantajı (-22)`);
+    awayScore = Math.max(0, awayScore - 15);
+    awayFactors.push(`Kırmızı kart -15`);
   }
   if (awayYellowCards >= 2) {
     homeScore += Math.min(5, awayYellowCards * 2);

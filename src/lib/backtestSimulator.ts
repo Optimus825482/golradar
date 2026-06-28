@@ -540,6 +540,14 @@ async function simulateSingleMatch(
               if (goalSide === prob.side) {
                 result.correctSidePredictions++;
               }
+              // FIX: Also verify the signal in DB (was missing — goals detected
+              // but signal records stayed pending, then finalizeMatchSignals
+              // marked them goalHappened=false, creating contradictory data).
+              try {
+                const { reportGoal } = await import('./goalSignalTracker');
+                const goalMinute = parseInt(futureSnap.minute.replace(/[^0-9]/g, ''), 10) || 90;
+                await reportGoal(match.matchCode, goalSide, goalMinute);
+              } catch { /* non-critical */ }
               break; // Only count the first goal after signal
             }
           }

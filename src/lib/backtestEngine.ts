@@ -39,7 +39,8 @@ function ensureDirs() {
   if (!fs.existsSync(BACKTEST_DIR)) fs.mkdirSync(BACKTEST_DIR, { recursive: true });
 }
 
-function loadSignalsForRange(startDate?: string, endDate?: string): SignalRecord[] {
+// ── Flat file loader (legacy) ─────────────────────────────────────
+function loadSignalsFromFlatFiles(startDate?: string, endDate?: string): SignalRecord[] {
   const fs = getBeFs();
   const path = getBePath();
   if (!fs || !path) return [];
@@ -69,11 +70,95 @@ function loadSignalsForRange(startDate?: string, endDate?: string): SignalRecord
   return allSignals;
 }
 
-export function runBacktest(config: BacktestConfig = {}): BacktestResult { return runBacktestImpl(config) as unknown as BacktestResult; }
-function runBacktestImpl(config: BacktestConfig = {}): any {
-  const { minSignals = 10, thresholdRange = [55, 60, 65, 70, 75, 80], bucketCount = 10 } = config;
+// ── DB fallback loader (async, primary source) ────────────────────
+// Flat file sinyal logs cogu zaman bos (sadece 1 gun veri var).
+// Bu fonksiyon DB'deki Signal tablosundan backtest verisi ceker.
+async function loadSignalsFromDB(startDate?: string, endDate?: string): Promise<SignalRecord[]> {
+  try {
+    const { db } = await import('@/lib/db');
+    const where: Record<string, unknown> = { goalHappened: { not: null } };
+    if (startDate) where.date = { gte: startDate };
+    if (endDate) {
+      where.date = { ...(where.date as Record<string, string> || {}), lte: endDate };
+    }
 
+    const rows = await db.signal.findMany({
+      where,
+      orderBy: { signalTimestamp: 'asc' },
+      take: 50000,
+    });
+
+    return rows.map(r => ({
+      matchCode: r.matchCode,
+      homeTeam: r.homeTeam,
+      awayTeam: r.awayTeam,
+      league: r.league,
+      matchTime: r.matchTime,
+      date: r.date,
+      signalMinute: r.signalMinute,
+      signalSide: r.signalSide as 'home' | 'away',
+      signalScore: r.signalScore,
+      calibratedP: r.calibratedP,
+      poissonP: r.poissonP,
+      signalLevel: r.signalLevel,
+      activeFactors: (r.activeFactors as string[]) || [],
+      homeScore: r.homeScore,
+      awayScore: r.awayScore,
+      currentHomeGoals: r.currentHomeGoals,
+      currentAwayGoals: r.currentAwayGoals,
+      signalIndex: 0,
+      isEscalation: r.escalated || false,
+      previousSignalScore: null,
+      signalTimestamp: r.signalTimestamp.getTime(),
+      goalHappened: r.goalHappened,
+      goalMinute: r.goalMinute,
+      goalSide: r.goalSide as 'home' | 'away' | null,
+      correctPrediction: r.correctPrediction,
+      minutesAfterSignal: r.minutesAfterSignal,
+      goalTimestamp: r.goalTimestamp?.getTime() ?? null,
+      finalHomeScore: r.finalHomeScore,
+      finalAwayScore: r.finalAwayScore,
+    }));
+  } catch (e) {
+    logError('backtestEngine', 'DB load failed:', e);
+    return [];
+  }
+}
+
+function loadSignalsForRange(startDate?: string, endDate?: string): SignalRecord[] {
+  // FIX: Once flat file'dan dene, bos gelirse DB'den async dene.
+  // Synchronous API geregi sync dondur; DB async yol async overload'da.
+  const flat = loadSignalsFromFlatFiles(startDate, endDate);
+  return flat;
+}
+
+/** Async variant — DB fallback ile. Backtest API route'lari bunu cagirmali. */
+export async function loadSignalsForRangeAsync(startDate?: string, endDate?: string): Promise<SignalRecord[]> {
+  const flat = loadSignalsFromFlatFiles(startDate, endDate);
+  if (flat.length > 0) return flat;
+  // Flat file bos → DB'den dene
+  const fromDB = await loadSignalsFromDB(startDate, endDate);
+  if (fromDB.length > 0) {
+    console.log(`[BacktestEngine] Flat files empty, loaded ${fromDB.length} signals from DB`);
+  }
+  return fromDB;
+}
+
+export function runBacktest(config: BacktestConfig = {}): BacktestResult { return runBacktestImpl(config) as unknown as BacktestResult; }
+
+/** Async variant — DB fallback ile. Backtest API route'lari bunu kullanmali. */
+export async function runBacktestAsync(config: BacktestConfig = {}): Promise<BacktestResult> {
+  const signals: any[] = await loadSignalsForRangeAsync(config.startDate, config.endDate);
+  return runBacktestImplCore(signals, config) as unknown as BacktestResult;
+}
+
+function runBacktestImpl(config: BacktestConfig = {}): any {
   const signals: any[] = loadSignalsForRange(config.startDate, config.endDate);
+  return runBacktestImplCore(signals, config);
+}
+
+function runBacktestImplCore(signals: any[], config: BacktestConfig = {}): any {
+  const { minSignals = 10, thresholdRange = [55, 60, 65, 70, 75, 80], bucketCount = 10 } = config;
   if (signals.length === 0) {
     return {
       totalSignals: 0,

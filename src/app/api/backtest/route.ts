@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   runBacktest,
+  runBacktestAsync,
   getQuickSummary,
   listBacktestResults,
   type BacktestConfig,
@@ -33,7 +34,8 @@ export async function GET(request: Request) {
         }
       }
 
-      const result = runBacktest(config);
+      // FIX: Async version — DB fallback when flat files empty
+      const result = await runBacktestAsync(config);
       return NextResponse.json(result);
     }
 

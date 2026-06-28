@@ -166,7 +166,10 @@ export default function AdminMLMonitoringPage() {
               </div>
               {w && (
                 <div className="text-[9px] text-gray-500 mt-0.5">
-                  weight: {(w.weight * 100).toFixed(0)}%
+                  {/* FIX: Tier weight'ı ensemble weight gibi gösterme.
+                      Tier weight (0-1) model kalibrasyon güveni.
+                      Gerçek ensemble weight computeEnsembleWeights ile normalize edilir. */}
+                  tier: {(w.weight * 100).toFixed(0)}%
                   {w.brier != null && <span className="ml-1 text-gray-400">B:{w.brier.toFixed(3)}</span>}
                 </div>
               )}
@@ -249,6 +252,9 @@ export default function AdminMLMonitoringPage() {
                   <div className="w-16 font-bold text-gray-700">{w.name}</div>
                   {w.isChampion && <span className="text-[9px] px-1 rounded bg-emerald-100 text-emerald-700 font-bold">⭐CHAMPION</span>}
                   <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    {/* FIX: Tier güveni göster (0-1), ensemble ağırlığı değil.
+                        Gerçek ensemble weight normalize edilir (sum=1.0) ve
+                        computeEnsembleWeights ile hesaplanır. */}
                     <div className="h-full rounded-full transition-all" style={{ width: `${w.weight * 100}%`, background: tierColor }} />
                   </div>
                   <span className="w-10 text-right font-mono font-bold text-gray-700">{(w.weight * 100).toFixed(0)}%</span>

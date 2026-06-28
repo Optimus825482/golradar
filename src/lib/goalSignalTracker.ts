@@ -514,10 +514,13 @@ export async function finalizeMatchSignals(
   // Faz 3 — tek batch + paralel satır-bazlı. Pending'ler için iki paralel
   // updateVerification + updateFinalScore tek satırda; resolved'ler için
   // sadece final score backfill.
+  // FIX: goalHappened=false → minutesAfterSignal GOERILMEZ (anlamsiz)
+  // Eski kod SIGNAL_EXPIRY_MINUTES yaziyordu, bu goalHappened=false ile
+  // celisen veri uretiyordu (minutesAfterSignal=10 ama goalHappened=false).
+  // Sadece goalHappened=false gonder, diger alanlari degistirme.
   await Promise.all([
     repoUpdateVerificationBatch(matchCode, {
       goalHappened: false,
-      minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
     }),
     repoFinalizeMatchBatch(matchCode, homeScore, awayScore),
   ]);

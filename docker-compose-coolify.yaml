@@ -27,28 +27,28 @@ services:
       - golradar-net
 
   # ── Ana Web Uygulaması (Next.js) ──
-  golradar:
-    build:
-      context: .
-      dockerfile: Dockerfile.coolify
-    container_name: golradar-app
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
+	  golradar:
+	    build:
+	      context: .
+	      dockerfile: Dockerfile.coolify
+	    container_name: golradar-app
+	    restart: unless-stopped
+	    depends_on:
+	      postgres:
+	        condition: service_started
+	    ports:
       - "3012:3012"
     labels:
       traefik.http.services.golradar.loadbalancer.server.port: "3012"
       traefik.http.services.golradar.loadbalancer.server.scheme: "http"
     networks:
       - golradar-net
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3012/api >/dev/null 2>&1 || curl -sf http://localhost:3012/api >/dev/null 2>&1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
+	    healthcheck:
+	      test: ["CMD-SHELL", "wget -qO- http://localhost:3012/api >/dev/null 2>&1 || curl -sf http://localhost:3012/api >/dev/null 2>&1"]
+	      interval: 30s
+	      timeout: 10s
+	      retries: 5
+	      start_period: 60s
     environment:
       # Database — PostgreSQL container'ına bağlanır
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
@@ -83,12 +83,12 @@ services:
       dockerfile: Dockerfile
     container_name: golradar-ml-trainer
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
+	    depends_on:
+	      postgres:
+	        condition: service_started
     environment:
       ML_DATA_ROOT: /data
-      DATABASE_URL: "postgresql://postgres:${POSTGRESS_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
+	      DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
     volumes:
       - golradar_ml_data:/data
     networks:

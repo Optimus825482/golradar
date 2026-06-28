@@ -49,7 +49,7 @@ import { db } from "@/lib/db";
 import { predictFromElo } from "@/lib/eloRating";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300; // 5 dakika — 400+ maç sequential işlenince 60sn yetmiyordu
 
 // ── Singleton guard ──────────────────────────────────────────────
 const g = globalThis as unknown as {
@@ -463,18 +463,26 @@ async function runCronTick(): Promise<{
     }
   }
 
-  // Process matches — sequential to avoid hammering DB
+  // Process matches — parallel batches of 50 to stay under maxDuration
+  // ponytail: sequential loop 400+ maç × ~300ms = 120sn, maxDuration=60 öldürüyordu.
+  // Promise.allSettled ile batch paralel, her batch 50 maç, DB overload'dan korur.
+  const BATCH_SIZE = 50;
   let matchesProcessed = 0;
   let signalsCreated = 0;
   let goalsReported = 0;
 
-  for (const raw of data.d) {
-    try {
-      const result = await processMatch(raw, cfg);
-      if (result.processed) matchesProcessed++;
-      signalsCreated += result.signalsCreated;
-    } catch (e) {
-      logError("Cron", "processMatch failed for code:", raw.C, e);
+  const matches = data.d;
+  for (let i = 0; i < matches.length; i += BATCH_SIZE) {
+    const batch = matches.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map((raw) => processMatch(raw, cfg))
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value.processed) matchesProcessed++;
+        signalsCreated += r.value.signalsCreated;
+      }
+      // rejected errors logged inside processMatch already
     }
   }
 

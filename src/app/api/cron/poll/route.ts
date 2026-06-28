@@ -47,6 +47,7 @@ import { createThesis } from "@/lib/signalThesis";
 import { onGoal, onFulltime } from "@/lib/feedbackLoops";
 import { db } from "@/lib/db";
 import { predictFromElo } from "@/lib/eloRating";
+import { RADAR_THRESHOLD } from "@/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 dakika — 400+ maç sequential işlenince 60sn yetmiyordu
@@ -256,7 +257,7 @@ async function processMatch(
   const inExcludedZone = sigMin <= 2 || (sigMin >= 43 && sigMin <= 45) || sigMin >= 89;
 
   let signalsCreated = 0;
-  if (prob && prob.score >= 60 && prob.side && prob.side !== "both" && !inExcludedZone) {
+  if (prob && prob.score >= RADAR_THRESHOLD && prob.side && prob.side !== "both" && !inExcludedZone) {
     try {
       const result = await checkAndRecordSignal(
         matchCode,

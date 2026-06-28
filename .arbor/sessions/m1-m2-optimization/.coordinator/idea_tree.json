@@ -1,0 +1,60 @@
+{
+  "version": 3,
+  "meta": {
+    "baseline_score": 34,
+    "trunk_score": null,
+    "eval_cmd": "cd {cwd} && echo M1:34.1 M2:67.5",
+    "metric_direction": "maximize"
+  },
+  "root_id": "ROOT",
+  "max_depth": 2,
+  "nodes": {
+    "ROOT": {
+      "id": "ROOT",
+      "parent_id": null,
+      "children_ids": ["1", "2", "3", "4"],
+      "depth": 0,
+      "hypothesis": "GolRadar2 M1(gol tespit %34.1) ve M2(taraf %67.5) iyileştir. Hedef: M1>50 M2>75.",
+      "status": "done"
+    },
+    "1": {
+      "id": "1",
+      "parent_id": "ROOT",
+      "children_ids": [],
+      "depth": 1,
+      "hypothesis": "Mechanism: Golden sonra cooling linear(0.6çarpan) yetersiz. Hücum patlaması faktörü anlık spike ile skoru eşik üstüne taşıyor.\nHypothesis: Quadratic cooling + 0.3 çarpan + 3dk cooldown M1'i %34→%60+ çıkarır.\nObservable: 24h sonra false_alarm 179→60-, M1>%50, M2 sabit.\nConflicts: x0 kalibrasyon değişikliğiyle etkileşim — calibratedP düşük sinyaller eşiği geçebilir.",
+      "status": "in_progress",
+      "score": null,
+      "insight": "Deploy edildi (22f2f0c). 24h Production verisi bekleniyor."
+    },
+    "2": {
+      "id": "2",
+      "parent_id": "ROOT",
+      "children_ids": [],
+      "depth": 1,
+      "hypothesis": "Mechanism: 276 sinyalin 129'u 60-64 bandinda M1=%27.9. 3 ayrı eşik var (route.ts:60 hardcoded, config.ts:SIGNAL_THRESHOLD=60, RADAR_THRESHOLD=60). .env RADAR_THRESHOLD=65 ölü kod.\nHypothesis: Tek kaynak RADAR_THRESHOLD=65 (env'den okunur), tüm eşik kontrolleri bunu kullansın. M1 %34→%40+.\nObservable: 60-64 bandı sinyal sayisi 129→50-. M1 yükselir, M2 hafif düşer (%67.5→%65).\nConflicts: M2'de 2-3 puan kayıp. H1 ile kombine edilince net kazanç pozitif olur.",
+      "status": "in_progress",
+      "score": null,
+      "insight": "Simülasyon: eşik 65→ sinyal 276→147, M1 34.1→39.5, M2 67.5→62.7 (yeni veri). H1 cooling fix ile birlikte false alarm azalacak, M2 kaybı telafi edilecek."
+    },
+    "3": {
+      "id": "3",
+      "parent_id": "ROOT",
+      "children_ids": [],
+      "depth": 1,
+      "hypothesis": "Mechanism: M2 taraf dogrulugu home(%72) ile away(%60.6) arasinda %11.4 fark var. determineSide() ev sahibine kayiyor.\nHypothesis: Away tarafi icin Elo avantaji + Poisson blend agirligi artirilirsa M2 %67.5→%75+ olur.\nObservable: away M2 60.6→70+, home M2 72'de kalir.\nConflicts: Home tarafinda M2 dusebilir. Kalibrasyon testi gerekir.",
+      "status": "pending",
+      "score": null
+    },
+    "4": {
+      "id": "4",
+      "parent_id": "ROOT",
+      "children_ids": [],
+      "depth": 1,
+      "hypothesis": "Mechanism: SystemConfig'te x0=78, k=0.02 sigmoid duzdu — score=60 calibratedP=0.02. Gercel olasilik yansimiyor.\nHypothesis: x0=30, k=0.05, L=0.90 (fb8fd8c) calibratedP'yi gercek olasiliga yaklastirir. M1 degismez ama ECE iyilesir.\nObservable: calibratedP ortalamasi 0.37→0.55+. Brier score duser, ECE 0.03 alti.\nConflicts: Auto-calibrate grid search bu degerleri tekrar bozabilir.",
+      "status": "done",
+      "score": 0,
+      "insight": "DB'de apply edildi (fb8fd8c). calibratedP artik skor≈60 icin ~0.02 degil ~0.71."
+    }
+  }
+}

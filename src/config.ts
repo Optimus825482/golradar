@@ -9,8 +9,15 @@
 
 // ── Sinyal eşikleri & zamanlama ──────────────────────────────────
 
-/** Goal Radar skoru bu değerin altındaysa sinyal oluşturulmaz (0-100). */
-export const SIGNAL_THRESHOLD = 60;
+/** Goal Radar skoru bu değerin altındaysa sinyal oluşturulmaz (0-100).
+    .env RADAR_THRESHOLD ile override edilebilir. Varsayılan 65. */
+export const RADAR_THRESHOLD = (() => {
+  const env = parseInt(process.env.RADAR_THRESHOLD || '', 10);
+  return isNaN(env) ? 65 : Math.max(40, Math.min(80, env));
+})();
+
+/** @deprecated RADAR_THRESHOLD kullan, bu sadece backward compat */
+export const SIGNAL_THRESHOLD = RADAR_THRESHOLD;
 
 /**
  * Dinamik eşik hesaplama — lig, dakika ve Elo farkına göre threshold ayarlar.
@@ -65,9 +72,6 @@ export function getDynamicThreshold(
 
   return Math.max(40, Math.min(80, threshold));
 }
-
-/** Side detection için RADAR eşiği (score >= this → side "on"). */
-export const RADAR_THRESHOLD = 60;
 
 /** Side detection için SUSTAINED eşiği (40-59 arası + pressure spike → side "on"). */
 export const SUSTAINED_THRESHOLD = 40;

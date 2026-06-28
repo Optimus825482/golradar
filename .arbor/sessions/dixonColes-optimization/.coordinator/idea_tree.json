@@ -1,0 +1,52 @@
+{
+  "version": 3,
+  "meta": {
+    "baseline_score": 0.6448,
+    "trunk_score": null,
+    "test_baseline_score": null,
+    "test_trunk_score": null,
+    "eval_cmd": "bun scripts/dixonColes-benchmark.ts",
+    "eval_cmd_test": null,
+    "eval_timeout": null,
+    "eval_retries": null,
+    "eval_retry_base_delay": null,
+    "eval_retry_max_delay": null,
+    "dataset_info": null,
+    "metric_direction": "minimize",
+    "submission_path": null,
+    "sample_submission_path": null
+  },
+  "root_id": "ROOT",
+  "max_depth": null,
+  "nodes": {
+    "ROOT": {
+      "id": "ROOT",
+      "parent_id": null,
+      "children_ids": [
+        "1"
+      ],
+      "depth": 0,
+      "hypothesis": "Research session",
+      "status": "pending"
+    },
+    "1": {
+      "id": "1",
+      "parent_id": "ROOT",
+      "children_ids": [
+        "1.1"
+      ],
+      "depth": 1,
+      "hypothesis": "DixonColes: rho and gamma grid search over 50K matches. Baseline rho=-0.13, gamma=1.10 → Brier=0.6448. Test rho∈{-0.20..0}, gamma∈{1.0..1.4}.",
+      "status": "completed"
+    },
+    "1.1": {
+      "id": "1.1",
+      "parent_id": "1",
+      "children_ids": [],
+      "depth": 2,
+      "hypothesis": "H2: Test decayRate effect (currently 0.00325). Lower=slower aging, higher=faster revert to mean.",
+      "status": "completed",
+      "result": "decay={0, 0.02, 0.05} all → Brier=0.6370. Decay rate has NO MEASURABLE EFFECT on match-outcome Brier. Keep default 0.00325."
+    }
+  }
+}

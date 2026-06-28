@@ -1,0 +1,81 @@
+{
+  "session_started_at": 1782682306.9184177,
+  "updated_at": 1782682343.20722,
+  "nodes": {
+    "1": {
+      "created_at": 1782682306.9184177
+    },
+    "1.1": {
+      "created_at": 1782682314.4851546,
+      "started_at": 1782682314.4851546,
+      "finished_at": 1782682342.5016584
+    },
+    "1.2": {
+      "created_at": 1782682314.6892722,
+      "started_at": 1782682314.6892722,
+      "finished_at": 1782682342.7490034
+    },
+    "1.3": {
+      "created_at": 1782682314.9100933
+    },
+    "1.4": {
+      "created_at": 1782682315.1242683
+    }
+  },
+  "events": [
+    {
+      "ts": 1782682306.9184177,
+      "kind": "proposed",
+      "node_id": "1",
+      "label": "H1: Grid search all Elo params (K_BASE, HOME_ADV, drawProb, decayRate) on 87K matches. Baseline Brier=0.6655. Test: bun scripts/elo-benchmark.ts --kBase=X --homeAdv=Y --drawProb=Z"
+    },
+    {
+      "ts": 1782682314.4851546,
+      "kind": "proposed",
+      "node_id": "1.1",
+      "label": "H1a: Test K_BASE=60 (further increase from 50). Higher K = faster rating convergence, more responsive to recent results."
+    },
+    {
+      "ts": 1782682314.6892722,
+      "kind": "proposed",
+      "node_id": "1.2",
+      "label": "H1b: Test HOME_ADV=30 (lower than 50). Minimal home advantage in leagues with high away-win rates."
+    },
+    {
+      "ts": 1782682314.9100933,
+      "kind": "proposed",
+      "node_id": "1.3",
+      "label": "H1c: Test drawProb=0.30 (increase from 0.25). Higher draw rate for leagues with frequent draws."
+    },
+    {
+      "ts": 1782682315.1242683,
+      "kind": "proposed",
+      "node_id": "1.4",
+      "label": "H1d: Test combo K=60, HA=30, D=0.30 — theoretical best corner of parameter space."
+    },
+    {
+      "ts": 1782682342.5016584,
+      "kind": "pruned",
+      "node_id": "1.1",
+      "score": 0.6643
+    },
+    {
+      "ts": 1782682342.7490034,
+      "kind": "pruned",
+      "node_id": "1.2",
+      "score": 0.6642
+    },
+    {
+      "ts": 1782682342.9861393,
+      "kind": "completed",
+      "node_id": "1.3",
+      "score": 0.6374
+    },
+    {
+      "ts": 1782682343.20722,
+      "kind": "completed",
+      "node_id": "1.4",
+      "score": 0.6362
+    }
+  ]
+}

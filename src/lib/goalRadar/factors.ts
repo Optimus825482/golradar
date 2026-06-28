@@ -94,12 +94,12 @@ export function calcExpectedGoals(stats: MatchStats): { home: number; away: numb
   const homeOffTarget = Math.max(0, homeShots - homeSot - homeBlocked);
   const awayOffTarget = Math.max(0, awayShots - awaySot - awayBlocked);
   return {
-    home: apiXg?.home != null && apiXg.home > 0
+    home: Math.max(0, apiXg?.home != null && apiXg.home > 0
       ? apiXg.home
-      : homeSot * 0.38 + homeOffTarget * 0.05 + homeBlocked * 0.03 + (corners?.home ?? 0) * 0.04 + (dangerous_attacks?.home ?? 0) * 0.01,
-    away: apiXg?.away != null && apiXg.away > 0
+      : homeSot * 0.38 + homeOffTarget * 0.05 + homeBlocked * 0.03 + (corners?.home ?? 0) * 0.04 + (dangerous_attacks?.home ?? 0) * 0.01),
+    away: Math.max(0, apiXg?.away != null && apiXg.away > 0
       ? apiXg.away
-      : awaySot * 0.38 + awayOffTarget * 0.05 + awayBlocked * 0.03 + (corners?.away ?? 0) * 0.04 + (dangerous_attacks?.away ?? 0) * 0.01,
+      : awaySot * 0.38 + awayOffTarget * 0.05 + awayBlocked * 0.03 + (corners?.away ?? 0) * 0.04 + (dangerous_attacks?.away ?? 0) * 0.01),
   };
 }
 

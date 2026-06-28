@@ -234,10 +234,12 @@ export function calculateGoalProbability(
   ctx.as = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, ctx.as));
 
   // ── Poisson blend ─────────────────────────────────────────────
-  let poissonP = 0, overUnder25 = 0, bttsP = 0;
-  try {
-    const pr = inPlayGoalProbability(xg.home, xg.away, minNum);
-    poissonP = pr.anyGoalP;
+	  let poissonP = 0, overUnder25 = 0, bttsP = 0;
+	  try {
+	    const safeXgHome = Math.max(0, xg.home ?? 0);
+	    const safeXgAway = Math.max(0, xg.away ?? 0);
+	    const pr = inPlayGoalProbability(safeXgHome, safeXgAway, minNum);
+	    poissonP = Math.max(0, Math.min(0.99, pr.anyGoalP));
     const homeAS = xg.home > 0 ? ((xg.home / Math.max(1, minNum)) * 90) / 1.3 : 1.0;
     const awayAS = xg.away > 0 ? ((xg.away / Math.max(1, minNum)) * 90) / 1.3 : 1.0;
     const params = calculateExpectedGoals(homeAS, 1.0, awayAS, 1.0);

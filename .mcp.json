@@ -6,6 +6,10 @@
         "-y",
         "@upstash/context7-mcp"
       ]
+    },
+    "arbor": {
+      "command": "arbor",
+      "args": ["mcp"]
     }
   }
 }

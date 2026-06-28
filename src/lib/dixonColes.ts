@@ -261,11 +261,11 @@ export function inPlayGoalProbability(
   const anyGoalP = 1 - Math.exp(-(expectedHomeRemaining + expectedAwayRemaining));
 
   return {
-    homeGoalP: Math.min(0.95, homeGoalP),
-    awayGoalP: Math.min(0.95, awayGoalP),
-    anyGoalP: Math.min(0.98, anyGoalP),
-    expectedHomeRemaining,
-    expectedAwayRemaining,
+    homeGoalP: Math.max(0, Math.min(0.95, homeGoalP)),
+    awayGoalP: Math.max(0, Math.min(0.95, awayGoalP)),
+    anyGoalP: Math.max(0, Math.min(0.98, anyGoalP)),
+    expectedHomeRemaining: Math.max(0, expectedHomeRemaining),
+    expectedAwayRemaining: Math.max(0, expectedAwayRemaining),
   };
 }
 

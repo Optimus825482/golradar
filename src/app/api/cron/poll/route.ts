@@ -384,6 +384,7 @@ async function runCronTick(): Promise<{
       signalsCreated: 0,
       goalsReported: 0,
       halftimeExpired: 0,
+      autoFinalized: 0,
       durationMs: Date.now() - start,
     };
   }
@@ -396,6 +397,7 @@ async function runCronTick(): Promise<{
       signalsCreated: 0,
       goalsReported: 0,
       halftimeExpired: 0,
+      autoFinalized: 0,
       durationMs: Date.now() - start,
     };
   }

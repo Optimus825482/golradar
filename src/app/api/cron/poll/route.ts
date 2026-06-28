@@ -42,9 +42,10 @@ import {
   getSnapshots,
   pruneStale,
 } from "@/lib/pressureHistory";
-import { logError } from "@/lib/devLog";
+import { logError, logInfo } from "@/lib/devLog";
 import { createThesis } from "@/lib/signalThesis";
 import { onGoal, onFulltime } from "@/lib/feedbackLoops";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -338,6 +339,7 @@ async function runCronTick(): Promise<{
   signalsCreated: number;
   goalsReported: number;
   halftimeExpired: number;
+  autoFinalized: number;
   durationMs: number;
 }> {
   const start = Date.now();
@@ -361,22 +363,11 @@ async function runCronTick(): Promise<{
     return {
       ok: false,
       tier,
-      matchesProcessed: 0,
-      signalsCreated: 0,
-      goalsReported: 0,
-      halftimeExpired: 0,
-      durationMs: Date.now() - start,
-    };
-  }
-
-  if (!resp.ok) {
-    return {
-      ok: false,
-      tier,
-      matchesProcessed: 0,
-      signalsCreated: 0,
-      goalsReported: 0,
-      halftimeExpired: 0,
+        matchesProcessed: 0,
+        signalsCreated: 0,
+        goalsReported: 0,
+        halftimeExpired: 0,
+      autoFinalized: 0,
       durationMs: Date.now() - start,
     };
   }
@@ -445,6 +436,25 @@ async function runCronTick(): Promise<{
   // Count goals reported during this tick
   goalsReported = halftimeExpired === 0 ? 0 : 0; // goals tracked via reportGoal side-effects
 
+  // ── Auto-finalize stale pending signals ───────────────────────────
+  let autoFinalized = 0;
+  try {
+    const staleCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const result = await db.signal.updateMany({
+      where: {
+        goalHappened: null,
+        signalTimestamp: { lt: staleCutoff },
+      },
+      data: { goalHappened: false },
+    });
+    autoFinalized = result.count;
+    if (autoFinalized > 0) {
+      logInfo('Cron', `Auto-finalized ${autoFinalized} stale signals (pending >2h)`);
+    }
+  } catch (e) {
+    logError('Cron', 'auto-finalize failed:', e);
+  }
+
   return {
     ok: true,
     tier,
@@ -452,6 +462,7 @@ async function runCronTick(): Promise<{
     signalsCreated,
     goalsReported,
     halftimeExpired,
+    autoFinalized,
     durationMs: Date.now() - start,
   };
 }

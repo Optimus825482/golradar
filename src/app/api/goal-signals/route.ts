@@ -328,6 +328,9 @@ export async function POST(request: Request) {
         const v = parseActionBody(reportGoalSchema, body);
         if (!v.ok)
           return NextResponse.json({ error: v.error }, { status: 400 });
+        if (v.data.goalSide === 'both') {
+          return NextResponse.json({ error: 'goalSide cannot be both' }, { status: 400 });
+        }
         await reportGoal(
           v.data.matchCode,
           v.data.goalSide,

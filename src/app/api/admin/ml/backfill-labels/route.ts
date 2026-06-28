@@ -6,11 +6,13 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { logError } from '@/lib/devLog';
+import { adminRoute } from '@/lib/adminRoute';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 600;
 
-export async function POST(request: Request) {
+// FIX: Added auth wrapper (was missing)
+export const POST = adminRoute(async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
     const maxMatches = Math.min(body.maxMatches ?? 5000, 50000);
@@ -105,4 +107,4 @@ export async function POST(request: Request) {
     logError('backfill-labels', 'Failed:', err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
-}
+});

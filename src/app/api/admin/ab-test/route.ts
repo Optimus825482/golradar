@@ -4,6 +4,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { logError } from '@/lib/devLog';
+import { adminRoute } from '@/lib/adminRoute';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5dk
@@ -157,7 +158,8 @@ async function runNewSystem(
   };
 }
 
-export async function GET(request: Request) {
+// FIX: Added auth wrapper (was missing)
+export const GET = adminRoute(async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const daysBack = parseInt(url.searchParams.get('days') ?? '30');
@@ -219,4 +221,4 @@ export async function GET(request: Request) {
     logError('ab-test', 'Failed:', err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
-}
+});

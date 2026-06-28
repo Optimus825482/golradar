@@ -1,11 +1,27 @@
-export function QuickCard({ label, value, sub, color, bg }: {
-  label: string; value: string; sub: string; color: string; bg: string
+export function QuickCard({
+  label,
+  value,
+  sub,
+  color,
+  bg,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  color: string;
+  bg: string;
 }) {
   return (
-    <div className={`${bg} rounded-xl border border-gray-200 p-3 shadow-sm`}>
-      <div className={`text-2xl font-black font-mono ${color}`}>{value}</div>
-      <div className="text-[9px] font-bold text-gray-500 mt-0.5">{label}</div>
-      <div className="text-[8px] text-gray-400 mt-0.5">{sub}</div>
+    <div className="rounded-lg p-3" style={{ backgroundColor: bg }}>
+      <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color }}>
+        {label}
+      </div>
+      <div className="text-2xl font-black tracking-tight mt-1" style={{ color }}>
+        {value}
+      </div>
+      <div className="text-[11px] font-medium mt-1 opacity-80" style={{ color }}>
+        {sub}
+      </div>
     </div>
-  )
+  );
 }

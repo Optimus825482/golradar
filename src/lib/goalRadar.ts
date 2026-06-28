@@ -369,8 +369,8 @@ export function calculateGoalProbability(
   // ── Son clamp + final score ───────────────────────────────────
   ctx.hs = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, ctx.hs));
   ctx.as = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, ctx.as));
-  const finalFinalHome = Math.round(ctx.hs);
-  const finalFinalAway = Math.round(ctx.as);
+  let finalFinalHome = Math.round(ctx.hs);
+  let finalFinalAway = Math.round(ctx.as);
   const finalFinalScore = blendedThreatScore(finalFinalHome, finalFinalAway);
 
   // ── 5-min signal gate ─────────────────────────────────────────
@@ -384,6 +384,8 @@ export function calculateGoalProbability(
     side = null;
     if (finalFinalScore < RADAR_THRESHOLD) {
       finalScore = Math.min(finalFinalScore, 59);
+      finalFinalHome = Math.min(finalFinalHome, 59);
+      finalFinalAway = Math.min(finalFinalAway, 59);
     } else {
       finalScore = finalFinalScore;
     }

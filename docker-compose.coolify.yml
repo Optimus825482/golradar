@@ -40,8 +40,10 @@ services:
       - "3012:3012"
     networks:
       - golradar-net
+      - coolify
     labels:
       traefik.enable: "true"
+      traefik.docker.network: "coolify"
       traefik.http.routers.golradar.rule: "Host(`radar.erkanerdem.online`)"
       traefik.http.routers.golradar.entrypoints: "https"
       traefik.http.routers.golradar.tls: "true"

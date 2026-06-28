@@ -56,7 +56,7 @@ async function run() {
       poissonHomeP: true,
       poissonAwayP: true,
     },
-    take: 5000,
+    take: 100000,
   });
 
   if (logs.length < 30) {

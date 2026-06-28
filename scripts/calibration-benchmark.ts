@@ -47,7 +47,7 @@ async function run() {
       goalScored: { not: null },
     },
     select: { rawScore: true, goalScored: true },
-    take: 8000,
+    take: 100000,
   });
 
   if (logs.length < 30) {

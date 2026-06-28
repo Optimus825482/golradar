@@ -84,7 +84,7 @@ interface BenchmarkResult {
 async function run(): Promise<void> {
   const matches = await db.teamHistoryMatch.findMany({
     orderBy: { matchDate: 'asc' },
-    take: 20000,
+    take: 100000,
   });
 
   if (matches.length < 200) {

@@ -47,7 +47,7 @@ interface Result {
 async function run() {
   const matches = await db.teamHistoryMatch.findMany({
     orderBy: { matchDate: 'asc' },
-    take: 10000,
+    take: 50000,
   });
 
   if (matches.length < 500) {

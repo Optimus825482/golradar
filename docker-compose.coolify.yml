@@ -27,16 +27,16 @@ services:
       - golradar-net
 
   # ── Ana Web Uygulaması (Next.js) ──
-	  golradar:
-	    build:
-	      context: .
-	      dockerfile: Dockerfile.coolify
-	    container_name: golradar-app
-	    restart: unless-stopped
-	    depends_on:
-	      postgres:
-	        condition: service_started
-	    ports:
+    golradar:
+      build:
+        context: .
+        dockerfile: Dockerfile.coolify
+      container_name: golradar-app
+      restart: unless-stopped
+      depends_on:
+        postgres:
+          condition: service_started
+      ports:
       - "3012:3012"
     networks:
       - golradar-net
@@ -100,15 +100,15 @@ services:
   # ── ML Trainer Sidecar (XGBoost) ──
   # Python ile XGBoost model eğitimi için.
   # Çalışmazsa uygulama built-in GBDT model ile devam eder.
-	ml-trainer:
-	  build:
-	    context: ./mini-services/ml-trainer
-	    dockerfile: Dockerfile
-	  container_name: golradar-ml-trainer
-	  restart: unless-stopped
-	  depends_on:
-	    postgres:
-	      condition: service_started
+  ml-trainer:
+    build:
+      context: ./mini-services/ml-trainer
+      dockerfile: Dockerfile
+    container_name: golradar-ml-trainer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_started
     environment:
       ML_DATA_ROOT: /data
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"

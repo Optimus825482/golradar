@@ -36,8 +36,17 @@ export function determineSide(
 
   // Eşikler: away deplasmanda daha az baskı üretir → eşik 0.58
   // home 0.62, away 0.58 — deplasman baskısı daha değerli
-  if (homeRatio > 0.62 && homeScore >= RADAR_THRESHOLD) return "home";
-  if (awayRatio > 0.58 && awayScore >= RADAR_THRESHOLD) return "away";
+  const homeDominant = homeRatio > 0.62 && homeScore >= RADAR_THRESHOLD;
+  const awayDominant = awayRatio > 0.58 && awayScore >= RADAR_THRESHOLD;
+
+  // Kontra atak: bir taraf ezici üstün ama rakip hala skor üretiyorsa → "both"
+  // 28 Haziran'da 27 yanlış: dominant sinyal, rakip kontra atak.
+  // away dominantta homeScore≥25 = home hala canlı. home dominantta awayScore≥30.
+  if (homeDominant && awayScore >= 30) return "both";
+  if (awayDominant && homeScore >= 25) return "both";
+
+  if (homeDominant) return "home";
+  if (awayDominant) return "away";
 
   // Sustained pressure spike (eski logic koru)
   const last3 = pressureHistory?.slice(-3) ?? [];

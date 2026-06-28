@@ -82,14 +82,20 @@ function isAuthorized(request: Request): boolean {
 // ── Goal detection ───────────────────────────────────────────────
 function parseGoalMinute(minute: string | number): number {
   if (typeof minute === "number") return Math.max(0, minute);
+  // "45+2" → 47, "90+4" → 94
   const plusMatch = minute.match(/^(\d+)\s*\+\s*(\d+)/);
   if (plusMatch) {
     return parseInt(plusMatch[1], 10) + parseInt(plusMatch[2], 10);
   }
-  const num = parseInt(minute.replace(/[^0-9]/g, ""), 10);
-  // Non-numeric (e.g. "MS", "HT", ""): return 45 midpoint default.
-  // reportGoal uses signalMinute fallback per-signal when goalMinute<=0.
-  return isNaN(num) ? 45 : Math.max(1, num);
+  // Pure numeric: "62" → 62, "0" → 0
+  const pureNum = parseInt(minute, 10);
+  if (!isNaN(pureNum)) return Math.max(0, pureNum);
+  // Strip non-digits and try again: "62'" → 62
+  const stripped = parseInt(minute.replace(/[^0-9]/g, ""), 10);
+  // Non-numeric (e.g. "MS", "HT", ""): return 0 so reportGoal
+  // falls back to signalMinute. 45 midpoint was wrong — it made
+  // goalMinute=1 appear when minute was unparseable (Math.max(1,0)=1).
+  return isNaN(stripped) ? 0 : Math.max(0, stripped);
 }
 
 interface GoalDelta {
@@ -586,6 +592,10 @@ export async function POST(request: Request) {
     }
   }
 
-  // Fallback: normal cron tick
-  return GET(request);
+  // X-Pipeline-Source header zorunlu — aksi halde reddet.
+  // Eksik header GET'e düşüp tüm maçları işliyordu (maxDuration patlaması).
+  return NextResponse.json(
+    { ok: false, error: 'missing X-Pipeline-Source header' },
+    { status: 400 },
+  );
 }

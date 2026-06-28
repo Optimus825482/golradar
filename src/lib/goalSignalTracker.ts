@@ -404,8 +404,9 @@ export async function reportGoal(
           goalHappened: true,
           goalMinute: gm,
           goalSide,
-          // P0: "both" sinyallerinde yön bilinmez — correctPrediction undefined
-          correctPrediction: s.signalSide === 'both' ? undefined : goalSide === s.signalSide,
+          // "both" sinyalleri: iki taraf da tehlikeli → gol geldiyse tahmin doğru
+          // M2 (taraf doğruluğu) hesaplanırken "both" sinyalleri hariç tutulur
+          correctPrediction: s.signalSide === 'both' ? true : goalSide === s.signalSide,
           minutesAfterSignal: Math.max(0, gm - s.signalMinute),
           goalTimestamp: Date.now(),
         });

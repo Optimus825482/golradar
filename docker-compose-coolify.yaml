@@ -41,7 +41,7 @@ services:
     labels:
       traefik.enable: "true"
       traefik.http.routers.golradar.rule: "Host(`radar.erkanerdem.online`)"
-      traefik.http.routers.golradar.entrypoints: "websecure"
+      traefik.http.routers.golradar.entrypoints: "https"
       traefik.http.routers.golradar.tls: "true"
       traefik.http.routers.golradar.tls.certresolver: "letsencrypt"
       traefik.http.routers.golradar.service: "golradar"

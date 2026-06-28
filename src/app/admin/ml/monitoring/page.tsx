@@ -423,7 +423,7 @@ export default function MonitoringPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500">Önceki 7g Ort.</span>
-                  <span className="text-sm font-mono">{drift.priorAvgBrier.toFixed(4)}</span>
+                  <span className="text-sm font-mono">{drift.priorAvgBrier?.toFixed(4) ?? "—"}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500">Yön</span>

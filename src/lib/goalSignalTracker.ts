@@ -373,7 +373,7 @@ function checkCooldownCache(matchCode: number, side: string): boolean {
   return false;
 }
 
-function setCooldownCache(matchCode: number, side: string): void {
+export function setCooldownCache(matchCode: number, side: string): void {
   const key = cooldownKey(matchCode, side);
   cooldownCache.set(key, Date.now());
   // ponytail: single-interval cleanup on set is cheaper than a background sweeper
@@ -386,6 +386,14 @@ export async function reportGoal(
   goalMinute: number,
 ): Promise<void> {
   try {
+    // ── Golden sonrası zorunlu 3 dk sinyal yasağı ──
+    // Gol atan taraf VE rakip taraf için cooldown cache yaz.
+    // "Hücum patlaması" faktörü golden sonra anlık spike yapıp
+    // false alarm üretiyordu (%68).
+    setCooldownCache(matchCode, goalSide);
+    setCooldownCache(matchCode, goalSide === 'home' ? 'away' : 'home');
+    setCooldownCache(matchCode, 'both');
+
     const allPending = await repoFindAllPending(matchCode);
     const withId = allPending.filter((s): s is GoalSignalRecord & { id: string } => !!s.id);
     const useFallback = !goalMinute || goalMinute <= 0;

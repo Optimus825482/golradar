@@ -4,20 +4,23 @@
 // Based on PLOS One 2024 event-sequence window (20 snapshots ≈ 5 min).
 
 	import type { PressureSnapshotLite } from './types';
-	
+
 	export interface CooldownResult {
 	  goalCooldownHome: number;
 	  goalCooldownAway: number;
 	  recentGoalSide: "home" | "away" | "both" | null;
 	}
-	
+
 	/**
 	 * Detect if a goal was recently scored by comparing goal counts
 	 * across pressure history snapshots. Returns cooldown factors
 	 * (0.0 = full cooldown, 1.0 = no cooldown) per side.
 	 *
-	 * 12-snapshot window (~3 min) with linear decay:
-	 *   cooldownFactor = progress  where progress = snapshotsAgo / 12
+	 * 12-snapshot window (~3 min) with quadratic decay:
+	 *   cooldownFactor = progress²  where progress = snapshotsAgo / 12
+	 *
+	 * Quadratic (vs linear): ani toparlanmayı engeller.
+	 *   progress=0.0 → 0.00, progress=0.5 → 0.25, progress=1.0 → 1.00
 	 */
 	export function detectGoalCooldown(
 	  pressureHistory: PressureSnapshotLite[] | undefined,
@@ -28,7 +31,7 @@
 	  let goalCooldownAway = 0;
 	  let recentGoalSide: "home" | "away" | "both" | null = null;
 	  const GOAL_COOLDOWN_SNAPSHOTS = 12;
-	
+
 	  if (pressureHistory && pressureHistory.length >= 2) {
 	    const currentHG =
 	      currentHomeGoals ?? pressureHistory[pressureHistory.length - 1].homeGoals;
@@ -57,7 +60,7 @@
 	          else if (homeGoalScored) recentGoalSide = "home";
 	          else recentGoalSide = "away";
 	          const progress = Math.min(1, snapshotsAgo / GOAL_COOLDOWN_SNAPSHOTS);
-	          const cooldownFactor = progress; // linear decay
+	          const cooldownFactor = progress * progress; // quadratic decay
 	          if (homeGoalScored) goalCooldownHome = cooldownFactor;
 	          if (awayGoalScored) goalCooldownAway = cooldownFactor;
 	          break;
@@ -65,19 +68,19 @@
 	      }
 	    }
 	  }
-	
+
 	  return { goalCooldownHome, goalCooldownAway, recentGoalSide };
 	}
-	
+
 	export interface CooldownApplyResult {
 	  homeScore: number;
 	  awayScore: number;
 	  factors: string[];
 	}
-	
+
 	/**
-	 * Apply cooldown to scores. The team that scored gets × cooldownFactor × 0.6
-	 * suppression (mild). The opposing team gets × max(cooldownFactor, otherSide × 0.8).
+	 * Apply cooldown to scores. The team that scored gets × cooldownFactor × 0.3
+	 * (heavy suppression). The opposing team gets × max(cooldownFactor, otherSide × 0.6).
 	 */
 	export function applyGoalCooldown(
 	  homeScore: number,
@@ -88,17 +91,17 @@
 	): CooldownApplyResult {
 	  const factors: string[] = [];
 	  let hs = homeScore, as = awayScore;
-	
+
 	  if (goalCooldownHome < 1 || goalCooldownAway < 1) {
 	    if (recentGoalSide === "home") {
-	      hs = Math.round(hs * Math.max(goalCooldownHome, 0.6));
-	      as = Math.round(as * Math.max(goalCooldownAway, goalCooldownHome * 0.8));
+	      hs = Math.round(hs * Math.max(goalCooldownHome, 0.3));
+	      as = Math.round(as * Math.max(goalCooldownAway, goalCooldownHome * 0.6));
 	    } else if (recentGoalSide === "away") {
-	      as = Math.round(as * Math.max(goalCooldownAway, 0.6));
-	      hs = Math.round(hs * Math.max(goalCooldownHome, goalCooldownAway * 0.8));
+	      as = Math.round(as * Math.max(goalCooldownAway, 0.3));
+	      hs = Math.round(hs * Math.max(goalCooldownHome, goalCooldownAway * 0.6));
 	    } else if (recentGoalSide === "both") {
-	      hs = Math.round(hs * Math.max(goalCooldownHome, 0.6));
-	      as = Math.round(as * Math.max(goalCooldownAway, 0.6));
+	      hs = Math.round(hs * Math.max(goalCooldownHome, 0.3));
+	      as = Math.round(as * Math.max(goalCooldownAway, 0.3));
 	    }
 	    if (recentGoalSide && (hs >= 20 || as >= 20)) {
 	      const goalSideLabel =
@@ -110,6 +113,6 @@
 	      factors.push(`Gol sonrası soğuma (${goalSideLabel})`);
 	    }
 	  }
-	
+
 	  return { homeScore: hs, awayScore: as, factors };
 	}

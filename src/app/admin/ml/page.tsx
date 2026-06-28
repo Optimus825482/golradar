@@ -238,13 +238,13 @@ export default function AdminMLPage() {
                         <span className="text-gray-400">—</span>
                       ) : (
                         <span className={
-                          w.deltaBrier < -0.02 ? 'text-emerald-600 font-bold' :
-                          w.deltaBrier > 0.02 ? 'text-red-600 font-bold' :
+                          w.deltaBrier != null && w.deltaBrier < -0.02 ? 'text-emerald-600 font-bold' :
+                          w.deltaBrier != null && w.deltaBrier > 0.02 ? 'text-red-600 font-bold' :
                           'text-amber-600'
                         }>
-                          {w.deltaBrier > 0 ? '+' : ''}{w.deltaBrier.toFixed(4)}
-                          {w.deltaBrier < -0.02 && ' ↓'}
-                          {w.deltaBrier > 0.02 && ' ↑'}
+                          {w.deltaBrier != null ? `${w.deltaBrier > 0 ? '+' : ''}${w.deltaBrier.toFixed(4)}` : '—'}
+                          {w.deltaBrier != null && w.deltaBrier < -0.02 && ' ↓'}
+                          {w.deltaBrier != null && w.deltaBrier > 0.02 && ' ↑'}
                         </span>
                       )}
                     </td>
@@ -252,17 +252,17 @@ export default function AdminMLPage() {
                       <div className="inline-flex items-center gap-2">
                         <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                           <div className={`h-full rounded-full ${
-                            w.weight >= 0.75 ? 'bg-emerald-500' :
-                            w.weight >= 0.5 ? 'bg-amber-500' :
-                            w.weight > 0 ? 'bg-red-400' : 'bg-gray-300'
-                          }`} style={{ width: `${w.weight * 100}%` }} />
+                            w.weight != null && w.weight >= 0.75 ? 'bg-emerald-500' :
+                            w.weight != null && w.weight >= 0.5 ? 'bg-amber-500' :
+                            w.weight != null && w.weight > 0 ? 'bg-red-400' : 'bg-gray-300'
+                          }`} style={{ width: `${(w.weight ?? 0) * 100}%` }} />
                         </div>
                         <span className={`font-mono font-bold text-[11px] ${
-                          w.weight >= 0.75 ? 'text-emerald-700' :
-                          w.weight >= 0.5 ? 'text-amber-700' :
-                          w.weight > 0 ? 'text-red-700' : 'text-gray-400'
+                          w.weight != null && w.weight >= 0.75 ? 'text-emerald-700' :
+                          w.weight != null && w.weight >= 0.5 ? 'text-amber-700' :
+                          w.weight != null && w.weight > 0 ? 'text-red-700' : 'text-gray-400'
                         }`}>
-                          {w.weight.toFixed(2)}
+                          {w.weight != null ? w.weight.toFixed(2) : '—'}
                         </span>
                       </div>
                     </td>

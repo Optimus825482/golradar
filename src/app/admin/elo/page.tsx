@@ -214,8 +214,8 @@ export default function AdminEloPage() {
                     <td className="py-2 px-2 text-right font-mono font-bold" style={{ color: r.elo >= 1700 ? '#10b981' : r.elo >= 1500 ? '#f59e0b' : '#6b7280' }}>
                       {r.elo}
                     </td>
-                    <td className="py-2 px-2 text-right font-mono text-gray-600">{r.attackStrength.toFixed(2)}</td>
-                    <td className="py-2 px-2 text-right font-mono text-gray-600">{r.defenseWeakness.toFixed(2)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-600">{r.attackStrength?.toFixed(2) ?? '—'}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-600">{r.defenseWeakness?.toFixed(2) ?? '—'}</td>
                     <td className="py-2 px-2 text-right font-mono text-gray-500">{r.matchesPlayed}</td>
                     <td className="py-2 px-2 text-right font-mono">
                       <span className="text-emerald-600">{r.wins}</span>/

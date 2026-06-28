@@ -38,7 +38,7 @@ function MetricRow({ label, oldVal, newVal, delta, format }: {
   delta: number;
   format?: (v: number) => string;
 }) {
-  const fmt = format ?? ((v: number) => v.toFixed(1));
+  const fmt = format ?? ((v: any) => v != null ? Number(v).toFixed(1) : '—');
   const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
   const color = delta > 0 ? 'text-green-600' : delta < 0 ? 'text-red-500' : 'text-gray-400';
   return (

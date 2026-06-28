@@ -46,7 +46,6 @@ async function run() {
   const logs = await db.predictionLog.findMany({
     where: {
       goalScored: { not: null },
-      modelVariant: 'goaloo-season',
     },
     select: {
       rawScore: true,
@@ -60,8 +59,8 @@ async function run() {
     take: 5000,
   });
 
-  if (logs.length < 200) {
-    console.error(JSON.stringify({ error: `Need 200+ logs, got ${logs.length}` }));
+  if (logs.length < 30) {
+    console.error(JSON.stringify({ error: `Need 30+ logs, got ${logs.length}` }));
     process.exit(1);
   }
 

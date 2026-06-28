@@ -127,6 +127,8 @@ services:
 networks:
   golradar-net:
     driver: bridge
+  coolify:
+    external: true
 
 volumes:
   golradar_pgdata:

@@ -46,6 +46,7 @@ import { logError, logInfo } from "@/lib/devLog";
 import { createThesis } from "@/lib/signalThesis";
 import { onGoal, onFulltime } from "@/lib/feedbackLoops";
 import { db } from "@/lib/db";
+import { predictFromElo } from "@/lib/eloRating";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -289,6 +290,46 @@ async function processMatch(
           dominantModels: ['radar', 'poisson'],
           dataSourceGrade: 'B',
         });
+      }
+
+      // ── PredictionLog: her poll'da zengin veri persist et ──
+      // Baseline olmadan benchmark yapılamaz; her poll row'u kaydediyoruz.
+      try {
+        let homeElo: number | null = null;
+        let awayElo: number | null = null;
+        try {
+          const eloPred = predictFromElo(home, away);
+          homeElo = eloPred.homeRating;
+          awayElo = eloPred.awayRating;
+        } catch { /* Elo optional */ }
+
+        await db.predictionLog.create({
+          data: {
+            matchCode,
+            minute: sigMin,
+            rawScore: prob.score,
+            homeScore: prob.homeScore,
+            awayScore: prob.awayScore,
+            calibratedP: prob.calibratedP,
+            side: prob.side ?? 'none',
+            level: prob.level,
+            factorsJson: JSON.stringify(prob.factors),
+            goalScored: null, // label sonra
+            homeTeam: home,
+            awayTeam: away,
+            league,
+            homeElo,
+            awayElo,
+            poissonHomeP: prob.poissonP > 0 ? prob.poissonP * 0.55 : null, // approximate home share
+            poissonAwayP: prob.poissonP > 0 ? prob.poissonP * 0.45 : null,
+            modelVariant: 'champion',
+          },
+        });
+      } catch (e) {
+        // PredictionLog yazımı ana akışı bloklamaz
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Cron] PredictionLog write failed:', (e as Error).message);
+        }
       }
     } catch (e) {
       logError("Cron", "checkAndRecordSignal failed:", e);

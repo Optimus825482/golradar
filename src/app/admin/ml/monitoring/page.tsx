@@ -270,7 +270,7 @@ export default function MonitoringPage() {
         <KpiCard
           title="Toplam Tahmin"
           value={loading ? "—" : latest?.totalPredictions?.toLocaleString() ?? "—"}
-          subtitle={latest && (latest.totalPredictions ?? 0) > 0 ? `%${((latest.totalGoals! / latest.totalPredictions!) * 100).toFixed(1)} gol oranı` : undefined}
+          subtitle={latest && (latest.totalPredictions ?? 0) > 0 ? `%${(((latest.totalGoals ?? 0) / (latest.totalPredictions ?? 1)) * 100).toFixed(1)} gol oranı` : undefined}
           icon={BarChart3}
           loading={loading}
         />
@@ -308,7 +308,7 @@ export default function MonitoringPage() {
                   <YAxis
                     domain={[0, 1]}
                     tick={{ fontSize: 11 }}
-                    tickFormatter={(v) => v.toFixed(1)}
+                    tickFormatter={(v: unknown) => fmt1(v)}
                     stroke="#9ca3af"
                   />
                   <Tooltip
@@ -419,7 +419,7 @@ export default function MonitoringPage() {
               <>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500">Son 7g Ort.</span>
-                  <span className="text-sm font-mono font-bold">{drift.recentAvgBrier.toFixed(4)}</span>
+                  <span className="text-sm font-mono font-bold">{drift.recentAvgBrier?.toFixed(4) ?? "—"}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500">Önceki 7g Ort.</span>

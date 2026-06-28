@@ -99,11 +99,10 @@ function validateRecordBody(body: unknown): Validation<{
   const matchCode = asInt(b.matchCode);
   if (matchCode === null || matchCode <= 0) return fail("matchCode required (positive int)");
 
-  // side: accept 'home' | 'away' for recording. 'both' / null / missing
-  // are valid probability outputs (no dominant side) — signal is dropped
-  // server-side. Anything else is malformed.
+  // side: accept 'home' | 'away' | 'both'. 'both' = yön belirsiz ama gol olasılığı yüksek.
+  // null/missing → sinyal oluşmaz.
   const sideRaw = b.side;
-  if (sideRaw === null || sideRaw === undefined || sideRaw === "both") {
+  if (sideRaw === null || sideRaw === undefined) {
     return { ok: true, value: null };
   }
   const side = asString(sideRaw, 16);
@@ -343,10 +342,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
-    // Accept 'both' / null / missing as valid probability output and drop
-    // server-side. We must inspect `side` BEFORE Zod rejects it.
+    // Accept 'both' as valid — gol olasılığı yüksek, yön belirsiz.
     const sideRaw = (body as Record<string, unknown>)?.side;
-    if (sideRaw === null || sideRaw === undefined || sideRaw === "both") {
+    if (sideRaw === null || sideRaw === undefined) {
       return NextResponse.json({ ok: false, dropped: "side" });
     }
 

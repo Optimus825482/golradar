@@ -12,6 +12,60 @@
 /** Goal Radar skoru bu değerin altındaysa sinyal oluşturulmaz (0-100). */
 export const SIGNAL_THRESHOLD = 60;
 
+/**
+ * Dinamik eşik hesaplama — lig, dakika ve Elo farkına göre threshold ayarlar.
+ * Düşük skorlu ama yüksek olasılıklı durumları yakalamak için.
+ *
+ * Lig offset'leri: atak liglerde eşik düşer (daha fazla sinyal), defans liglerde yükselir.
+ * Dakika offset'i: ilk yarıda daha yüksek eşik (az veri), son 15dk'da daha düşük.
+ * Elo offset'i: büyük farklı maçlarda eşik yükselir (favorit etkisi).
+ */
+export function getDynamicThreshold(
+  leagueId?: number | null,
+  minute?: number,
+  eloDiff?: number,
+): number {
+  let threshold = SIGNAL_THRESHOLD;
+
+  // Lig bazlı offset
+  // Atak liglerde eşik düşük, defans liglerde yüksek
+  if (leagueId != null) {
+    const LEAGUE_OFFSETS: Record<number, number> = {
+      1: -2,   // Premier League
+      2: 0,    // La Liga
+      3: -4,   // Bundesliga — atak ligi
+      4: 4,    // Serie A — defansif
+      5: -2,   // Ligue 1
+      6: -3,   // Eredivisie — çok atak
+      7: 2,    // Primeira Liga
+      8: 1,    // Süper Lig
+      9: -1,   // Championship
+      10: -4,  // Jupiler Pro — yüksek skor
+      13: 3,   // La Liga 2
+    };
+    threshold += LEAGUE_OFFSETS[leagueId] ?? 0;
+  }
+
+  // Dakika bazlı offset
+  if (minute != null) {
+    if (minute < 20) threshold += 5;       // Erken: yüksek eşik, az veri
+    else if (minute < 30) threshold += 3;
+    else if (minute < 60) threshold += 0;  // Normal seyir
+    else if (minute < 75) threshold -= 3;  // Tehlikeli bölge
+    else threshold -= 5;                    // Son düdük yakın
+  }
+
+  // Elo farkı offset'i: büyük fark = favorit maçı, eşik yüksek
+  if (eloDiff != null) {
+    const absDiff = Math.abs(eloDiff);
+    if (absDiff > 300) threshold += 5;
+    else if (absDiff > 200) threshold += 3;
+    else if (absDiff > 100) threshold += 1;
+  }
+
+  return Math.max(40, Math.min(80, threshold));
+}
+
 /** Side detection için RADAR eşiği (score >= this → side "on"). */
 export const RADAR_THRESHOLD = 60;
 

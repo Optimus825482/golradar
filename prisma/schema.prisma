@@ -220,7 +220,7 @@ model Signal {
   date                String   // YYYY-MM-DD (local match date)
 
   signalMinute        Int
-  signalSide          String   // "home" | "away"
+  signalSide          String   // "home" | "away" | "both"
   signalScore         Int      // Raw Goal Radar score 0-100 (first signal)
   calibratedP         Float    // Calibrated probability 0-1 (first signal)
   poissonP            Float    // Dixon-Coles Poisson probability (first signal)

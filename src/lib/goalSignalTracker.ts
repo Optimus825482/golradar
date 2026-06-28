@@ -40,9 +40,9 @@ import {
 
 import {
   SIGNAL_THRESHOLD,
+  getDynamicThreshold,
   SIGNAL_EXPIRY_MINUTES,
   EXPIRY_CHECK_INTERVAL_MS,
-  SIGNAL_COOLDOWN_MS,
 } from "@/config";
 import { db } from "./db";
 import { logError } from "./devLog";
@@ -84,7 +84,7 @@ export interface GoalSignalRecord {
 
   // ── First signal details (snapshot at first threshold crossing) ──
   signalMinute: number;
-  signalSide: "home" | "away";
+  signalSide: "home" | "away" | "both";
   signalScore: number; // Raw Goal Radar score (0–100) — first signal
   calibratedP: number; // Calibrated probability (0–1) — first signal
   poissonP: number; // Dixon-Coles Poisson probability — first signal
@@ -244,8 +244,13 @@ export async function checkAndRecordSignal(
   const today = getLocalDateString();
 
   // ── Signal threshold checks ───────────────────────────────────
-  if (goalProbability.score < SIGNAL_THRESHOLD) return null;
-  if (!goalProbability.side || goalProbability.side === "both") return null;
+  // P0: Dinamik eşik kullan — lig, dakika, Elo bilgisi yoksa SIGNAL_THRESHOLD fallback
+  const threshold = getDynamicThreshold();
+  if (goalProbability.score < threshold) return null;
+
+  // P0: "both" sinyallerine izin ver — yön belirsiz ama gol olasılığı yüksek.
+  // correctPrediction sadece signalSide !== "both" ise hesaplanır.
+  if (!goalProbability.side) return null;
 
   // ── Excluded minute zones ─────────────────────────────────────
   // Faz 9 — DB backed (excludedMinutes.ts), cache TTL 5dk. Config
@@ -254,26 +259,25 @@ export async function checkAndRecordSignal(
   const excludedZones = await loadExcludedMinutes();
   if (isExcludedMinute(sigMin, excludedZones)) return null;
 
-  const signalSide = goalProbability.side as "home" | "away";
+  // signalSide "both" da olabilir — cooldown/upsert için "both" kullan
+  const signalSide = goalProbability.side as "home" | "away" | "both";
 
-  // ── Cooldown check: Aynı match+side için son 3 dk içinde sinyal oluşturuldu mu? ──
-  // Faz 2 — DB-tabanlı: önce repoFindExisting ile fetch et, sonra lastSignalTimestamp
-  // üzerinden cooldown kontrolü yap. Aktif pending sinyal varsa updateLastValues.
-  const existingForCooldown = await repoFindExisting(matchCode, today, signalSide);
-  if (existingForCooldown?.lastSignalTimestamp) {
-    const lastMs = existingForCooldown.lastSignalTimestamp;
-    if (now - lastMs < SIGNAL_COOLDOWN_MS) {
-      if (existingForCooldown.goalHappened === null) {
-        await repoUpdateLastValues(existingForCooldown.id!, {
-          lastScore: goalProbability.score,
-          lastCalibratedP: goalProbability.calibratedP,
-          lastPoissonP: goalProbability.poissonP,
-          lastFactors: goalProbability.factors,
-          lastSignalTimestamp: now,
-        });
-      }
-      return null;
+  // ── Cooldown check (P1: in-memory cache + DB fallback) ──────
+  // Önce cache'e bak, cache miss'te DB sorgusu yap.
+  // ponytail: bu ~%90 DB sorgusunu keser (30sn poll'de çoğu cooldown içinde).
+  if (checkCooldownCache(matchCode, signalSide)) {
+    // Cache'te cooldown var — updateLastValues yine de yap (DB'deki son değerler taze kalsın)
+    const existingForCooldown = await repoFindExisting(matchCode, today, signalSide);
+    if (existingForCooldown?.goalHappened === null && existingForCooldown.id) {
+      await repoUpdateLastValues(existingForCooldown.id, {
+        lastScore: goalProbability.score,
+        lastCalibratedP: goalProbability.calibratedP,
+        lastPoissonP: goalProbability.poissonP,
+        lastFactors: goalProbability.factors,
+        lastSignalTimestamp: now,
+      });
     }
+    return null;
   }
 
   // ── Upsert logic ──────────────────────────────────────────────
@@ -292,7 +296,8 @@ export async function checkAndRecordSignal(
     return updated;
   }
 
-  // Brand new signal → create with first-signal values
+  // Brand new signal → cooldown cache'e yaz, sonra create
+  setCooldownCache(matchCode, signalSide);
   const record: GoalSignalRecord = {
     matchCode,
     homeTeam,
@@ -347,6 +352,32 @@ export async function checkAndRecordSignal(
  * v3 FIX: correctPrediction artık goalSide === signalSide kontrolü yapıyor.
  * v3 FIX: minutesAfterSignal negatif olamaz (Math.max ile koruma).
  */
+/**
+ * "both" sinyalleri için cooldown key'i: matchCode:both
+ * Normal sinyallerle karışmasın diye.
+ */
+function cooldownKey(matchCode: number, side: string): string {
+  return `${matchCode}:${side}`;
+}
+
+/** In-memory cooldown cache (P1) — TTL 3dk, DB sorgusunu azaltır. */
+const cooldownCache = new Map<string, number>();
+const COOLDOWN_CACHE_TTL_MS = 3 * 60 * 1000;
+
+function checkCooldownCache(matchCode: number, side: string): boolean {
+  const key = cooldownKey(matchCode, side);
+  const ts = cooldownCache.get(key);
+  if (ts && Date.now() - ts < COOLDOWN_CACHE_TTL_MS) return true;
+  return false;
+}
+
+function setCooldownCache(matchCode: number, side: string): void {
+  const key = cooldownKey(matchCode, side);
+  cooldownCache.set(key, Date.now());
+  // ponytail: single-interval cleanup on set is cheaper than a background sweeper
+  setTimeout(() => cooldownCache.delete(key), COOLDOWN_CACHE_TTL_MS + 1000);
+}
+
 export async function reportGoal(
   matchCode: number,
   goalSide: "home" | "away",
@@ -362,7 +393,8 @@ export async function reportGoal(
           goalHappened: true,
           goalMinute,
           goalSide,
-          correctPrediction: goalSide === s.signalSide,
+          // P0: "both" sinyallerinde yön bilinmez — correctPrediction undefined
+          correctPrediction: s.signalSide === 'both' ? undefined : goalSide === s.signalSide,
           minutesAfterSignal: Math.max(0, goalMinute - s.signalMinute),
           goalTimestamp: Date.now(),
         }),

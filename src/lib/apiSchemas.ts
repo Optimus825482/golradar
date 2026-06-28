@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // ── Goal Signals ───────────────────────────────────────────────
-export const signalSideSchema = z.enum(['home', 'away']);
+export const signalSideSchema = z.enum(['home', 'away', 'both']);
 export const signalLevelSchema = z.enum(['low', 'medium', 'high', 'critical']);
 
 const baseMatchFields = {

@@ -15,10 +15,11 @@ import { calculateOddsF8Compound, calibrateF8Sync, loadCalibrationModeSync } fro
 import { inPlayGoalProbability, calculateExpectedGoals, calculateMatchProbabilities, getTimeBasedGoalMultiplier } from './dixonColes';
 import { calibrateScore } from './calibration';
 import { logError } from '@/lib/devLog';
-import { SIGNAL_5MIN_THRESHOLD, MIN_PROB_FOR_SIGNAL, ENSEMBLE_SCORE_CAP, RADAR_THRESHOLD } from '@/config';
+import { SIGNAL_5MIN_THRESHOLD, ENSEMBLE_SCORE_CAP, RADAR_THRESHOLD } from '@/config';
 import { determineSide } from './goalRadar/side';
 import { computeTrendBoost } from './ml/trendLSTM';
 import { detectGoalCooldown, applyGoalCooldown } from './goalRadar/cooldown';
+import { computeMomentumBoost } from './goalRadar/momentum';
 import type { PressureSnapshotLite, GoalProbability } from './goalRadar/types';
 import { parseMinute } from './goalSignalTracker';
 
@@ -824,6 +825,28 @@ const xgPts = Math.min(7, Math.round(xg.home * 7));
 
 	  const score = blendedThreatScore(homeScore, awayScore);
 
+  // P2: Momentum burst boost (son 5dk şut/DA/korner patlaması)
+  // computeMomentumBoost → yeni modül (goalRadar/momentum.ts)
+  try {
+    const momentum = computeMomentumBoost(pressureHistory, minNum);
+    homeScore += momentum.homeBoost; awayScore += momentum.awayBoost;
+    homeFactors.push(...momentum.homeFactors); awayFactors.push(...momentum.awayFactors);
+  } catch { /* momentum optional */ }
+
+  // P1: Skor durumu faktörü — 0-0/beraberlik/tek fark psikolojisi
+  try {
+    const hg = currentHomeGoals ?? 0, ag = currentAwayGoals ?? 0, gd = Math.abs(hg - ag);
+    if (gd === 0 && minNum > 60 && minNum < 85) {
+      const pts = Math.min(6, Math.round((minNum - 60) / 5) * 1.5);
+      homeScore += Math.round(pts * 0.5); awayScore += Math.round(pts * 0.5);
+      if (pts >= 3) sharedFactors.push('Beraberlikte risk');
+    } else if (gd === 1 && minNum > 75) {
+      const loserBoost = Math.min(5, (minNum - 75) * 0.3);
+      if (hg < ag) { homeScore += loserBoost; if (loserBoost >= 2) homeFactors.push('Farkı kovalıyor'); }
+      else { awayScore += loserBoost; if (loserBoost >= 2) awayFactors.push('Farkı kovalıyor'); }
+    }
+  } catch { /* score situation optional */ }
+
   // Factor 17: Card advantage
   const homeYellowCards = stats.yellow_cards?.home ?? 0,
     awayYellowCards = stats.yellow_cards?.away ?? 0;
@@ -1034,11 +1057,15 @@ const xgPts = Math.min(7, Math.round(xg.home * 7));
     const matchProbs = calculateMatchProbabilities(params);
     overUnder25 = matchProbs.overUnder[2.5]?.over ?? 0;
     bttsP = matchProbs.btts.yes;
+    // P1: Dinamik Poisson blend weight — dakika bazlı değişen ağırlık
+    // Erken: Poisson daha güvenilir (az olay var), geç: rule-based daha belirleyici
+    const blendWeight = minNum < 30 ? 0.15 : minNum < 60 ? 0.12 : minNum < 75 ? 0.10 : 0.08;
+    const invBlend = 1 - blendWeight;
     homeScore = Math.round(
-      homeScore * 0.9 + poissonResult.homeGoalP * 100 * 0.1,
+      homeScore * invBlend + poissonResult.homeGoalP * 100 * blendWeight,
     );
     awayScore = Math.round(
-      awayScore * 0.9 + poissonResult.awayGoalP * 100 * 0.1,
+      awayScore * invBlend + poissonResult.awayGoalP * 100 * blendWeight,
     );
 	  } catch (e) { logError('goalRadar', e); /* fallback */ }
 

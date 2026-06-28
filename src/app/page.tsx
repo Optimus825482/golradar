@@ -539,10 +539,10 @@ export default function OptimusGolRadariPage() {
 	      }
 	      if (!prob) continue
 	      // Side kontrolü: null ise determineSideByStats ile dene, yine nullsa gösterme
-	      if (!prob.side || prob.side === 'both') {
+	      if (!prob.side) {
 	        try {
 	          const fallbackSide = determineSideByStats(m.stats)
-	          if (fallbackSide && fallbackSide !== 'both') {
+	          if (fallbackSide) {
 	            prob = { ...prob, side: fallbackSide }
 	          } else {
 	            continue // side belirlenemiyor → gösterme

@@ -69,30 +69,39 @@ const FOOTBALLDB_TEAM_MAP: Record<string, string> = {
 };
 
 async function fetchFootballDB(teamName: string): Promise<number | null> {
-  const slug = FOOTBALLDB_TEAM_MAP[teamName];
-  if (!slug) return null;
-  try {
-    const resp = await fetch(
-      `https://www.footballdatabase.com/en/clubs/team/${slug}`,
-      {
-        signal: AbortSignal.timeout(10000),
-      },
-    );
-    if (!resp.ok) return null;
-    const html = await resp.text();
-    // Try to extract rating from page
-    const ratingMatch =
-      html.match(/Rating[:\s]*(\d{3,4})/i) ||
-      html.match(/score[:\s]*(\d{3,4})/i) ||
-      html.match(/(\d{3,4})[^\d]*points/i);
-    if (ratingMatch) {
-      const r = parseInt(ratingMatch[1], 10);
-      if (r >= 500 && r <= 3000) return r;
-    }
-    return null;
-  } catch {
-    return null;
+  // Slug bul: once manuel map, yoksa otomatik turetim
+  let slug = FOOTBALLDB_TEAM_MAP[teamName];
+  if (!slug) {
+    slug = teamName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
   }
+  const urls = [
+    `https://www.footballdatabase.com/en/clubs/team/${slug}`,
+    // Alternatif: direkt arama
+    `https://www.footballdatabase.com/en/search?q=${encodeURIComponent(teamName)}`,
+  ];
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (!resp.ok) continue;
+      const html = await resp.text();
+      const ratingMatch =
+        html.match(/Rating[:\s]*(\d{3,4})/i) ||
+        html.match(/score[:\s]*(\d{3,4})/i) ||
+        html.match(/(\d{3,4})[^\d]*points/i);
+      if (ratingMatch) {
+        const r = parseInt(ratingMatch[1], 10);
+        if (r >= 500 && r <= 3000) return r;
+      }
+      // Sayfa bulundu ama rating yok => aramaya devam etme
+      if (url.includes('/en/clubs/team/')) break;
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 // ── Source 3: eloratings.net scraping ────────────────────────────
@@ -290,29 +299,26 @@ export interface EloFetchResult {
 /**
  * Fetch team rating from multiple sources with fallback.
  * Returns null only if no source has any data for this team.
+ *
+ * Oncelik sirasi (degisti):
+ *   1. footballdatabase.com (scraping, rate limit yok)
+ *   2. ClubElo API (rate limit var, yedek)
+ *   3. Statik tahmin (son care)
  */
 export async function fetchTeamRating(
   teamName: string,
 ): Promise<EloFetchResult | null> {
-  // Fast pre-check: skip network calls entirely for unknown teams
-  // Only try API sources if the team is in our known dictionaries
-  const isKnown =
-    estimateFromMatchHistory(teamName) !== null ||
-    FOOTBALLDB_TEAM_MAP[teamName] !== undefined;
-  if (!isKnown) {
-    return null;
-  }
 
-  // 1. ClubElo API (best source)
-  const clubelo = await fetchClubElo(teamName);
-  if (clubelo !== null) {
-    return { rating: clubelo, source: "clubelo", team: teamName };
-  }
-
-  // 2. FootballDatabase scraping
+  // 1. FootballDatabase scraping (ana kaynak — rate limit sorunu yok)
   const footballdb = await fetchFootballDB(teamName);
   if (footballdb !== null) {
     return { rating: footballdb, source: "footballdb", team: teamName };
+  }
+
+  // 2. ClubElo API (rate limitli, yedek kaynak)
+  const clubelo = await fetchClubElo(teamName);
+  if (clubelo !== null) {
+    return { rating: clubelo, source: "clubelo", team: teamName };
   }
 
   // 3. Static estimation (conservative fallback)

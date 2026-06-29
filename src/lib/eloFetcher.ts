@@ -73,37 +73,71 @@ const FOOTBALLDB_TEAM_MAP: Record<string, string> = {
 };
 
 async function fetchFootballDB(teamName: string): Promise<number | null> {
-  // Slug bul: once manuel map, yoksa otomatik turetim
+  // Slug olustur: once manuel map, yoksa otomatik
   let slug = FOOTBALLDB_TEAM_MAP[teamName];
   if (!slug) {
     slug = teamName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
+      .replace(/([a-z])(\d)/g, '$1-$2') // Mainz05 -> mainz-05
       .replace(/^-|-$/g, '');
   }
-  const urls = [
-    `https://www.footballdatabase.com/en/clubs/team/${slug}`,
-    // Alternatif: direkt arama
-    `https://www.footballdatabase.com/en/search?q=${encodeURIComponent(teamName)}`,
-  ];
-  for (const url of urls) {
-    try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      if (resp.status === 429) throw new RateLimitedError('footballdb');
-      if (!resp.ok) continue;
+
+  // 1. Direkt club-ranking sayfasini dene (en yaygin URL patterni)
+  const rankingUrl = `https://footballdatabase.com/clubs-ranking/${slug}`;
+  try {
+    const resp = await fetch(rankingUrl, { signal: AbortSignal.timeout(8000) });
+    if (resp.status === 429) throw new RateLimitedError('footballdb');
+    if (resp.ok) {
       const html = await resp.text();
-      const ratingMatch =
-        html.match(/Rating[:\s]*(\d{3,4})/i) ||
-        html.match(/score[:\s]*(\d{3,4})/i) ||
-        html.match(/(\d{3,4})[^\d]*points/i);
-      if (ratingMatch) {
-        const r = parseInt(ratingMatch[1], 10);
-        if (r >= 500 && r <= 3000) return r;
+      const rating = extractRating(html);
+      if (rating) return rating;
+    }
+  } catch (e) {
+    if (e instanceof RateLimitedError) throw e;
+  }
+
+  // 2. Search ile bul (ranking sayfasi olmazsa)
+  const searchUrl = `https://footballdatabase.com/search.php?q=${encodeURIComponent(teamName)}`;
+  try {
+    const resp = await fetch(searchUrl, { signal: AbortSignal.timeout(8000) });
+    if (resp.status === 429) throw new RateLimitedError('footballdb');
+    if (resp.ok) {
+      const html = await resp.text();
+      // Ilk club linkini bul: /clubs-ranking/ veya /en/club/
+      const linkMatch = html.match(/href="(\/clubs-ranking\/[^"]+?)"/i) ||
+                        html.match(/href="(\/en\/club\/[^"]+?)"/i);
+      if (linkMatch) {
+        const clubUrl = `https://footballdatabase.com${linkMatch[1]}`;
+        const clubResp = await fetch(clubUrl, { signal: AbortSignal.timeout(8000) });
+        if (clubResp.ok) {
+          const clubHtml = await clubResp.text();
+          const rating = extractRating(clubHtml);
+          if (rating) return rating;
+        }
       }
-      // Sayfa bulundu ama rating yok => aramaya devam etme
-      if (url.includes('/en/clubs/team/')) break;
-    } catch {
-      continue;
+    }
+  } catch (e) {
+    if (e instanceof RateLimitedError) throw e;
+  }
+
+  return null;
+}
+
+/** footballdatabase sayfasindan rating degerini cikar */
+function extractRating(html: string): number | null {
+  const patterns = [
+    /Rating[:\s]*(\d{3,4})/i,
+    /score[:\s]*(\d{3,4})/i,
+    /(\d{3,4})[^\d]*points/i,
+    /data-rating["']?\s*[=:]\s*["']?(\d{3,4})/i,
+    /rating["']?\s*[=:]\s*["']?(\d{3,4})/i,
+  ];
+  for (const p of patterns) {
+    const m = html.match(p);
+    if (m) {
+      const r = parseInt(m[1], 10);
+      if (r >= 500 && r <= 3000) return r;
     }
   }
   return null;

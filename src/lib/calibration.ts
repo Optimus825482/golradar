@@ -382,9 +382,9 @@ export async function autoCalibrateFromDB(): Promise<{
 	  }
 	  bestValBrier = valSum / valLogs.length;
 	
-  // Only apply if meaningful improvement (>2% relative on validation)
-  // AND x0 is in sane range (≤50 prevents zero-calibrated scores >50)
-  if (bestValBrier < currentBrier * 0.98 && bestX0 <= 50) {
+  // Only apply if meaningful improvement (>5% relative on validation)
+  // AND params stay in sane range (prevent over-conservatism on imbalanced data)
+  if (bestValBrier < currentBrier * 0.95 && bestX0 <= 40 && bestL >= 0.85) {
     CALIBRATION_PARAMS.x0 = bestX0;
     CALIBRATION_PARAMS.k = bestK;
     CALIBRATION_PARAMS.L = bestL;

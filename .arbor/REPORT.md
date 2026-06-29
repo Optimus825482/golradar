@@ -1,8 +1,8 @@
 # GolRadar2 — Sinyal Doğruluğu Artırma Stratejik Programı (Rapor)
 
 **Oturum tarihi:** 2026-06-29  
-**Toplam commit:** 7 (`71eb6c3` → `b6c0029`)  
-**Toplam Arbor oturumu:** 4 (16+ hipotez, 12 completed, 4 pruned)  
+**Toplam commit:** 10+ (`71eb6c3` → HEAD)  
+**Toplam Arbor oturumu:** 5 (20+ hipotez, 14 completed, 4 pruned + 2 stub)  
 **Sinyal sayısı invariant:** Tüm feature flag'ler default kapalı; mevcut eşikler (RADAR=65, SIGNAL_5MIN=0.25) değişmedi.
 
 ---
@@ -18,6 +18,9 @@
 | 5 | `326649d` | A3 (feat) | recordPrediction canlıya al + applyOnlineAdjustments gating |
 | 6 | `b8b3f3f` | B (feat) | Lite GAP predictor-stub + ensemble wiring |
 | 7 | `b6c0029` | chore | .gitignore: arbor session runtime artifacts |
+| 8 | `d259a6b` | docs | Birleştirilmiş oturum raporu (4 Arbor, 7 commit) |
+| 9 | `5d5a9ef` | D (feat) | Dixon-Coles corrector (Frank κ + ZISM β) |
+| 10+ | Faz 6 | backtestEngine JSON writer + FEATURE_FLAGS.md + final rapor | (commit edilecek) |
 
 ---
 
@@ -94,6 +97,17 @@
 
 **Stub mod:** updateGapRating no-op, predictGapMatch gapP=0 döndürür. BMA `gapP > 0` filtresi sayesinde ensemble etkilenmez (sinyal sayısı invariant).
 
+### 2.5 dixoncoles-zism-corrector (Yol D)
+
+| Mod | κ/β | brierBase | brierCorrected | δBtts |
+|---|---|---|---|---|
+| Baseline | — | 0.382 | 0.382 | — |
+| Frank κ=-0.05 | κ=-0.05 | 0.382 | 0.3824 | **-0.0039** |
+| Frank κ=-0.30 | κ=-0.30 | 0.382 | 0.3843 | **-0.0216** |
+| ZISM β=0.20 | β=0.20 | 0.382 | 0.3828 | -0.0077 |
+
+**En iyi:** Frank κ=-0.30 — BTTS iyileşmesi **−2.16%** (anyGoal hafif trade-off).
+
 ---
 
 ## 3. Aktifleştirme Rehberi (Production)
@@ -143,13 +157,17 @@ Her commit'te `RADAR_THRESHOLD` ve `SIGNAL_5MIN_THRESHOLD` değişmedi:
 
 ---
 
-## 6. Kapsam Dışı (Faz 5 + Faz 6 — Backlog)
+## 6. Kapsam Dışı (Backlog)
 
-### Faz 5 (Yol D) — Frank's Copula / ZISM corrector
-- **Plan durumu:** Planlandı (Task ID yok); kullanıcı manual review tercih etti
-- **Kapsam:** new `dixonColesCorrector.ts` (κ corrector + ZISM mode), factors.ts patch, benchmark, 4 hipotez
+### Faz 5 (Yol D) — Frank's Copula / ZISM corrector ✓
+- ✅ `src/lib/dixonColesCorrector.ts`, `goalRadar.ts` entegrasyonu, `scripts/zism-corrector-benchmark.ts`
+- ✅ Best: Frank κ=-0.30, BTTS −2.16%
 
-### Faz 6 — Rollout + BacktestEngine JSON writer
-- `data/backtest-results/` JSON yazıcı (şu an boş)
-- Production feature flag dokümantasyonu
-- 48 saat shadow run klavuzu
+### Faz 6 — Rollout ✓ (kısmen)
+- ✅ `backtestEngine.ts` JSON writer (BACKTEST_PERSIST_JSON env gate)
+- ✅ `docs/FEATURE_FLAGS.md` aktivasyon kılavuzu
+
+### Kalan Backlog
+- Lite GAP için featuresJson backfill job (`scripts/backfill-features-json.ts`)
+- Production shadow run kılavuzu (48 saat)
+- Glicko-2 (mod-brier-calibration pruned hipotezleri)

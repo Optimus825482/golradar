@@ -226,6 +226,59 @@ function runBacktestImplCore(signals: any[], config: BacktestConfig = {}): any {
     });
   }
 
+  // Faz 6 — JSON writer (data/backtest-results/*.json).
+  // Opt-in: BACKTEST_PERSIST_JSON=true env flag ile aktif. Default kapalı
+  // (mevcut davranış birebir aynı; sinyal sayısı invariant).
+  // Üretim shadow run'ında bu flag'i set ederek disk-tabanlı trend analizi
+  // (Brier drift, calibration curve over time) mümkün olur.
+  if (process.env.BACKTEST_PERSIST_JSON === 'true') {
+    try {
+      const fs = getBeFs();
+      const path = getBePath();
+      if (fs && path && BACKTEST_DIR) {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `backtest-${stamp}-${signals.length}.json`;
+        const filepath = path.join(BACKTEST_DIR, filename);
+        const payload = {
+          generatedAt: new Date().toISOString(),
+          signals: signals.length,
+          config: {
+            startedAt: config.startDate ?? null,
+            endedAt: config.endDate ?? null,
+            minSignals: config.minSignals ?? null,
+            thresholdRange: config.thresholdRange ?? null,
+            bucketCount: config.bucketCount ?? null,
+          },
+          result: {
+            totalSignals: signals.length,
+            truePositives: tp, falsePositives: fp, trueNegatives: tn, falseNegatives: fn,
+            precision: Math.round(precision * 1000) / 1000,
+            recall: Math.round(recall * 1000) / 1000,
+            f1Score: Math.round(f1Score * 1000) / 1000,
+            accuracy: Math.round(accuracy * 1000) / 1000,
+            brierScore: Math.round(computeBrierScore(signals) * 10000) / 10000,
+            thresholds,
+            buckets,
+            calibrationCurve: computeCalibrationCurve(signals, bucketCount),
+            timeDistribution: computeTimeDistribution(signals),
+            signalDecay: computeSignalDecay(signals),
+            scoreDiffAccuracy: computeScoreDifferenceAccuracy(signals),
+            falsePositivePatterns: computeFalsePositivePatterns(signals),
+            factorImportance: computeFactorImportance(signals),
+            brierDecomposition: (computeBrierDecomposition as any)(signals as any),
+            sideAccuracy: computeSideAccuracy(signals),
+            escalation: computeEscalationAccuracy(signals),
+            dailyPerformance: computeDailyPerformance(signals),
+          },
+        };
+        if (!fs.existsSync(BACKTEST_DIR)) fs.mkdirSync(BACKTEST_DIR, { recursive: true });
+        fs.writeFileSync(filepath, JSON.stringify(payload, null, 2), 'utf-8');
+      }
+    } catch {
+      // Sessiz geç — production'da loglanabilir, ancak kritik değil.
+    }
+  }
+
   return {
     totalSignals: signals.length,
     truePositives: tp, falsePositives: fp, trueNegatives: tn, falseNegatives: fn,

@@ -27,12 +27,25 @@ const keyOf = (name: MeasuredModelName) => `measured.brier.${name}`;
 /**
  * DB'den 60s TTL cache üzerinden ölçülmüş Brier'ı getir.
  * null dönerse ensemble null → UNRANKED_WEIGHT (0.20) yoluna gider.
+ *
+ * Güvenlik guardrail: rule-based bizim ana sinyal motorumuz. Eğer
+ * ölçülmüş brier'ı tier=0 (archived) eşiğine düşerse ensemble onu tamamen
+ * devre dışı bırakır ve sinyal sayısı düşer. Bu yüzden 'rule' için
+ * brier ≥ RULE_BRIER_FLOOR (0.35) ise null döndürüyoruz — eski 0.20
+ * unranked rotasına düşüyor. Poisson ve Elo için böyle bir guardrail yok
+ * çünkü onlar ana sinyal değil.
  */
+const RULE_BRIER_FLOOR = 0.35; // tier=0 eşiği 0.40 ama prod shadow sonrası
+                                // kaldırılacak — A1 phase-1 guardrail.
+
 export async function getMeasuredBrier(
   name: MeasuredModelName,
 ): Promise<number | null> {
   const cached = cache.get(name);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    if (name === 'rule' && cached.value !== null && cached.value >= RULE_BRIER_FLOOR) {
+      return null;
+    }
     return cached.value;
   }
   try {
@@ -46,6 +59,9 @@ export async function getMeasuredBrier(
     }
     const v = (row.value as { brier?: number } | null)?.brier ?? null;
     cache.set(name, { value: v, ts: Date.now() });
+    if (name === 'rule' && v !== null && v >= RULE_BRIER_FLOOR) {
+      return null;
+    }
     return v;
   } catch (e) {
     logError('measuredBrier', e);

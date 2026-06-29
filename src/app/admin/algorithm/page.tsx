@@ -21,13 +21,14 @@ flowchart TD
 	    Momentum --> CalcGoal[calculateGoalProbability<br/>12 factor heuristic]
 	    CalcGoal --> Poisson[Poisson blend<br/>Dixon-Coles + inPlay]
 	    Poisson --> Elo[Elo adjustment<br/>Dynamic K=50]
-	    Elo --> Pi[Pi-Rating<br/>4 rating Ev/Dep]
-	    Pi --> Glicko2[Glicko-2<br/>RD + σ volatility]
-	    Glicko2 --> Gap[Lite GAP stub<br/>featuresJson DB]
-	    Gap --> Ensemble[Ensemble 9-model<br/>Brier-tier weights]
-	    Ensemble --> Corrector[ZISM Corrector<br/>Frank κ / Weibull]
-	    Corrector --> Stacking[Stacking Meta-Model<br/>α=0-1 blend]
-	    Stacking --> Calib[Calibration<br/>PAVA / Sigmoid]
+	    Elo --> Ensemble[Ensemble 6 model<br/>rule-poisson-elo-ml-ts-inplay]
+	    Ensemble --> Calib[Calibration<br/>PAVA / Sigmoid]
+	    
+	    Calib -.->|ENV gated| Pi["Pi-Rating 🔒<br/>ENABLE_PI_RATING"]
+	    Calib -.->|ENV gated| Glicko2["Glicko-2 🔒<br/>ENABLE_GLICKO2"]
+	    Calib -.->|ENV gated| Corrector["ZISM Corrector 🔒<br/>ENABLE_ZISM_CORRECTOR"]
+	    Calib -.->|ENV gated| Stacking["Stacking α 🔒<br/>STACKING_BLEND_ALPHA"]
+	    Calib -.->|ENV gated| Gap["Lite GAP 🔒<br/>ENABLE_GAP_RATING"]
 	    
 	    Calib --> SignalCheck{score >= 60<br/>side != null?}
 	    SignalCheck -->|Hayır| Next
@@ -176,7 +177,7 @@ flowchart LR
 	  {
       key: 'signal',
       title: '🎯 Gol Sinyali Akışı (güncel)',
-      description: 'Browser poll → Nesine API (21 stat) → FotMob (shot-level xG) → Goaloo (oddsMovement + momentum) → 12 faktör → Dixon-Coles Poisson → Elo → Pi-Rating (iç/dep) → Glicko-2 (RD+σ) → Lite GAP (stub) → Ensemble 9-model Brier-tier blend → ZISM/Weibull Corrector (κ=κ=-0.30) → Stacking Meta-Model (α=0-1) → PAVA/Sigmoid kalibrasyon → threshold+side check → Signal DB.',
+      description: 'Browser poll → Nesine API (21 stat) → FotMob (shot-level xG) → Goaloo (oddsMovement + momentum) → 12 faktör → Dixon-Coles Poisson → Elo → Ensemble 6-model (rule-poisson-elo-ml-ts-inplay) → PAVA/Sigmoid kalibrasyon → Signal DB. NOT: Pi-Rating, Glicko-2, ZISM Corrector, Stacking α-blend, Lite GAP env gate ile kapalı (🔒). Aktifleştirme için deployment env. ',
       source: SIGNAL_FLOW_DIAGRAM,
 	  },
 	];
@@ -256,7 +257,7 @@ export default function AdminAlgorithmPage() {
 		            num="3"
 		            title="Sinyal Üretimi"
 		            color="emerald"
-		            items={['12 faktör heuristic → raw score', 'Poisson + Elo + Pi-Rating + Glicko2', 'Ensemble 9-model Brier-tier blend', 'ZISM/Weibull Corrector (κ -0.30)', 'Stacking Meta-Model α-blend', 'PAVA/Sigmoid calibration', 'Threshold 60 + side ratio 0.62']}
+		            items={['12 faktör heuristic → raw score', 'Dixon-Coles Poisson + Elo (base)', 'Ensemble 6-model Brier-tier blend', 'PAVA/Sigmoid calibration', 'Threshold 60 + side ratio 0.62', '🔒 Pi-Rating / Glicko-2 / Corrector / Stacking / Lite GAP (env gate, default OFF)']}
 		          />
 	          <PipelineStep
 	            num="4"
@@ -418,34 +419,34 @@ export default function AdminAlgorithmPage() {
             description="Sinyalleri hypothetical bahis olarak simüle eder: Sharpe, Drawdown, Win Rate."
           />
           <Formula
-            title="Pi-Rating (Constantinou 2013)"
+            title="🔒 Pi-Rating (Constantinou 2013) — env gate"
             formula="δ_exp = (Ha + Ad)/2 − (Hd + Aa)/2 + HOME_ADV"
-            description="4 rating per takım: Ha, Hd, Aa, Ad. İç/deplasman ayrı, gol-farkı bazlı update. ξ=3.25e-3/gün, ω=0.05."
+            description="ENABLE_PI_RATING=true. 4 rating per takım: Ha, Hd, Aa, Ad. İç/deplasman ayrı, gol-farkı bazlı update. ξ=3.25e-3/gün, ω=0.05. Default KAPALI."
           />
           <Formula
-            title="Glicko-2 (Glickman 2013)"
+            title="🔒 Glicko-2 (Glickman 2013) — env gate"
             formula="g(φ)=1/√(1+3φ²/π²) · E=1/(1+exp(-g(μᵢ-μⱼ)))"
-            description="3-param r, RD, σ. İllinois Algorithm volatility update. HomeAdv +0.155µ. Ensemble'a RD-weighted drawP."
+            description="ENABLE_GLICKO2=true. 3-param r, RD, σ. RD=350 cold-start. Simplified Illinois. Default KAPALI."
           />
           <Formula
-            title="Frank's Copula Corrector"
+            title="🔒 Frank's Copula Corrector — env gate"
             formula="cell'[h][a] = cell[h][a] · w(h,a; κ)"
-            description="κ<0 pozitif korelasyon (equal-score boost). κ>0 negatif (stres). κ=-0.30 önerilen (BTTS %2.16 iyileşme)."
+            description="ENABLE_ZISM_CORRECTOR=true. κ<0 pozitif korelasyon (equal-score boost). κ=-0.30 önerilen (BTTS %2.16 iyileşme). Default KAPALI."
           />
           <Formula
-            title="Weibull PMF + Copula"
+            title="🔒 Weibull PMF + Copula — env gate"
             formula="weibullPMF(λ, k, shape=1.4)"
-            description="Over-dispersion (variance>mean) için Weibull sayımı. Frank κ=-0.30 ile BTTS %19 iyileşme (McHale & Scarf 2011)."
+            description="ENABLE_ZISM_CORRECTOR=true + SKOR_PMF=weibull. Over-dispersion (variance>mean) için Weibull sayımı. Frank κ=-0.30 ile BTTS %19 iyileşme. Default KAPALI."
           />
           <Formula
-            title="Lite GAP Rating (stub)"
+            title="🔒 Lite GAP Rating (stub) — env gate"
             formula="S_H = (Haᵢ + Adⱼ) / 2"
-            description="Generalized Attacking Performance. 4 rating per takım. Şut/korner/xG non-rare event. featuresJson backfill bekliyor."
+            description="ENABLE_GAP_RATING=true. Generalized Attacking Performance. 4 rating per takım. featuresJson DB boş olduğu için predictGapMatch gapP=0 döner (stub). Default KAPALI."
           />
           <Formula
-            title="Stacking α-Blend"
+            title="🔒 Stacking α-Blend — env gate"
             formula="finalP = (1-α)·BMA + α·Stacking"
-            description="α=0.5 önerilen (%23.6 Brier iyileşme). Cold-start guard: 200+ örnek + agreement ≥0.4. STACKING_BLEND_ALPHA env."
+            description="STACKING_BLEND_ALPHA=0.5 önerilen (%23.6 Brier iyileşme). Cold-start guard: 200+ örnek + agreement ≥0.4. Default KAPALI (α=0)."
           />
         </div>
       </div>

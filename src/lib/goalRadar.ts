@@ -12,6 +12,13 @@ import {
 } from './fotmobIntelligence';
 import { calculateOddsF8Compound, calibrateF8Sync, loadCalibrationModeSync } from './smartCalibration';
 import { inPlayGoalProbability, calculateExpectedGoals, calculateMatchProbabilities } from './dixonColes';
+import {
+  applyCorrector,
+  buildBasePoissonMatrix,
+  deriveStats as deriveCorrectorStats,
+  DEFAULT_CORRECTOR_PARAMS,
+  type CorrectorParams,
+} from './dixonColesCorrector';
 import { calibrateScore } from './calibration';
 import { logError } from '@/lib/devLog';
 import { SIGNAL_5MIN_THRESHOLD, ENSEMBLE_SCORE_CAP, RADAR_THRESHOLD } from '@/config';
@@ -246,6 +253,30 @@ export function calculateGoalProbability(
     const mp = calculateMatchProbabilities(params);
     overUnder25 = mp.overUnder[2.5]?.over ?? 0;
     bttsP = mp.btts.yes;
+
+    // Faz 5 / Yol D — Dixon-Coles corrector (Frank's Copula / ZISM).
+    // ENV gate: ENABLE_ZISM_CORRECTOR=true. Kapalıyken corrector uygulanmaz
+    // (mevcut davranışla birebir aynı; sinyal sayısı invariant).
+    // SKOR_KAPPA, ZISM_BETA env flag'leri sırasıyla κ ve β'yi override eder.
+    if (process.env.ENABLE_ZISM_CORRECTOR === 'true') {
+      const correctorParams: CorrectorParams = {
+        mode: (process.env.ZISM_MODE as 'off' | 'frank' | 'zism') ?? 'frank',
+        kappa: parseFloat(process.env.SKOR_KAPPA ?? '-0.10'),
+        beta: parseFloat(process.env.ZISM_BETA ?? '0.10'),
+      };
+      const baseMatrix = buildBasePoissonMatrix(mp.lambdaHome ?? homeAS, mp.lambdaAway ?? awayAS, 5);
+      const corrected = applyCorrector(baseMatrix, correctorParams);
+      const stats = deriveCorrectorStats(corrected);
+      // Corrector uygulanmış over/under + BTTS kullan (Dixon-Coles rho/gamma
+      // corrector'ından zenginleştirilmiş). Yumuşak blend: %50 corrector etkisi.
+      overUnder25 = 0.5 * overUnder25 + 0.5 * stats.over25;
+      bttsP = 0.5 * bttsP + 0.5 * stats.btts;
+      // Corrector corrector corrector corrector cap (sinyal sayısı korunması
+      // için): btts ve overUnder25'i %5 bound içinde tutar.
+      overUnder25 = Math.max(0.01, Math.min(0.99, overUnder25));
+      bttsP = Math.max(0.01, Math.min(0.99, bttsP));
+    }
+
     const bw = minNum < 30 ? 0.15 : minNum < 60 ? 0.12 : minNum < 75 ? 0.10 : 0.08;
     ctx.hs = Math.round(ctx.hs * (1 - bw) + pr.homeGoalP * 100 * bw);
     ctx.as = Math.round(ctx.as * (1 - bw) + pr.awayGoalP * 100 * bw);

@@ -343,9 +343,9 @@ export async function autoCalibrateFromDB(): Promise<{
 	    const kStep = phase === 'coarse' ? 0.010 : 0.002;
 	    const lStep = phase === 'coarse' ? 0.05 : 0.01;
 	
-	    const x0Range = phase === 'coarse'
-	      ? { min: 40, max: 85 }
-	      : { min: Math.max(40, bestX0 - x0Step * 2), max: Math.min(85, bestX0 + x0Step * 2) };
+    const x0Range = phase === 'coarse'
+      ? { min: 20, max: 50 }
+      : { min: Math.max(20, bestX0 - x0Step * 2), max: Math.min(50, bestX0 + x0Step * 2) };
 	    const kRange = phase === 'coarse'
 	      ? { min: 0.020, max: 0.120 }
 	      : { min: Math.max(0.020, bestK - kStep * 10), max: Math.min(0.120, bestK + kStep * 10) };
@@ -382,13 +382,14 @@ export async function autoCalibrateFromDB(): Promise<{
 	  }
 	  bestValBrier = valSum / valLogs.length;
 	
-	  // Only apply if meaningful improvement (>2% relative on validation)
-	  if (bestValBrier < currentBrier * 0.98) {
-	    CALIBRATION_PARAMS.x0 = bestX0;
-	    CALIBRATION_PARAMS.k = bestK;
-	    CALIBRATION_PARAMS.L = bestL;
-	    try {
-	      await persistParamsToDB('autoCalibrateFromDB');
+  // Only apply if meaningful improvement (>2% relative on validation)
+  // AND x0 is in sane range (≤50 prevents zero-calibrated scores >50)
+  if (bestValBrier < currentBrier * 0.98 && bestX0 <= 50) {
+    CALIBRATION_PARAMS.x0 = bestX0;
+    CALIBRATION_PARAMS.k = bestK;
+    CALIBRATION_PARAMS.L = bestL;
+    try {
+      await persistParamsToDB('autoCalibrateFromDB');
     } catch (e) {
       logError('calibration', 'persist failed:', e);
     }
@@ -396,14 +397,14 @@ export async function autoCalibrateFromDB(): Promise<{
       'calibration',
       `Optimized: x0=${bestX0}, k=${bestK.toFixed(4)}, L=${bestL.toFixed(2)}, TrainBrier ${currentBrier.toFixed(4)} → ValBrier ${bestValBrier.toFixed(4)}`,
     );
-	    return {
-	      x0: bestX0,
-	      k: bestK,
-	      L: bestL,
-	      brierBefore: currentBrier,
-	      brierAfter: bestValBrier,
-	    };
-	  }
+    return {
+      x0: bestX0,
+      k: bestK,
+      L: bestL,
+      brierBefore: currentBrier,
+      brierAfter: bestValBrier,
+    };
+  }
 	
   logInfo(
     'calibration',

@@ -24,11 +24,11 @@ flowchart TD
 	    Elo --> Ensemble[Ensemble 6 model<br/>rule-poisson-elo-ml-ts-inplay]
 	    Ensemble --> Calib[Calibration<br/>PAVA / Sigmoid]
 	    
-	    Calib -.->|ENV gated| Pi["Pi-Rating 🔒<br/>ENABLE_PI_RATING"]
-	    Calib -.->|ENV gated| Glicko2["Glicko-2 🔒<br/>ENABLE_GLICKO2"]
-	    Calib -.->|ENV gated| Corrector["ZISM Corrector 🔒<br/>ENABLE_ZISM_CORRECTOR"]
-	    Calib -.->|ENV gated| Stacking["Stacking α 🔒<br/>STACKING_BLEND_ALPHA"]
-	    Calib -.->|ENV gated| Gap["Lite GAP 🔒<br/>ENABLE_GAP_RATING"]
+	    Pi["Pi-Rating ✅<br/>default ON"]
+	    Glicko2["Glicko-2 ✅<br/>default ON"]
+	    Corrector["ZISM Corrector ✅<br/>default ON"]
+	    Stacking["Stacking α ✅<br/>default ON (α=0.5)"]
+	    Gap["Lite GAP ✅<br/>default ON"]
 	    
 	    Calib --> SignalCheck{score >= 60<br/>side != null?}
 	    SignalCheck -->|Hayır| Next
@@ -177,7 +177,7 @@ flowchart LR
 	  {
       key: 'signal',
       title: '🎯 Gol Sinyali Akışı (güncel)',
-      description: 'Browser poll → Nesine API (21 stat) → FotMob (shot-level xG) → Goaloo (oddsMovement + momentum) → 12 faktör → Dixon-Coles Poisson → Elo → Ensemble 6-model (rule-poisson-elo-ml-ts-inplay) → PAVA/Sigmoid kalibrasyon → Signal DB. NOT: Pi-Rating, Glicko-2, ZISM Corrector, Stacking α-blend, Lite GAP env gate ile kapalı (🔒). Aktifleştirme için deployment env. ',
+      description: 'Browser poll → Nesine API (21 stat) → FotMob (shot-level xG) → Goaloo (oddsMovement + momentum) → 12 faktör → Dixon-Coles Poisson → Elo → Pi-Rating → Glicko-2 → Lite GAP → Ensemble 9-model Brier-tier blend → ZISM/Weibull Corrector (κ=-0.30) → Stacking α-blend (α=0.5) → PAVA/Sigmoid → Signal DB. Tüm yeni özellikler default AÇIK (env ile kapatılabilir).',
       source: SIGNAL_FLOW_DIAGRAM,
 	  },
 	];
@@ -257,7 +257,7 @@ export default function AdminAlgorithmPage() {
 		            num="3"
 		            title="Sinyal Üretimi"
 		            color="emerald"
-		            items={['12 faktör heuristic → raw score', 'Dixon-Coles Poisson + Elo (base)', 'Ensemble 6-model Brier-tier blend', 'PAVA/Sigmoid calibration', 'Threshold 60 + side ratio 0.62', '🔒 Pi-Rating / Glicko-2 / Corrector / Stacking / Lite GAP (env gate, default OFF)']}
+		            items={['12 faktör heuristic → raw score', 'Dixon-Coles Poisson + Elo', 'Pi-Rating + Glicko-2 + Lite GAP', 'Ensemble 9-model Brier-tier blend', 'ZISM/Weibull Corrector (κ -0.30)', 'Stacking Meta-Model α=0.5', 'PAVA/Sigmoid calibration', 'Threshold 60 + side ratio 0.62']}
 		          />
 	          <PipelineStep
 	            num="4"

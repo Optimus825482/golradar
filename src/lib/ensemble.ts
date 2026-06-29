@@ -376,7 +376,8 @@ export async function predictEnsemble(
   // ENABLE_GAP_RATING env gate kapalıyken hiç çağrılmaz (sinyal sayısı invariant).
   let gapP = 0;
   let gapDetails = "GAP inactive (stub)";
-  if (process.env.ENABLE_GAP_RATING === 'true' && homeTeam && awayTeam) {
+  // Faz 4 — Lite GAP. Default AÇIK (stub mod, backfill sonrası gerçek predict).
+  if (process.env.DISABLE_GAP_RATING !== 'true' && homeTeam && awayTeam) {
     try {
       const gapState = createGapRatingState();
       const gapPred = predictGapMatch(gapState, homeTeam, awayTeam);
@@ -394,7 +395,8 @@ export async function predictEnsemble(
   let piRatingHomeWin = eloHomeWin;
   let piRatingDraw = eloDraw;
   let piRatingAwayWin = eloAwayWin;
-  if (process.env.ENABLE_PI_RATING === 'true' && homeTeam && awayTeam) {
+  // Faz 7 — Pi-Rating (Constantinou 2013). Default AÇIK. env=false ile kapatılabilir.
+  if (process.env.DISABLE_PI_RATING !== 'true' && homeTeam && awayTeam) {
     try {
       const piPred = predictPi(homeTeam, awayTeam);
       // Pi-Rating'in any-goal olasılığı: P(gd > 0) ≈ homeWinP + 0.5 · drawP
@@ -415,7 +417,8 @@ export async function predictEnsemble(
   let glicko2HomeWin = eloHomeWin;
   let glicko2Draw = eloDraw;
   let glicko2AwayWin = eloAwayWin;
-  if (process.env.ENABLE_GLICKO2 === 'true' && homeTeam && awayTeam) {
+  // Faz 7 — Glicko-2 (Glickman 2013). Default AÇIK. DISABLE_GLICKO2 ile kapat.
+  if (process.env.DISABLE_GLICKO2 !== 'true' && homeTeam && awayTeam) {
     try {
       const gPred = predictGlicko2Fn(homeTeam, awayTeam);
       glicko2P = Math.max(0.05, Math.min(0.85, gPred.homeWinP + 0.5 * gPred.drawP));
@@ -566,7 +569,8 @@ export async function predictEnsemble(
   // STACKING_BLEND_ALPHA ∈ [0, 1]: 0=devre dışı (BMA-only), 1=full stacking.
   // Yalnız ring buffer eğitim verisi yeterliyse ve model agreement yüksekse
   // aktif olur (cold-start guard + agreement gate).
-  const stackingAlpha = parseFloat(process.env.STACKING_BLEND_ALPHA ?? '0');
+  // Faz 2 — Stacking α-blend. Default α=0.5 (önerilen). env override edilebilir.
+  const stackingAlpha = parseFloat(process.env.STACKING_BLEND_ALPHA ?? '0.5');
   const STACKING_MIN_SAMPLES = 200; // trainStackingMetaModel n<100 reddeder; burada 200 ile conservative
   const stackingSampleCount = getStackingSamplesCount();
   const stackingEligible =

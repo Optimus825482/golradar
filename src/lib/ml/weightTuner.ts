@@ -23,6 +23,7 @@ export interface WeightTunerInput {
   eloBrier?: number | null;
   mlBrier?: number | null;
   teamStrengthBrier?: number | null;
+  gapBrier?: number | null;
   minute?: number;
   hasPressureHistory?: boolean;
 }
@@ -34,6 +35,7 @@ export interface EnsembleWeights {
   ml: number;
   teamStrength: number;
   inplay: number;
+  gap: number;
 }
 
 interface ModelSlot {
@@ -98,6 +100,14 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
       lateBonus: 0,
       pressureBonus: 0,
     },
+    {
+      name: 'gap',
+      brier: input.gapBrier,
+      baseWeight: tierWeight(input.gapBrier),
+      earlyBonus: 0.02,
+      lateBonus: 0.02,
+      pressureBonus: 0.01,
+    },
   ];
 
   // Cap each slot's tier weight before applying bonuses, so bonuses
@@ -111,6 +121,7 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
     poisson: 0.35,      // grid search: 0.30→0.35
     elo: 0.25,          // grid search: 0.20→0.25
     teamStrength: 0.15,
+    gap: 0.15,          // Faz 4 (Yol B) — lite mode; ENV-gated, küçük cap
   };
   // ⚠️  Applies grid search result but only on 51 records — recalibrate
   // when predictionLog reaches 500+ goalScored labels.
@@ -143,6 +154,10 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
     inplaySlot.baseWeight = inplaySlot.baseWeight * ((minute - 20) / 10);
   }
 
+  const gapSlot = slots.find((s) => s.name === 'gap')!;
+  // Faz 4 — gap slot guardrail. brier null ise (henüz ölçülmediyse) slot
+  // tier=0.20 unranked → küçük ağırlık. Tier ≥ 1.0 gelse bile max 0.15 cap.
+  // Sinyal sayısı invariant: cap düşük → gap hiçbir zaman domine edemez.
   const raw: EnsembleWeights = {
     ruleBased: slots.find((s) => s.name === 'ruleBased')!.baseWeight,
     poisson: slots.find((s) => s.name === 'poisson')!.baseWeight,
@@ -150,13 +165,14 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
     ml: slots.find((s) => s.name === 'ml')!.baseWeight,
     teamStrength: slots.find((s) => s.name === 'teamStrength')!.baseWeight,
     inplay: inplaySlot.baseWeight,
+    gap: gapSlot.baseWeight,
   };
 
   // Normalize to sum = 1.0
   const sum =
-    raw.ruleBased + raw.poisson + raw.elo + raw.ml + raw.teamStrength + raw.inplay;
+    raw.ruleBased + raw.poisson + raw.elo + raw.ml + raw.teamStrength + raw.inplay + raw.gap;
   if (sum <= 0) {
-    return { ruleBased: 0.5, poisson: 0.2, elo: 0.1, ml: 0.1, teamStrength: 0.1, inplay: 0 };
+    return { ruleBased: 0.5, poisson: 0.2, elo: 0.1, ml: 0.05, teamStrength: 0.05, inplay: 0, gap: 0 };
   }
   return {
     ruleBased: raw.ruleBased / sum,
@@ -165,6 +181,7 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
     ml: raw.ml / sum,
     teamStrength: raw.teamStrength / sum,
     inplay: raw.inplay / sum,
+    gap: raw.gap / sum,
   };
 }
 
@@ -241,9 +258,10 @@ export function applyOnlineAdjustments(weights: EnsembleWeights): void {
   if (adjustments.poisson) weights.poisson *= adjustments.poisson;
   if (adjustments.elo) weights.elo *= adjustments.elo;
   if (adjustments.teamStrength) weights.teamStrength *= adjustments.teamStrength;
+  if (adjustments.gap) weights.gap *= adjustments.gap;
 
   // Re-normalize
-  const sum = weights.ruleBased + weights.poisson + weights.elo + weights.ml + weights.teamStrength + weights.inplay;
+  const sum = weights.ruleBased + weights.poisson + weights.elo + weights.ml + weights.teamStrength + weights.inplay + weights.gap;
   if (sum > 0) {
     weights.ruleBased /= sum;
     weights.poisson /= sum;
@@ -251,5 +269,6 @@ export function applyOnlineAdjustments(weights: EnsembleWeights): void {
     weights.ml /= sum;
     weights.teamStrength /= sum;
     weights.inplay /= sum;
+    weights.gap /= sum;
   }
 }

@@ -23,6 +23,10 @@ import {
 } from './dixonColes';
 import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
 import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
+import {
+  createGapRatingState,
+  predictGapMatch,
+} from './ml/gapRating';
 import { computeEnsembleWeights, applyOnlineAdjustments } from './ml/weightTuner';
 import { getChampionBrier } from './ml/modelRouter';
 import { getMeasuredBrier } from './ml/brierCache';
@@ -48,6 +52,7 @@ export interface EnsembleWeights {
   ml: number;          // GBDT ML model weight
   teamStrength: number; // Kalman team-strength weight
   inplay: number;      // 5-min ahead in-play XGBoost (active only when minute > 20)
+  gap: number;         // Faz 4 (Yol B) — Lite GAP rating weight (lite mode; ENV-gated)
 }
 
 export interface ModelPrediction {
@@ -358,6 +363,24 @@ export async function predictEnsemble(
     teamStrengthP = 0;
   }
 
+  // ── Model 6: Lite GAP (Faz 4 / Yol B) — STUB ──
+  // Şu an predictGapMatch gapP=0 döner (featuresJson DB'de dolu değil).
+  // featuresJson backfill tamamlandığında predictGapMatch aktif olacak.
+  // ENABLE_GAP_RATING env gate kapalıyken hiç çağrılmaz (sinyal sayısı invariant).
+  let gapP = 0;
+  let gapDetails = "GAP inactive (stub)";
+  if (process.env.ENABLE_GAP_RATING === 'true' && homeTeam && awayTeam) {
+    try {
+      const gapState = createGapRatingState();
+      const gapPred = predictGapMatch(gapState, homeTeam, awayTeam);
+      gapP = gapPred.gapP;
+      gapDetails = `λ_h=${gapPred.lambdaHome.toFixed(2)} λ_a=${gapPred.lambdaAway.toFixed(2)} c=${gapPred.confidence} (matches=${Math.min(gapPred.matchesHome, gapPred.matchesAway)})`;
+    } catch (e) {
+      logError('ensemble', 'predictGapMatch failed', e);
+      gapP = 0;
+    }
+  }
+
   // ── Calculate dynamic weights (Brier tier-based) ──
   // Replaces the old calculateDynamicWeights() heuristic with a
   // Brier-driven tuner. Champion Brier values are extracted from
@@ -387,6 +410,7 @@ export async function predictEnsemble(
     inplayBrier,
     mlBrier,
     teamStrengthBrier,
+    gapBrier: null, // GAP stub — gapRating DB feature engineering gerektiriyor
     ruleBrier: ruleMeasured,
     poissonBrier: poissonMeasured,
     eloBrier: eloMeasured,
@@ -413,18 +437,20 @@ export async function predictEnsemble(
     { name: 'ML', probability: mlP, brierScore: null as number | null },
     { name: 'TeamStrength', probability: teamStrengthP, brierScore: null as number | null },
     { name: 'InPlay5m', probability: inPlayP, brierScore: null as number | null },
+    { name: 'GAP', probability: gapP, brierScore: null as number | null },
   ].filter(m => m.probability > 0);
 
   // Get Brier scores from champion models
   const brierMap: Record<string, number | null> = {};
   try {
-    const [rbBrier, poBrier, elBrier, mlBr, tsBrier, ipBrier] = await Promise.all([
+    const [rbBrier, poBrier, elBrier, mlBr, tsBrier, ipBrier, gapBrierDb] = await Promise.all([
       getChampionBrier('gbdt').catch(() => null),
       getChampionBrier('xgb').catch(() => null),
       null, // Elo has no Brier
       getChampionBrier('gbdt').catch(() => null),
       getChampionBrier('team-strength').catch(() => null),
       getChampionBrier('inplay').catch(() => null),
+      getMeasuredBrier('gap').catch(() => null),
     ]);
     brierMap['Rule-Based'] = rbBrier;
     brierMap['Poisson'] = poBrier;
@@ -432,6 +458,7 @@ export async function predictEnsemble(
     brierMap['ML'] = mlBr;
     brierMap['TeamStrength'] = tsBrier;
     brierMap['InPlay5m'] = ipBrier;
+    brierMap['GAP'] = gapBrierDb;
   } catch {}
 
   const bmaInputs = bmaModels.map(m => ({
@@ -456,6 +483,7 @@ export async function predictEnsemble(
     ml: mlP,
     teamStrength: teamStrengthP,
     inplay: inPlayP,
+    gap: gapP,
   };
   const stackingP = predictStacking(stackingInput);
   // Stacking şu an sadece loglanır, kullanılmaz. İleride ensembleP yerine geçebilir.
@@ -558,6 +586,7 @@ export async function predictEnsemble(
     { name: "ML", weight: weights.ml * mlP },
     { name: "TeamStrength", weight: weights.teamStrength * teamStrengthP },
     { name: "InPlay5m", weight: weights.inplay * inPlayP },
+    { name: "GAP", weight: weights.gap * gapP },
   ];
   const dominantModel = modelWeights.reduce((a, b) =>
     a.weight > b.weight ? a : b,

@@ -19,6 +19,7 @@ export interface StackingInput {
   ml: number;
   teamStrength: number;
   inplay: number;
+  gap: number;
 }
 
 export interface StackingWeights {
@@ -29,9 +30,10 @@ export interface StackingWeights {
   ml: number;
   teamStrength: number;
   inplay: number;
+  gap: number;
 }
 
-// Default eşit ağırlık (eğitim verisi yokken)
+// Default eşit ağırlık (eğitim verisi yoklen)
 let currentWeights: StackingWeights = {
   intercept: 0,
   ruleBased: 1,
@@ -40,6 +42,7 @@ let currentWeights: StackingWeights = {
   ml: 1,
   teamStrength: 1,
   inplay: 1,
+  gap: 0,
 };
 
 const MAX_TRAINING_SAMPLES = 5000;
@@ -129,7 +132,7 @@ export async function trainStackingMetaModel(): Promise<StackingWeights> {
 
   for (let epoch = 0; epoch < epochs; epoch++) {
     let gradIntercept = 0;
-    let gradRule = 0, gradPoisson = 0, gradElo = 0, gradMl = 0, gradTs = 0, gradInplay = 0;
+    let gradRule = 0, gradPoisson = 0, gradElo = 0, gradMl = 0, gradTs = 0, gradInplay = 0, gradGap = 0;
 
     for (const sample of trainingData) {
       const z = w.intercept
@@ -138,7 +141,8 @@ export async function trainStackingMetaModel(): Promise<StackingWeights> {
         + w.elo * sample.input.elo
         + w.ml * sample.input.ml
         + w.teamStrength * sample.input.teamStrength
-        + w.inplay * sample.input.inplay;
+        + w.inplay * sample.input.inplay
+        + w.gap * sample.input.gap;
       const pred = 1 / (1 + Math.exp(-z));
       const err = pred - sample.actual;
 
@@ -149,6 +153,7 @@ export async function trainStackingMetaModel(): Promise<StackingWeights> {
       gradMl += err * sample.input.ml;
       gradTs += err * sample.input.teamStrength;
       gradInplay += err * sample.input.inplay;
+      gradGap += err * sample.input.gap;
     }
 
     w.intercept -= lr * (gradIntercept / n);
@@ -158,6 +163,7 @@ export async function trainStackingMetaModel(): Promise<StackingWeights> {
     w.ml -= lr * (gradMl / n);
     w.teamStrength -= lr * (gradTs / n);
     w.inplay -= lr * (gradInplay / n);
+    w.gap -= lr * (gradGap / n);
   }
 
   currentWeights = w;
@@ -175,7 +181,8 @@ export function predictStacking(input: StackingInput): number {
     + currentWeights.elo * input.elo
     + currentWeights.ml * input.ml
     + currentWeights.teamStrength * input.teamStrength
-    + currentWeights.inplay * input.inplay;
+    + currentWeights.inplay * input.inplay
+    + currentWeights.gap * input.gap;
 
   // Sigmoid
   const p = 1 / (1 + Math.exp(-z));

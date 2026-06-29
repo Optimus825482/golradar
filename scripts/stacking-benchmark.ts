@@ -131,6 +131,7 @@ async function run() {
         ml: mlP,
         teamStrength: 0, // benchmark kapsamı dışı
         inplay: 0,       // benchmark kapsamı dışı
+        gap: 0,          // Faz 4 (Yol B) — stub mode devre dışı
       });
       const stackingPClamp = Math.max(eps, Math.min(1 - eps, stackingP));
 

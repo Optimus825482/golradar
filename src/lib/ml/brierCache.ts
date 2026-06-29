@@ -12,7 +12,7 @@
 import { db } from '@/lib/db';
 import { logError } from '@/lib/devLog';
 
-export type MeasuredModelName = 'rule' | 'poisson' | 'elo';
+export type MeasuredModelName = 'rule' | 'poisson' | 'elo' | 'gap';
 
 interface BrierSlot {
   value: number | null;

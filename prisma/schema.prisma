@@ -451,3 +451,22 @@ model LeagueProfile {
   matchCount       Int      @default(0)
   lastUpdatedAt    DateTime @updatedAt
 }
+
+// ── Footballdatabase.com Kulüp İndeksi ──────────────────────────
+// backfill-footballdb-index.ts tarafından doldurulur.
+// Tüm kıtalardaki kulüplerin slug + puan bilgisi.
+model FootballdbClub {
+  id          String   @id @default(cuid())
+  slug        String   @unique // clubs-ranking/{slug}
+  name        String   // Kulüp adı
+  country     String   // Ülke adı
+  countryIso  String?  // ISO kodu (GER, ENG, vs.)
+  points      Int      @default(0) // Güncel puanı (Elo)
+  continent   String   // Kıta (europe, asia, etc.)
+  lastUpdated DateTime @default(now())
+
+  @@index([continent])
+  @@index([country])
+  @@index([name])
+  @@map("FootballdbClub")
+}

@@ -264,7 +264,7 @@ export function calculateGoalProbability(
         kappa: parseFloat(process.env.SKOR_KAPPA ?? '-0.10'),
         beta: parseFloat(process.env.ZISM_BETA ?? '0.10'),
       };
-      const baseMatrix = buildBasePoissonMatrix(mp.lambdaHome ?? homeAS, mp.lambdaAway ?? awayAS, 5);
+      const baseMatrix = buildBasePoissonMatrix(mp.params?.lambdaHome ?? homeAS, mp.params?.lambdaAway ?? awayAS, 5);
       const corrected = applyCorrector(baseMatrix, correctorParams);
       const stats = deriveCorrectorStats(corrected);
       // Corrector uygulanmış over/under + BTTS kullan (Dixon-Coles rho/gamma

@@ -548,6 +548,20 @@ export async function predictEnsemble(
     console.log(`[Stacking] ensemble=${ensembleP.toFixed(3)} stacking=${stackingP.toFixed(3)}`);
   }
 
+  // ── Model agreement (excluding zero predictions) ──
+  const allPredictions = [ruleBasedP, poissonP, eloP, mlP].filter((p) => p > 0.01);
+  const hasPredictions = allPredictions.length > 0;
+  const avgP = hasPredictions
+    ? allPredictions.reduce((a, b) => a + b, 0) / allPredictions.length
+    : 0;
+  const variance = hasPredictions
+    ? allPredictions.reduce((s, p) => s + (p - avgP) ** 2, 0) / allPredictions.length
+    : 0;
+  // Agreement only meaningful when we have positive predictions
+  const agreement = hasPredictions
+    ? Math.max(0, 1 - Math.sqrt(variance) * 5)
+    : 0; // Low variance = high agreement
+
   // Faz 2 (C) — alpha-blend gating. Production feature flag
   // STACKING_BLEND_ALPHA ∈ [0, 1]: 0=devre dışı (BMA-only), 1=full stacking.
   // Yalnız ring buffer eğitim verisi yeterliyse ve model agreement yüksekse
@@ -571,20 +585,6 @@ export async function predictEnsemble(
       );
     }
   }
-
-  // ── Model agreement (excluding zero predictions) ──
-  const allPredictions = [ruleBasedP, poissonP, eloP, mlP].filter((p) => p > 0.01);
-  const hasPredictions = allPredictions.length > 0;
-  const avgP = hasPredictions
-    ? allPredictions.reduce((a, b) => a + b, 0) / allPredictions.length
-    : 0;
-  const variance = hasPredictions
-    ? allPredictions.reduce((s, p) => s + (p - avgP) ** 2, 0) / allPredictions.length
-    : 0;
-  // Agreement only meaningful when we have positive predictions
-  const agreement = hasPredictions
-    ? Math.max(0, 1 - Math.sqrt(variance) * 5)
-    : 0; // Low variance = high agreement
 
   // ── Ensemble derived predictions ──
   // A4-fix: rule-based ham skordan türetilmiş O2.5/BTTS tahminleri Poisson'a

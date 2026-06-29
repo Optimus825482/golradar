@@ -10,9 +10,9 @@ import { fetchTeamRating } from "../src/lib/eloFetcher";
 import { bulkSetRatings } from "../src/lib/eloRating";
 
 const db = new PrismaClient();
-// WORKERS env ile override (örn: WORKERS=10 bun run scripts/elo-import-all.ts)
-// ClubElo API rate limit: max ~1-2 req/saniye. Varsayilan 5 worker + 1sn delay = ~5 req/s
-const WORKERS = parseInt(process.env.WORKERS ?? '5', 10);
+// WORKERS env ile override (örn: WORKERS=20 bun run scripts/elo-import-all.ts)
+// ClubElo API rate limit: ~1-2 req/saniye. 20 worker + 1sn delay + retry = ~20 req/s
+const WORKERS = parseInt(process.env.WORKERS ?? '20', 10);
 
 async function main() {
   console.log("[EloImport] Fetching all teams from TeamMapping...");
@@ -35,22 +35,30 @@ async function main() {
       const idx = cursor++;
       if (idx >= teams.length) break;
       const team = teams[idx];
-      // Rate limit korumasi: her istek arasi 1000ms + random 0-500ms
-      // 5 worker ile = ~3-5 req/s — ClubElo API sinirina uygun
-      await new Promise((r) => setTimeout(r, 1000 + Math.random() * 500));
-      try {
-        const result = await fetchTeamRating(team);
-        if (result) {
-          results.push({
-            team: result.team,
-            rating: result.rating,
-            source: result.source,
-          });
-          fetched++;
-        } else {
-          failed++;
+      // Rate limit korumasi: her istek arasi 500ms + random 0-300ms
+      // + 3 retry exponential backoff (notebook'daki requests_retry_session mantigi)
+      await new Promise((r) => setTimeout(r, 500 + Math.random() * 300));
+      let result = null;
+      let lastErr: unknown = null;
+      for (let retry = 0; retry < 3; retry++) {
+        try {
+          result = await fetchTeamRating(team);
+          if (result) break;
+        } catch (e) {
+          lastErr = e;
+          // Exponential backoff: 0.3 * 2^retry saniye (notebook backoff_factor=0.3)
+          const backoff = 300 * Math.pow(2, retry);
+          if (retry < 2) await new Promise((r) => setTimeout(r, backoff));
         }
-      } catch {
+      }
+      if (result) {
+        results.push({
+          team: result.team,
+          rating: result.rating,
+          source: result.source,
+        });
+        fetched++;
+      } else {
         failed++;
       }
       const done = fetched + failed;

@@ -13,11 +13,9 @@
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
-const CONTINENTS: Record<string, string> = {
-  europe: 'Europe', 'south-america': 'South America',
-  'north-america': 'North America', asia: 'Asia',
-  africa: 'Africa', oceania: 'Oceania',
-};
+// Tek dunya siralamasi: /ranking/world/1 ... /ranking/world/62 (3100 klub)
+const TOTAL_WORLD_PAGES = 62;
+const CONTINENTS: Record<string, string> = { world: 'World' };
 
 interface ClubEntry { name: string; slug: string; country: string; countryIso: string; points: number; continent: string; }
 
@@ -38,13 +36,12 @@ function isValidPage(clubs: ClubEntry[]): boolean {
   return clubs.length >= 15;
 }
 
-async function scrapePage(continent: string, page: number, knownMaxPage?: number): Promise<{ clubs: ClubEntry[]; maxPage: number | null }> {
+async function scrapePage(continent: string, page: number): Promise<{ clubs: ClubEntry[] }> {
   const url = `https://www.footballdatabase.com/ranking/${continent}/${page}`;
   try {
     const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    if (!resp.ok) return { clubs: [], maxPage: null };
+    if (!resp.ok) return { clubs: [] };
     const html = await resp.text();
-    const maxPage = knownMaxPage ?? getMaxPage(html);
     const clubs: ClubEntry[] = [];
     const rowRegex = /<tr[^>]*>[\s\S]*?<\/tr>/g;
     let rowMatch;
@@ -69,10 +66,10 @@ async function scrapePage(continent: string, page: number, knownMaxPage?: number
       });
     }
     // Sayfa gecersizse (reklam/redirect) clubs'i bos gonder
-    if (!isValidPage(clubs)) return { clubs: [], maxPage };
-    return { clubs, maxPage };
+    if (!isValidPage(clubs)) return { clubs: [] };
+    return { clubs };
   } catch {
-    return { clubs: [], maxPage: null };
+    return { clubs: [] };
   }
 }
 
@@ -105,10 +102,10 @@ async function run() {
 
   for (const [ckey, clabel] of Object.entries(CONTINENTS)) {
     console.error(`Scraping ${clabel}...`);
-    let page = 1, total = 0, maxPage: number | null = null;
-    while (true) {
-      const { clubs, maxPage: mp } = await scrapePage(ckey, page, maxPage);
-      if (maxPage === null && mp !== null) maxPage = mp;
+    // Dunya siralamasi 62 sayfa, maxPage'i bulmaya gerek yok
+    let page = 1, total = 0;
+    while (page <= TOTAL_WORLD_PAGES) {
+      const { clubs } = await scrapePage(ckey, page, TOTAL_WORLD_PAGES);
       if (clubs.length === 0) break;
       allClubs.push(...clubs);
       total += clubs.length;
@@ -122,8 +119,7 @@ async function run() {
         console.error(`  [AutoSave] ${allClubs.length} clubs`);
       }
       page++;
-      if (maxPage !== null && page > maxPage) break;
-      await new Promise((r) => setTimeout(r, 300 + Math.random() * 200));
+      await new Promise((r) => setTimeout(r, 200 + Math.random() * 150));
     }
     console.error(`  ${clabel}: ${total} clubs`);
   }

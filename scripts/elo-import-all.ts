@@ -10,7 +10,8 @@ import { fetchTeamRating } from "../src/lib/eloFetcher";
 import { bulkSetRatings } from "../src/lib/eloRating";
 
 const db = new PrismaClient();
-const WORKERS = 12;
+// WORKERS env ile override (örn: WORKERS=36 bun run scripts/elo-import-all.ts)
+const WORKERS = parseInt(process.env.WORKERS ?? '12', 10);
 
 async function main() {
   console.log("[EloImport] Fetching all teams from TeamMapping...");

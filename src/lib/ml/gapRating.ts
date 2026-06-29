@@ -262,27 +262,69 @@ export function clamp(v: number): number {
  * Mevcut state üzerinden bir maç için 1X2 + imminent-goal olasılığı hesapla.
  * confidence: her iki takım için matches min'i. MIN_MATCHES altında düşük.
  *
- * STUB: featuresJson olmadığı için state boş, predictGapMatch her zaman
- * gapP=0 döner. İleride featuresJson backfill sonrası tam predictor açılır.
+/**
+ * Mevcut state üzerinden imminent-goal olasılığı.
+ * Artık gerçek GAP state kullanılır (backfill ile).
+ *
+ * Eğer hiç güncelleme yoksa (cold-start) gapP=0 döner →
+ * ensemble BMA filtresi sayesinde katılmaz (sinyal sayısı invariant).
  */
 export function predictGapMatch(
   state: GapRatingState,
   homeKey: string,
   awayKey: string,
 ): GapPrediction {
-  // STUB: state boş döngüsünde → gapP=0. Production'da BMA `gapP > 0`
-  // filtresi sayesinde ensemble'a katılmaz (sinyal sayısı invariant).
-  void state; void homeKey; void awayKey;
+  const home = state.teams.get(homeKey);
+  const away = state.teams.get(awayKey);
+
+  if (!home || !away || home.matchesHa < 1 || away.matchesAa < 1) {
+    return {
+      lambdaHome: 1.0,
+      lambdaAway: 1.0,
+      homeWinP: 0.45,
+      drawP: 0.27,
+      awayWinP: 0.28,
+      gapP: 0,
+      confidence: 0,
+      matchesHome: home?.matchesHa ?? 0,
+      matchesAway: away?.matchesAa ?? 0,
+    };
+  }
+
+  // Wheatcroft: S_H = (Ha + Ad)/2 — beklenen istatistik
+  // Burada imminent-goal prob'u λ_h + λ_a → exp() formundan.
+  const lambdaHome = Math.exp(home.Ha - away.Ad);
+  const lambdaAway = Math.exp(away.Aa - home.Hd);
+  const HORIZON_FRAC = 10 / 90; // 10 dk horizon
+  const gapP = Math.max(0, Math.min(1, 1 - Math.exp(-(lambdaHome + lambdaAway) * HORIZON_FRAC)));
+
+  // Poisson approximation for 1X2
+  const goalGrid = poissonMatrix(lambdaHome, lambdaAway, 5);
+  let homeWinP = 0, drawP = 0, awayWinP = 0;
+  for (let h = 0; h < 5; h++) {
+    for (let a = 0; a < 5; a++) {
+      const p = goalGrid[h][a];
+      if (h > a) homeWinP += p;
+      else if (h === a) drawP += p;
+      else awayWinP += p;
+    }
+  }
+
+  const minMatches = Math.min(home.matchesHa, away.matchesAa);
+  const confidence = minMatches >= 5
+    ? Math.min(1, 0.4 + 0.05 * minMatches)
+    : 0.2 + 0.04 * minMatches;
+
   return {
-    lambdaHome: 1.0,
-    lambdaAway: 1.0,
-    homeWinP: 0.45,
-    drawP: 0.27,
-    awayWinP: 0.28,
-    gapP: 0,
-    confidence: 0,
-    matchesHome: 0,
-    matchesAway: 0,
+    lambdaHome: round3(lambdaHome),
+    lambdaAway: round3(lambdaAway),
+    homeWinP: round3(homeWinP),
+    drawP: round3(drawP),
+    awayWinP: round3(awayWinP),
+    gapP: round3(gapP),
+    confidence: round3(confidence),
+    matchesHome: home.matchesHa,
+    matchesAway: away.matchesAa,
   };
 }
 

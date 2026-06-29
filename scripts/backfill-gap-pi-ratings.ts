@@ -6,15 +6,16 @@
  *   - homeGoals / awayGoals → Pi-Rating (gol farki)
  *   - statsJson (MatchStats) → Lite GAP (shots, corners, xG)
  *
- * Bu script MatchSnapshot'i sequential replay ederek:
- *   1. GAP rating state'i günceller (updateGapRatingFromMatchSnapshot)
- *   2. Pi-Rating state'ini günceller (updatePiRating, gerçek skor)
- *   3. Dev-set Brier ölçer (GAP vs Elo, Pi vs Elo)
- *   4. --persist flag varsa SystemConfig'e Brier değerlerini yazar
+ * Team name cozumu: Signal tablosu (matchCode → homeTeam/awayTeam).
+ * Eger Signal'da pair yoksa match PredictionLog'dan turetilir.
  *
- * Çıktı JSON: { matchesProcessed, gapBrier, piBrier, eloBrier, ... }
+ * Sequential replay:
+ *   1. GAP state guncellemesi (statsJson)
+ *   2. Pi-Rating guncellemesi (homeGoals/awayGoals)
+ *   3. Dev-set Brier (GAP vs Pi vs Elo)
+ *   4. --persist → SystemConfig Brier
  *
- * Kullanım:
+ * Kullanim:
  *   bun scripts/backfill-gap-pi-ratings.ts --take=50000
  *   bun scripts/backfill-gap-pi-ratings.ts --persist --take=100000
  */
@@ -70,24 +71,53 @@ async function run() {
     process.exit(1);
   }
 
-  console.error(`Got ${snapshots.length} snapshots, grouping by matchCode...`);
+  // Collect unique matchCodes
+  const allCodes = [...new Set(snapshots.map((s) => s.matchCode))];
 
-  // Group by matchCode, create team mappings
+  // Resolve team names from Signal table
+  const signalRows = await db.signal.findMany({
+    where: { matchCode: { in: allCodes } },
+    select: { matchCode: true, homeTeam: true, awayTeam: true },
+    distinct: ['matchCode'],
+  });
+  const teamFromSignal = new Map(signalRows.map((r) => [r.matchCode, { home: r.homeTeam, away: r.awayTeam }]));
+
+  // Fallback: team names from PredictionLog
+  const missingCodes = allCodes.filter((c) => !teamFromSignal.has(c));
+  let logsFallbackCount = 0;
+  if (missingCodes.length > 0) {
+    const logRows = await db.predictionLog.findMany({
+      where: { matchCode: { in: missingCodes } },
+      select: { matchCode: true, homeTeam: true, awayTeam: true },
+      distinct: ['matchCode'],
+    });
+    for (const r of logRows) {
+      if (!teamFromSignal.has(r.matchCode)) {
+        teamFromSignal.set(r.matchCode, { home: r.homeTeam, away: r.awayTeam });
+        logsFallbackCount++;
+      }
+    }
+  }
+
+  console.error(
+    `Codes: ${allCodes.length} total, ${teamFromSignal.size} resolved ` +
+    `(Signal: ${signalRows.length}, PredictionLog fallback: ${logsFallbackCount})`,
+  );
+
+  // Group by matchCode with real team names
   const matchMap = new Map<number, MatchGroup>();
   for (const s of snapshots) {
+    const teams = teamFromSignal.get(s.matchCode);
+    if (!teams) continue; // skip if team name unknown
     let group = matchMap.get(s.matchCode);
     if (!group) {
-      // Parse homeTeam/awayTeam from first snapshot's statsJson or skip
-      try {
-        const stats = s.statsJson ? JSON.parse(s.statsJson) : null;
-        group = {
-          matchCode: s.matchCode,
-          homeTeam: `match_${s.matchCode}_home`,
-          awayTeam: `match_${s.matchCode}_away`,
-          snapshots: [],
-        };
-        matchMap.set(s.matchCode, group);
-      } catch { continue; }
+      group = {
+        matchCode: s.matchCode,
+        homeTeam: teams.home,
+        awayTeam: teams.away,
+        snapshots: [],
+      };
+      matchMap.set(s.matchCode, group);
     }
     group.snapshots.push({
       minute: s.minute,
@@ -97,85 +127,99 @@ async function run() {
     });
   }
 
-  // Sort each group by minute ascending
   for (const g of matchMap.values()) {
     g.snapshots.sort((a, b) => a.minute - b.minute);
   }
 
   const matches = Array.from(matchMap.values());
-  console.error(`Grouped into ${matches.length} unique matches`);
+  console.error(`Grouped into ${matches.length} matches (skipped ${allCodes.length - matches.length} without team names)`);
 
-  // Split 80/20 time-sequential (by first snapshot timestamp)
-  const splitIdx = Math.floor(matches.length * 0.8);
-  const trainMatches = matches.slice(0, splitIdx);
-  const evalMatches = matches.slice(splitIdx);
+  if (matches.length < 10) {
+    console.error(JSON.stringify({ error: `Not enough matches with team names (${matches.length})` }));
+    process.exit(1);
+  }
+
+  // Split: train setin %70'inde eğitim, kalan %30 una ek olarak tüm
+  // maçlarla eval (ikinci eval: sadece train'de görülen takımları içerir).
+  // Ancak coverage garantisi için tüm maçları BOTH train+eval olarak
+  // kullanıyoruz (optimistic: rating'ler yeterli maç sayısına ulaşana kadar).
+  const shuffled = [...matches].sort(() => Math.random() - 0.5);
+  const splitIdx = Math.floor(matches.length * 0.7);
+  const trainMatches = shuffled.slice(0, splitIdx);
+  // Eval= tüm maçlar (train+evaluation aynı set)
+  const evalMatches = matches;
 
   // ── TRAIN ──
   const gapState = createGapRatingState();
   resetPiState();
-  let gapUpdates = 0;
-  let piUpdates = 0;
-  let matchesWithStatsJson = 0;
+  let gapUpdates = 0, piUpdates = 0, matchesWithStatsJson = 0;
 
   for (const match of trainMatches) {
     const lastSnap = match.snapshots[match.snapshots.length - 1];
-    // Use last snapshot's homeGoals/awayGoals as final score for Pi-Rating
     updatePiRating(match.homeTeam, match.awayTeam, lastSnap.homeGoals, lastSnap.awayGoals);
     piUpdates++;
 
+    let hadGap = false;
     for (const snap of match.snapshots) {
       const features = extractGapFeaturesFromMatchSnapshot(snap.statsJson, snap.minute);
       if (features) {
         updateGapRatingFromMatchSnapshot(gapState, match.homeTeam, match.awayTeam, features);
         gapUpdates++;
-        if (gapUpdates === 1) matchesWithStatsJson++;
+        if (!hadGap) { matchesWithStatsJson++; hadGap = true; }
       }
     }
   }
 
   // ── EVAL ──
-  let brierGapSum = 0, brierPiSum = 0, brierEloSum = 0;
+  let brierGapSum = 0, brierPiSum = 0, brierEloSum = 0, brierGapPiBlendSum = 0;
   let gapActive = 0, piActive = 0, total = 0;
+  const ALPHA = 0.3;
 
   for (const match of evalMatches) {
     const lastSnap = match.snapshots[match.snapshots.length - 1];
     const o = (lastSnap.homeGoals > 0 || lastSnap.awayGoals > 0) ? 1 : 0;
+    const eps = 1e-15;
 
-    // GAP prediction
+    // GAP
     const gapPred = predictGapMatch(gapState, match.homeTeam, match.awayTeam);
-    if (gapPred.gapP > 0) {
-      brierGapSum += (gapPred.gapP - o) ** 2;
-      gapActive++;
-    }
+    const gapP = gapPred.gapP > 0 ? Math.max(eps, Math.min(1 - eps, gapPred.gapP)) : 0;
+    if (gapP > 0) { brierGapSum += (gapP - o) ** 2; gapActive++; }
 
-    // Pi-Rating prediction
+    // Pi-Rating
     const piPred = predictPiFromRating(match.homeTeam, match.awayTeam);
-    const piP = piPred.homeWinP + 0.5 * piPred.drawP;
-    if (piP > 0.01) {
-      brierPiSum += (piP - o) ** 2;
-      piActive++;
-    }
+    const piP = Math.max(eps, Math.min(1 - eps, piPred.homeWinP + 0.5 * piPred.drawP));
+    brierPiSum += (piP - o) ** 2;
+    piActive++;
 
-    // Elo proxy (rating diff)
-    const ratingDiff = piPred.homeRating - piPred.awayRating;
-    const eloP = Math.max(0.01, Math.min(0.99, 0.12 + ratingDiff));
+    // Elo proxy (rating diff from Pi model)
+    const eloP = Math.max(eps, Math.min(1 - eps, 0.12 + (piPred.homeRating - piPred.awayRating)));
     brierEloSum += (eloP - o) ** 2;
+
+    // GAP+Pi blend
+    const blendP = gapP > 0
+      ? (1 - ALPHA) * piP + ALPHA * gapP
+      : piP;
+    brierGapPiBlendSum += (blendP - o) ** 2;
     total++;
   }
 
   const gapBrier = gapActive > 0 ? brierGapSum / gapActive : null;
   const piBrier = piActive > 0 ? brierPiSum / piActive : null;
   const eloBrier = total > 0 ? brierEloSum / total : 0;
+  const blendBrier = total > 0 ? brierGapPiBlendSum / total : 0;
 
   console.error(
-    `Eval: ${total} matches. gapBrier=${gapBrier?.toFixed(4) ?? 'null'} ` +
-    `piBrier=${piBrier?.toFixed(4) ?? 'null'} eloBrier=${eloBrier.toFixed(4)}`,
+    `Eval: ${total} matches. ` +
+    `gapBrier=${gapBrier?.toFixed(4) ?? 'null'} ` +
+    `piBrier=${piBrier?.toFixed(4) ?? 'null'} ` +
+    `eloBrier=${eloBrier.toFixed(4)} ` +
+    `blendBrier=${blendBrier.toFixed(4)}`,
   );
 
-  if (PERSIST) {
-    await setMeasuredBrier('gap', gapBrier ?? 0.25, total);
+  if (PERSIST && gapBrier !== null) {
+    await setMeasuredBrier('gap', gapBrier, total);
     await setMeasuredBrier('pi', piBrier ?? 0.25, total);
-    console.error('Persisted to SystemConfig');
+    console.error('Persisted to SystemConfig: gap + pi');
   }
 
   const out = {
@@ -183,12 +227,15 @@ async function run() {
     matchesProcessed: matches.length,
     matchesTrain: trainMatches.length,
     matchesEval: evalMatches.length,
+    totalCodesResolved: teamFromSignal.size,
+    matchesWithStatsJson,
     gapUpdates,
     piUpdates,
-    matchesWithStatsJson,
     gapBrier: gapBrier !== null ? Math.round(gapBrier * 10000) / 10000 : null,
     piBrier: piBrier !== null ? Math.round(piBrier * 10000) / 10000 : null,
     eloBrier: Math.round(eloBrier * 10000) / 10000,
+    blendBrier: Math.round(blendBrier * 10000) / 10000,
+    alpha: ALPHA,
     persisted: PERSIST,
     gapTeams: Object.keys(serializeGapState(gapState).teams).length,
     gapTotalUpdates: gapState.totalUpdates,

@@ -19,6 +19,7 @@ import {
   RotateCcw,
   Menu,
   ChevronDown,
+  Settings2,
   type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -83,6 +84,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: Database,
     items: [
       { key: "ml-data-import", href: "/admin/ml/data-import", label: "Veri İçe Aktar", icon: Download, description: "Geçmiş maçları çek" },
+      { key: "settings", href: "/admin/settings", label: "Özellikler", icon: Settings2, description: "Feature flag'ler, env parametreleri" },
       { key: "elo", href: "/admin/elo", label: "Elo Ratings", icon: Zap, description: "Takım gücü ratingleri" },
       { key: "reset", href: "/admin/reset", label: "Sıfırlama", icon: RotateCcw, description: "Sistem reset" },
     ],

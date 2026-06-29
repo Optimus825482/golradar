@@ -129,10 +129,13 @@ export async function hydrateCalibrationFromDB(): Promise<void> {
       if (row.key === SYSTEM_KEY_PARAMS) {
         const v = row.value as { L?: number; k?: number; x0?: number; T?: number } | null;
         if (v && typeof v.L === 'number' && typeof v.k === 'number' && typeof v.x0 === 'number') {
-          CALIBRATION_PARAMS.L = v.L;
-          CALIBRATION_PARAMS.k = v.k;
-          CALIBRATION_PARAMS.x0 = v.x0;
-          if (typeof v.T === 'number') CALIBRATION_PARAMS.T = v.T;
+          // Guard: sagliksiz degerler varsa varsayilani kullan
+          const sane = (val: number, min: number, max: number, def: number) =>
+            val >= min && val <= max ? val : def;
+          CALIBRATION_PARAMS.L = sane(v.L, 0.01, 1.0, 0.90);
+          CALIBRATION_PARAMS.k = sane(v.k, 0.001, 1.0, 0.05);
+          CALIBRATION_PARAMS.x0 = sane(v.x0, 0, 100, 30);
+          CALIBRATION_PARAMS.T = typeof v.T === 'number' ? sane(v.T, 0.001, 1.0, 0.08) : 0.08;
         }
       } else if (row.key === SYSTEM_KEY_ISOTONIC) {
         const v = row.value as IsotonicTable | null;

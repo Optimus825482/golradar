@@ -226,11 +226,11 @@ export function predictGlicko2(
   const away = g2Cache.get(awayKey);
 
   if (!home || !away) {
-    // Cold-start → Elo fallback
+    // Cold-start: sıfır probability → ensemble BMA bunu atlar.
     return {
-      homeWinP: 0.45,
-      drawP: 0.27,
-      awayWinP: 0.28,
+      homeWinP: 0,
+      drawP: 0,
+      awayWinP: 0,
       homeRating: 0,
       awayRating: 0,
       ratingDiff: 0,

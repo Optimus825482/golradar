@@ -399,10 +399,9 @@ export async function predictEnsemble(
   if (process.env.DISABLE_PI_RATING !== 'true' && homeTeam && awayTeam) {
     try {
       const piPred = predictPi(homeTeam, awayTeam);
-      // Pi-Rating'in any-goal olasılığı: P(gd > 0) ≈ homeWinP + 0.5 · drawP
-      // her gol olayında eloP proxy olarak kullanılır. BMA `P > 0` gate'ini
-      // bypass etmek için minimum any-goal olasılık 0.05 veriyoruz.
-      piRatingP = Math.max(0.05, Math.min(0.85, piPred.homeWinP + 0.5 * piPred.drawP));
+      // Pi-Rating any-goal = homeWinP + 0.5·drawP.
+      // Cold-start'ta predictPi 0 döner → probability=0 → BMA filtresi atlar.
+      piRatingP = Math.min(0.85, piPred.homeWinP + 0.5 * piPred.drawP);
       piRatingHomeWin = piPred.homeWinP;
       piRatingDraw = piPred.drawP;
       piRatingAwayWin = piPred.awayWinP;
@@ -421,7 +420,7 @@ export async function predictEnsemble(
   if (process.env.DISABLE_GLICKO2 !== 'true' && homeTeam && awayTeam) {
     try {
       const gPred = predictGlicko2Fn(homeTeam, awayTeam);
-      glicko2P = Math.max(0.05, Math.min(0.85, gPred.homeWinP + 0.5 * gPred.drawP));
+      glicko2P = Math.min(0.85, gPred.homeWinP + 0.5 * gPred.drawP);
       glicko2HomeWin = gPred.homeWinP;
       glicko2Draw = gPred.drawP;
       glicko2AwayWin = gPred.awayWinP;

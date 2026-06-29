@@ -119,11 +119,11 @@ export function predictPiFromRating(
   const away = piCache.get(awayKey);
 
   if (!home || !away) {
-    // Cold-start: Elo fallback davranışı
+    // Cold-start: sıfır probability → ensemble BMA bunu atlar.
     return {
-      homeWinP: 0.45,
-      drawP: 0.27,
-      awayWinP: 0.28,
+      homeWinP: 0,
+      drawP: 0,
+      awayWinP: 0,
       homeRating: 0,
       awayRating: 0,
       ratingDiff: 0,

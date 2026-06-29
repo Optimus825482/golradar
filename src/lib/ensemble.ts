@@ -37,7 +37,6 @@ import {
 } from './piRating';
 import {
   predictGlicko2 as predictGlicko2Fn,
-  _useSimplifiedUpdate as updateGlicko2Simplified,
 } from './glicko2';
 	import { estimateXgFromShots } from './estimateXg';
 	// teamHistoryBackfill pulls in sofascore.ts (uses child_process via

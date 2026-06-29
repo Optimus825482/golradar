@@ -140,41 +140,121 @@ export function extractGapFeatures(featuresJson: string | null | undefined): Gap
 }
 
 /**
+ * MatchSnapshot.statsJson (ham nesine MatchStats formatı) parse eder.
+ * `featuresJson` yerine doğrudan MatchSnapshot'taki `{home: number, away: number}`
+ * yapısını kullanır — normalize etmez. GAP için `matchMinute` ile bölerek
+ * oran hesaplar.
+ */
+export function extractGapFeaturesFromMatchSnapshot(
+  statsJson: string | null | undefined,
+  matchMinute: number,
+): GapFeatures | null {
+  if (!statsJson) return null;
+  try {
+    const raw = JSON.parse(statsJson) as Record<string, { home: number; away: number } | undefined>;
+    const minute = Math.max(1, matchMinute);
+
+    const sot = raw.shots_on_target;
+    const corners = raw.corners;
+    const da = raw.dangerous_attacks;
+    const xgRaw = raw.xg;
+    const sotA = raw.shots_on_target; // away symmetric
+
+    const hasAny = sot != null || corners != null || da != null || xgRaw != null;
+    if (!hasAny) return null;
+
+    // Rate = count / (minute * 90) scale → 0-1 normalized
+    const toRate = (v: { home: number; away: number } | undefined) => ({
+      home: (v?.home ?? 0) / (minute / 90),
+      away: (v?.away ?? 0) / (minute / 90),
+    });
+
+    const rateSot = toRate(sot);
+    const rateCorners = toRate(corners);
+    const rateDa = toRate(da);
+
+    return {
+      dangerousAttacksHomeRate: Math.min(1, rateDa.home / 15), // max ~15 DA/maç
+      shotsOnTargetHomeRate: Math.min(1, rateSot.home / 8),
+      cornersHomeRate: Math.min(1, rateCorners.home / 10),
+      xgHome: Math.min(1, (xgRaw?.home ?? 0) / 3.0),
+      xgAway: Math.min(1, (xgRaw?.away ?? 0) / 3.0),
+      dangerousAttacksAwayRate: Math.min(1, rateDa.away / 15),
+      shotsOnTargetAwayRate: Math.min(1, rateSot.away / 8),
+      cornersAwayRate: Math.min(1, rateCorners.away / 10),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Maç sonucunu içeren bir featuresJson kaydını state'e dahil et.
  * State'i mutate eder (in-memory; process-local kalıcı).
  *
- * Beklenen istatistik formülü (Wheatcroft):
- *   S_H = (Ha_i + Ad_j) / 2
- * Update: rating += λ · learning_rate · (actual - expected)
- *
- * STUB: featuresJson boş olduğu için stub modunda no-op.
- * İleride featuresJson backfill veya teamHistoryMatch tablo genişlemesi
- * ile aktif edilebilir.
+ * Backward-compat stub: featuresJson boş olduğu için bu fonksiyon no-op
+ * kalır. Gerçek güncelleme için `updateGapRatingFromMatchSnapshot` kullan.
  */
 export function updateGapRating(
+  state: GapRatingState,
+  _homeKey: string,
+  _awayKey: string,
+  _features: GapFeatures,
+): void {
+  void state;
+  state.totalUpdates += 0;
+}
+
+/**
+ * MatchSnapshot.statsJson üzerinden gerçek GAP update (stub yok).
+ * Wheatcroft (2024) formülü: S_H = (Ha + Ad) / 2
+ * Update: rating' += λ · ω · (actual - expected)
+ */
+export function updateGapRatingFromMatchSnapshot(
   state: GapRatingState,
   homeKey: string,
   awayKey: string,
   features: GapFeatures,
 ): void {
-  // STUB: veri yok → no-op. Gerçek implementasyon aşağıda yorum olarak.
-  // Refactor notu: features.xgHome > 0 gibi bir gate ile koşullandırılabilir,
-  // ama valid 0 değerinin (soğuk bir maç 0-xG olabilir) false-positive'a
-  // düşmemesi için featuresJson varlığı kontrolü daha güvenilir.
-  if (!features) return;
+  if (!features || features.xgHome === undefined || features.shotsOnTargetHomeRate === undefined) {
+    return;
+  }
+  const home = state.teams.get(homeKey) ?? emptyRating();
+  const away = state.teams.get(awayKey) ?? emptyRating();
 
-  // Gerçek implementasyon (şu an kapalı; yukarıdaki stub tarafından atlanır):
-  // const home = state.teams.get(homeKey) ?? emptyRating();
-  // const away = state.teams.get(awayKey) ?? emptyRating();
-  // const expHomeAttack = (home.Ha + away.Ad) / 2;
-  // const deltaHa = ((features.dangerousAttacksHomeRate + features.shotsOnTargetHomeRate +
-  //                   features.cornersHomeRate + features.xgHome) / 4) - expHomeAttack;
-  // home.Ha = clamp(home.Ha + TIME_DECAY * LEARNING_RATE * deltaHa * 10);
-  // ... (aşağıdaki yorum bloğundaki tüm mantık burada açılır)
-  state.totalUpdates += 0;
+  // Ev hücum rating: (Ha + Ad)/2 vs actual (shots + xG)
+  const expHomeAttack = (home.Ha + away.Ad) / 2;
+  const actualHome = (features.dangerousAttacksHomeRate +
+    features.shotsOnTargetHomeRate +
+    features.cornersHomeRate +
+    features.xgHome) / 4;
+  const deltaHa = actualHome - expHomeAttack;
+  home.Ha = clamp(home.Ha + TIME_DECAY * LEARNING_RATE * deltaHa * 10);
+
+  // Deplasman hücum
+  const expAwayAttack = (away.Aa + home.Hd) / 2;
+  const actualAway = (features.xgAway + (features.dangerousAttacksAwayRate ?? 0) +
+    (features.shotsOnTargetAwayRate ?? 0) + (features.cornersAwayRate ?? 0)) / 4;
+  const deltaAa = actualAway - expAwayAttack;
+  away.Aa = clamp(away.Aa + TIME_DECAY * LEARNING_RATE * deltaAa * 10);
+
+  // Cross-weight (Constantinou φ)
+  home.Aa = clamp(home.Aa + CROSS_WEIGHT_HOME * deltaHa);
+  away.Hd = clamp(away.Hd - CROSS_WEIGHT_HOME * deltaAa);
+
+  home.matchesHa += 1;
+  away.matchesHd += 1;
+  home.matchesHd += 1;
+  away.matchesAa += 1;
+  home.lastUpdate = Date.now();
+  away.lastUpdate = Date.now();
+
+  state.teams.set(homeKey, home);
+  state.teams.set(awayKey, away);
+  state.totalUpdates += 1;
 }
 
-function clamp(v: number): number {
+export function clamp(v: number): number {
   return Math.max(-RATING_CLAMP, Math.min(RATING_CLAMP, v));
 }
 

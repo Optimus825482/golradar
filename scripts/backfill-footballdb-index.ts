@@ -32,9 +32,9 @@ function getMaxPage(html: string): number | null {
   return links.length > 0 ? Math.max(...links) : null;
 }
 
-/** true sayfa (50 klub) mi yoksa reklam/redirect sayfasi (19 klub) mi? */
+/** true sayfa mi? son sayfalar az klub icerebilir (ornek Europe son sayfa 19 klub) */
 function isValidPage(clubs: ClubEntry[]): boolean {
-  return clubs.length >= 40; // gercek sayfa en az 40 klub icerir
+  return clubs.length >= 3; // en az 3 klub varsa gecerli sayfa
 }
 
 async function scrapePage(continent: string, page: number, knownMaxPage?: number): Promise<{ clubs: ClubEntry[]; maxPage: number | null }> {

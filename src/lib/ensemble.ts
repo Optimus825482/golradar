@@ -25,6 +25,7 @@ import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
 import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
 import { computeEnsembleWeights } from './ml/weightTuner';
 import { getChampionBrier } from './ml/modelRouter';
+import { getMeasuredBrier } from './ml/brierCache';
 	import { estimateXgFromShots } from './estimateXg';
 	// teamHistoryBackfill pulls in sofascore.ts (uses child_process via
 	// Python bridge) — keep it out of the client bundle by deferring
@@ -372,13 +373,22 @@ export async function predictEnsemble(
     : null;
   const inplayBrier = inPlayP > 0 ? await getChampionBrier('inplay') : null;
   const teamStrengthBrier = teamStrengthP > 0 ? await getChampionBrier('team-strength') : null;
+  // Faz 1 (A1) — Rule/Poisson/Elo bireysel Brier'ları SystemConfig'ten
+  // oku (measure-model-briers.ts tarafından dev-set üzerinde ölçülmüş).
+  // null ise (henüz ölçülmediyse) unranked baseline (0.20) yoluna düşer —
+  // eski davranışla aynı, dolayısıyla sinyal sayısı invariant.
+  const [ruleMeasured, poissonMeasured, eloMeasured] = await Promise.all([
+    getMeasuredBrier('rule'),
+    getMeasuredBrier('poisson'),
+    getMeasuredBrier('elo'),
+  ]);
   const weights = computeEnsembleWeights({
     inplayBrier,
     mlBrier,
     teamStrengthBrier,
-    ruleBrier: null,
-    poissonBrier: null,
-    eloBrier: null,
+    ruleBrier: ruleMeasured,
+    poissonBrier: poissonMeasured,
+    eloBrier: eloMeasured,
     minute: minNum,
     hasPressureHistory: hasHistory,
   });

@@ -13,8 +13,6 @@
  */
 
 import { db } from '../src/lib/db';
-import { fetchTeamRating } from '../src/lib/eloFetcher';
-import { getRating } from '../src/lib/eloRating';
 import { estimateFromMatchHistory } from '../src/lib/eloFetcher';
 
 function normalize(name: string): string {
@@ -56,15 +54,7 @@ async function run() {
       }
     }
 
-    // 2. ClubElo API
-    if (!elo) {
-      try {
-        const r = await fetchTeamRating(t.teamName);
-        if (r) { elo = r.rating; source = r.source; clubelo++; }
-      } catch {}
-    }
-
-    // 3. Tahmini Elo
+    // 2. Tahmini Elo (clubelo atlandi — rate limit, cok yavas)
     if (!elo) {
       elo = estimateFromMatchHistory(t.teamName);
       if (elo) { source = 'estimate'; estimated++; }
@@ -77,7 +67,7 @@ async function run() {
       failed++;
     }
 
-    if (matched % 500 === 0) console.error(`  ...${matched}/${teams.length}`);
+    if (matched % 100 === 0 || matched === 1) console.error(`  ...${matched}/${teams.length} (${t.teamName})`);
   }
 
   console.error(`\n✅ Matched: ${matched}`);

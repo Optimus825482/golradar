@@ -59,6 +59,11 @@ yarn-error.log*
 .arbor/sessions/*/.worktrees/
 .arbor/*/eval_logs/
 
-./data/golradar_backup.dump
-./data/golradar_extra.sql
-./data/golradar_prod_dump.sql
+data/golradar_backup.dump
+data/golradar_extra.sql
+data/golradar_prod_dump.sql
+mini-services/*/.pytest_cache/
+mini-services/*/__pycache__/
+mini-services/*/venv/
+mini-services/*/.env
+*.pyc

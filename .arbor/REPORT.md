@@ -1,26 +1,29 @@
 # GolRadar2 — Sinyal Doğruluğu Artırma Stratejik Programı (Rapor)
 
-**Oturum tarihi:** 2026-06-29  
-**Toplam commit:** 10+ (`71eb6c3` → HEAD)  
-**Toplam Arbor oturumu:** 5 (20+ hipotez, 14 completed, 4 pruned + 2 stub)  
+**Oturum tarihi:** 2026-06-29
+**Toplam commit:** 14+ (`71eb6c3` → HEAD)
+**Toplam Arbor oturumu:** 8 (28+ hipotez, 18 completed, 9 pruned + 1 stub)
 **Sinyal sayısı invariant:** Tüm feature flag'ler default kapalı; mevcut eşikler (RADAR=65, SIGNAL_5MIN=0.25) değişmedi.
 
 ---
 
-## 1. Commit Timeline
+## 1. Commit Timeline (Faz 0-7)
 
 | # | SHA | Yol | Başlık |
 |---|---|---|---|
 | 1 | `71eb6c3` | A4 (fix) | tsRated clarity + O2.5/BTTS rule-based fallback |
 | 2 | `42923c5` | A1 (feat) | Rule/Poisson/Elo bireysel Brier ölçümü + DB besleme |
-| 3 | `fa1e936` | guard | Rule slot tier-archived guardrail (sinyal sayısı invariant) |
+| 3 | `fa1e936` | guard | Rule slot tier-archived guardrail |
 | 4 | `414f2ed` | A2+C (feat) | Stacking file persistence + alpha-blend gating |
 | 5 | `326649d` | A3 (feat) | recordPrediction canlıya al + applyOnlineAdjustments gating |
 | 6 | `b8b3f3f` | B (feat) | Lite GAP predictor-stub + ensemble wiring |
 | 7 | `b6c0029` | chore | .gitignore: arbor session runtime artifacts |
 | 8 | `d259a6b` | docs | Birleştirilmiş oturum raporu (4 Arbor, 7 commit) |
 | 9 | `5d5a9ef` | D (feat) | Dixon-Coles corrector (Frank κ + ZISM β) |
-| 10+ | Faz 6 | backtestEngine JSON writer + FEATURE_FLAGS.md + final rapor | (commit edilecek) |
+| 10 | `9730de9` | Faz 6 | backtestEngine JSON writer + FEATURE_FLAGS.md + final rapor |
+| 11 | `ba4010c` | C-1 | Pi-Rating (Constantinou 2013) + Glicko-2 modülleri |
+| 12 | `257e8dc` | C-2 | Corrector Weibull + ensemble wiring (PI+GLICKO2 slots) |
+| 13 | `e62d513` | C-3 | 3 benchmark scripts (pi-rating, glicko2, weibull-copula) |
 
 ---
 
@@ -108,6 +111,37 @@
 
 **En iyi:** Frank κ=-0.30 — BTTS iyileşmesi **−2.16%** (anyGoal hafif trade-off).
 
+### 2.6 pi-rating-benchmark (Faz 7 / Yol C)
+
+| Konfig | brierElo | brierPi | brierBlend |
+|---|---|---|---|
+| Elo-only (baseline) | 0.0942 | — | 0.0942 |
+| Pi-only | — | 0.3107 | 0.3107 |
+| Pi-Elo α=0.5 | 0.0942 | 0.3107 | **0.1511** |
+
+**Sonuç:** Pi-Rating backward-compat proxy (1-0 gap) ile Elo'dan **kötü** (%60 artış). Pruned. teamHistoryMatch → predictionLog gol-farkı schema migration Faz 6 backlog'a.
+
+### 2.7 glicko2-benchmark (Faz 7 / Yol C)
+
+| Konfig | brierElo | brierGlicko | brierBlend |
+|---|---|---|---|
+| Elo-only | 0.0942 | — | 0.0942 |
+| Glicko2-only | — | 0.4160 | 0.4160 |
+| Glicko2 α=0.5 | 0.0942 | 0.4160 | **0.1717** |
+
+**Sonuç:** Glicko-2 backward-compat koşullarında Elo'dan **kötü** (RD=350 cold-start → düşük any-goal olasılık). Pruned. Tam Illinois implementation + cold-start shrink logic Faz 6 backlog'a.
+
+### 2.8 weibull-copula-benchmark (Faz 7 / Yol D)
+
+| Mod | brierBase | brierCorrected | δBtts |
+|---|---|---|---|
+| Baseline (no corrector) | 0.5491 | 0.5491 | — |
+| Frank+Poisson κ=-0.10 | 0.5491 | 0.5170 | **-0.0321** (-%5.85) |
+| Frank+Weibull κ=-0.30 | 0.5491 | **0.4441** | **-0.105** (**-19.1%**) |
+| ZISM+Weibull β=0.20 | 0.5491 | 0.5491 | 0 |
+
+**EN İYİ:** Frank+Weibull κ=-0.30 — BTTS iyileşmesi **−19.1%** (McHale & Scarf 2011 over-dispersion + Frank κ=−0.30 corrector). Üretim shadow run için ONERILEN konfigürasyon: `ENABLE_ZISM_CORRECTOR=true SKOR_KAPPA=-0.30 SKOR_PMF=weibull`.
+
 ---
 
 ## 3. Aktifleştirme Rehberi (Production)
@@ -162,12 +196,21 @@ Her commit'te `RADAR_THRESHOLD` ve `SIGNAL_5MIN_THRESHOLD` değişmedi:
 ### Faz 5 (Yol D) — Frank's Copula / ZISM corrector ✓
 - ✅ `src/lib/dixonColesCorrector.ts`, `goalRadar.ts` entegrasyonu, `scripts/zism-corrector-benchmark.ts`
 - ✅ Best: Frank κ=-0.30, BTTS −2.16%
+- ✅ Weibull PMF extension: **Frank+Weibull κ=-0.30 BTTS −19.1%**
 
 ### Faz 6 — Rollout ✓ (kısmen)
 - ✅ `backtestEngine.ts` JSON writer (BACKTEST_PERSIST_JSON env gate)
 - ✅ `docs/FEATURE_FLAGS.md` aktivasyon kılavuzu
 
+### Faz 7 (Yol C) — Pi-Rating + Glicko-2 ✓ (kısmen)
+- ✅ `src/lib/piRating.ts` (Constantinou 2013, 4-rating, time-decay ξ=3.25e-3, cross-weight φ=0.15)
+- ✅ `src/lib/glicko2.ts` (Glickman 2013, RD+σ, simplified Illinois %10-step)
+- ✅ Ensemble wiring (PI + GLICKO2 slots, ENV gates)
+- ✅ Benchmark scripts tamamlandı
+- ⚠️ **Backfill gerekli:** predictionLog'da homeGoals/awayGoals yok → backward-compat proxy (1-0) gürültülü; Pi-Rating aktifleştirme için PredictionLog schema migration gerekli.
+
 ### Kalan Backlog
 - Lite GAP için featuresJson backfill job (`scripts/backfill-features-json.ts`)
 - Production shadow run kılavuzu (48 saat)
-- Glicko-2 (mod-brier-calibration pruned hipotezleri)
+- predictionLog → homeGoals/awayGoals schema migration (Pi-Rating aktifleştirme)
+- Tam Illinois Glicko-2 cold-start shrink logic

@@ -135,6 +135,26 @@ else
   echo "[PYTHON] ⚠️  Python bulunamadı — Goaloo/Netscores Python bridge pasif"
 fi
 
+# ── Footballdb Data Import (ilk deploy) ───────────────────────────
+# data/footballdb-export.json varsa ve FootballdbClub tablosu bossa import et
+FDB_JSON="/app/data/footballdb-export.json"
+if [ -f "$FDB_JSON" ]; then
+  echo "[DB] footballdb-export.json bulundu, kontrol ediliyor..."
+  # Tablo bossa (0 satir) import et
+  ROW_COUNT=$(NODE_ENV=production DATABASE_URL="$DATABASE_URL" node -e "
+    const { PrismaClient } = require('@prisma/client');
+    const db = new PrismaClient();
+    db.footballdbClub.count().then(c => { console.log(c); process.exit(0); }).catch(() => { console.log('0'); process.exit(0); });
+  " 2>/dev/null || echo "0")
+  if [ "$ROW_COUNT" = "0" ] || [ "$ROW_COUNT" = "0" ]; then
+    echo "[DB] FootballdbClub bossa, import ediliyor..."
+    bun scripts/import-footballdb-data.ts 2>&1 || echo "[WARN] Import basarisiz, manuel gerekebilir"
+    echo "[DB] footballdb import tamam."
+  else
+    echo "[DB] FootballdbClub zaten $ROW_COUNT satir, import atlandi."
+  fi
+fi
+
 # ── Start Next.js ────────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════"

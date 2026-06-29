@@ -203,6 +203,15 @@ function checkAndRunDaily(): void {
     state.lastShadowEvalDate = today;
     void runDailyShadowEval(today);
   }
+  // Faz 7 — gunluk TeamRating guncellemesi (yeni maclarla Pi-Rating + istatistikler)
+  void (async () => {
+    try {
+      const { runFullTeamRatingUpdate } = await import('@/lib/teamRatingUpdater');
+      await runFullTeamRatingUpdate();
+    } catch (e) {
+      logError('MLScheduler', 'TeamRating full update failed:', e);
+    }
+  })();
 }
 
 	async function runDailyShadowEval(today: string): Promise<void> {

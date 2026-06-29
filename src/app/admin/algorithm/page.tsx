@@ -18,15 +18,22 @@ flowchart TD
     Goaloo --> Odds[oddsMovement<br/>initial vs live]
     Odds --> Momentum[Momentum trend<br/>son 5dk ortalama]
     
-    Momentum --> CalcGoal[calculateGoalProbability<br/>12 factor heuristic]
-    CalcGoal --> Ensemble[Ensemble 6-model<br/>Brier-tier weights]
-    Ensemble --> Calib[Calibration<br/>PAVA / Sigmoid]
-    
-    Calib --> SignalCheck{score >= 60<br/>side != null?}
-    SignalCheck -->|Hayır| Next
-    SignalCheck -->|Evet| Cooldown{Son 3dk<br/>cooldown?}
-    Cooldown -->|Evet| Update[Update last values]
-    Cooldown -->|Hayır| DB[(PostgreSQL<br/>Signal)]
+	    Momentum --> CalcGoal[calculateGoalProbability<br/>12 factor heuristic]
+	    CalcGoal --> Poisson[Poisson blend<br/>Dixon-Coles + inPlay]
+	    Poisson --> Elo[Elo adjustment<br/>Dynamic K=50]
+	    Elo --> Pi[Pi-Rating<br/>4 rating Ev/Dep]
+	    Pi --> Glicko2[Glicko-2<br/>RD + σ volatility]
+	    Glicko2 --> Gap[Lite GAP stub<br/>featuresJson DB]
+	    Gap --> Ensemble[Ensemble 9-model<br/>Brier-tier weights]
+	    Ensemble --> Corrector[ZISM Corrector<br/>Frank κ / Weibull]
+	    Corrector --> Stacking[Stacking Meta-Model<br/>α=0-1 blend]
+	    Stacking --> Calib[Calibration<br/>PAVA / Sigmoid]
+	    
+	    Calib --> SignalCheck{score >= 60<br/>side != null?}
+	    SignalCheck -->|Hayır| Next
+	    SignalCheck -->|Evet| Cooldown{Son 3dk<br/>cooldown?}
+	    Cooldown -->|Evet| Update[Update last values]
+	    Cooldown -->|Hayır| DB[(PostgreSQL<br/>Signal)]
 
     DB --> PollBack[Next poll]
 
@@ -167,10 +174,10 @@ flowchart LR
 
 	const DIAGRAMS = [
 	  {
-	    key: 'signal',
-	    title: '🎯 Gol Sinyali Akışı (güncel)',
-	    description: 'Browser poll → Nesine API (21 stat alanı) → FotMob enrichment (shot-level xG, 200ms) → Goaloo enrichment (oddsMovement + momentum trend, 300ms) → 12 faktör heuristic → Ensemble 6-model Brier-weight blend → PAVA/Sigmoid kalibrasyon → threshold+side check → Signal DB.',
-	    source: SIGNAL_FLOW_DIAGRAM,
+      key: 'signal',
+      title: '🎯 Gol Sinyali Akışı (güncel)',
+      description: 'Browser poll → Nesine API (21 stat) → FotMob (shot-level xG) → Goaloo (oddsMovement + momentum) → 12 faktör → Dixon-Coles Poisson → Elo → Pi-Rating (iç/dep) → Glicko-2 (RD+σ) → Lite GAP (stub) → Ensemble 9-model Brier-tier blend → ZISM/Weibull Corrector (κ=κ=-0.30) → Stacking Meta-Model (α=0-1) → PAVA/Sigmoid kalibrasyon → threshold+side check → Signal DB.',
+      source: SIGNAL_FLOW_DIAGRAM,
 	  },
 	];
 
@@ -245,12 +252,12 @@ export default function AdminAlgorithmPage() {
 	            color="purple"
 	            items={['Shot-level xG (shotmap)', 'Goaloo oddsMovement', 'Goaloo momentum 0-100', 'NetScores (crosses/key_passes)']}
 	          />
-	          <PipelineStep
-	            num="3"
-	            title="Sinyal Üretimi"
-	            color="emerald"
-	            items={['12 faktör heuristic → raw score', 'Ensemble 6-model Brier blend', 'PAVA/Sigmoid calibration', 'Threshold 60 + side ratio 0.62']}
-	          />
+		        <PipelineStep
+		            num="3"
+		            title="Sinyal Üretimi"
+		            color="emerald"
+		            items={['12 faktör heuristic → raw score', 'Poisson + Elo + Pi-Rating + Glicko2', 'Ensemble 9-model Brier-tier blend', 'ZISM/Weibull Corrector (κ -0.30)', 'Stacking Meta-Model α-blend', 'PAVA/Sigmoid calibration', 'Threshold 60 + side ratio 0.62']}
+		          />
 	          <PipelineStep
 	            num="4"
 	            title="Öğrenme & Kalibrasyon"
@@ -405,16 +412,46 @@ export default function AdminAlgorithmPage() {
             formula="eloToWinProbability(homeElo, awayElo)"
             description="clubelo.com'dan bağımsız takım gücü ratingi. Ücretsiz, API key gerekmez."
           />
-          <Formula
+      <Formula
             title="Profit Simulation"
             formula="ROI = (totalReturned - totalStaked) / totalStaked"
             description="Sinyalleri hypothetical bahis olarak simüle eder: Sharpe, Drawdown, Win Rate."
+          />
+          <Formula
+            title="Pi-Rating (Constantinou 2013)"
+            formula="δ_exp = (Ha + Ad)/2 − (Hd + Aa)/2 + HOME_ADV"
+            description="4 rating per takım: Ha, Hd, Aa, Ad. İç/deplasman ayrı, gol-farkı bazlı update. ξ=3.25e-3/gün, ω=0.05."
+          />
+          <Formula
+            title="Glicko-2 (Glickman 2013)"
+            formula="g(φ)=1/√(1+3φ²/π²) · E=1/(1+exp(-g(μᵢ-μⱼ)))"
+            description="3-param r, RD, σ. İllinois Algorithm volatility update. HomeAdv +0.155µ. Ensemble'a RD-weighted drawP."
+          />
+          <Formula
+            title="Frank's Copula Corrector"
+            formula="cell'[h][a] = cell[h][a] · w(h,a; κ)"
+            description="κ<0 pozitif korelasyon (equal-score boost). κ>0 negatif (stres). κ=-0.30 önerilen (BTTS %2.16 iyileşme)."
+          />
+          <Formula
+            title="Weibull PMF + Copula"
+            formula="weibullPMF(λ, k, shape=1.4)"
+            description="Over-dispersion (variance>mean) için Weibull sayımı. Frank κ=-0.30 ile BTTS %19 iyileşme (McHale & Scarf 2011)."
+          />
+          <Formula
+            title="Lite GAP Rating (stub)"
+            formula="S_H = (Haᵢ + Adⱼ) / 2"
+            description="Generalized Attacking Performance. 4 rating per takım. Şut/korner/xG non-rare event. featuresJson backfill bekliyor."
+          />
+          <Formula
+            title="Stacking α-Blend"
+            formula="finalP = (1-α)·BMA + α·Stacking"
+            description="α=0.5 önerilen (%23.6 Brier iyileşme). Cold-start guard: 200+ örnek + agreement ≥0.4. STACKING_BLEND_ALPHA env."
           />
         </div>
       </div>
     </div>
   );
-	}
+    }
 	
 	function PipelineStep({ num, title, color, items }: { num: string; title: string; color: 'blue' | 'purple' | 'emerald' | 'orange'; items: string[] }) {
 	  const colors: Record<string, string> = {

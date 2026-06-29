@@ -187,7 +187,7 @@ async function run() {
         piHd: pr?.Hd ?? 0,
         piAa: pr?.Aa ?? 0,
         piAd: pr?.Ad ?? 0,
-        piMatches: pr?.matchesHa ?? 0,
+        piMatches: pr?.matches ?? 0,
       },
       update: {
         teamNameTr: null,
@@ -207,7 +207,7 @@ async function run() {
         piHd: pr?.Hd ?? 0,
         piAa: pr?.Aa ?? 0,
         piAd: pr?.Ad ?? 0,
-        piMatches: pr?.matchesHa ?? 0,
+        piMatches: pr?.matches ?? 0,
       },
     });
     upserted++;

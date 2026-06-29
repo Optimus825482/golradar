@@ -48,6 +48,7 @@ import { db } from "./db";
 import { logError } from "./devLog";
 import { loadExcludedMinutes, isExcludedMinute } from "./excludedMinutes";
 import { onGoal as feedbackOnGoal } from "./feedbackLoops";
+import { recordPrediction } from "./ml/weightTuner";
 
 // ── Local date helper ────────────────────────────────────
 export const getLocalDateString = (d: Date = new Date()): string => {
@@ -408,6 +409,18 @@ export async function reportGoal(
         // Use signalMinute as fallback so the signal gets resolved instead of
         // staying pending forever. minutesAfterSignal=0 is conservative.
         const gm = goalMinute > 0 ? goalMinute : s.signalMinute;
+        // Faz 3 (A3) — resolve edilen her sinyal için online drift kaydı.
+        // Model adı = 'rule' (kural-based ana sinyal motoru). Actual=correctPrediction.
+        // recordPrediction process-local recentRecords Map'ini günceller;
+        // computeOnlineAdjustments → applyOnlineAdjustments ensemble.ts'te
+        // bir sonraki tahminde bu geri bildirimi ağırlıklara yansıtır.
+        try {
+          recordPrediction(
+            'rule',
+            Number(s.calibratedP ?? 0),
+            s.signalSide === 'both' || goalSide === s.signalSide ? 1 : 0,
+          );
+        } catch { /* online adjustment best-effort; hata olursa sessiz geç */ }
         return repoUpdateVerification(s.id, {
           goalHappened: true,
           goalMinute: gm,

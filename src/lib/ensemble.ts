@@ -23,7 +23,7 @@ import {
 } from './dixonColes';
 import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
 import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
-import { computeEnsembleWeights } from './ml/weightTuner';
+import { computeEnsembleWeights, applyOnlineAdjustments } from './ml/weightTuner';
 import { getChampionBrier } from './ml/modelRouter';
 import { getMeasuredBrier } from './ml/brierCache';
 import { getStackingSamplesCount } from './ml/stackingEnsemble';
@@ -393,8 +393,17 @@ export async function predictEnsemble(
     minute: minNum,
     hasPressureHistory: hasHistory,
   });
+  // Faz 3 (A3) — Online drift'i aktif et. ENV gate: ENABLE_ONLINE_ADJUSTMENTS=true.
+  // Kapalıyken eski davranışla birebir aynı (sinyal sayısı invariant).
+  if (process.env.ENABLE_ONLINE_ADJUSTMENTS === 'true') {
+    try {
+      applyOnlineAdjustments(weights);
+    } catch (e) {
+      logError('ensemble', 'applyOnlineAdjustments failed', e);
+    }
+  }
 
-	  // ── Bayesian Model Averaging ──
+		  // ── Bayesian Model Averaging ──
   // Weighted average yerine Brier-based posterior weights.
   // Her modelin Brier score'undan weight türet: düşük Brier = yüksek weight.
   const bmaModels = [

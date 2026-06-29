@@ -169,7 +169,7 @@ async function fetchEloRatingsNet(teamName: string): Promise<number | null> {
 
 // ── Source 4: Team strength from recent match history ────────────
 
-function estimateFromMatchHistory(teamName: string): number | null {
+export function estimateFromMatchHistory(teamName: string): number | null {
   // Best-effort: known approximations for teams without Elo data.
   // These are conservative estimates based on ~2025-2026 season.
   const known: Record<string, number> = {

@@ -16,7 +16,7 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import { fetchTeamRating } from "../src/lib/eloFetcher";
+import { fetchTeamRating, RateLimitedError } from "../src/lib/eloFetcher";
 import { bulkSetRatings } from "../src/lib/eloRating";
 
 const db = new PrismaClient();
@@ -95,29 +95,37 @@ async function main() {
 
       // 3 retry with exponential backoff
       let result = null;
+      let wasRateLimited = false;
       for (let retry = 0; retry < 3; retry++) {
         try {
           result = await fetchTeamRating(team);
           if (result) break;
         } catch (e) {
-          const backoff = 300 * Math.pow(2, retry);
-          if (retry < 2) await new Promise((r) => setTimeout(r, backoff));
+          if (e instanceof RateLimitedError) {
+            wasRateLimited = true;
+            const backoff = 1000 * Math.pow(2, retry); // rate limit: daha uzun bekle
+            if (retry < 2) await new Promise((r) => setTimeout(r, backoff));
+          } else {
+            const backoff = 300 * Math.pow(2, retry);
+            if (retry < 2) await new Promise((r) => setTimeout(r, backoff));
+          }
         }
       }
 
       if (result) {
         results.push({ team: result.team, rating: result.rating, source: result.source });
         fetched++;
-        recordResult("ok");
-        speedUp();
+        if (!wasRateLimited) { // rate limit yokken hizlan
+          recordResult("ok");
+          speedUp();
+        }
       } else {
         failed++;
-        recordResult("fail");
-      }
-
-      // AIMD: hata orani yuksekse yavasla
-      if (shouldSlowDown()) {
-        slowDown();
+        // SADECE rate limit durumunda yavasla, "takim bulunamadi" degil
+        if (wasRateLimited) {
+          recordResult("fail");
+          if (shouldSlowDown()) slowDown();
+        }
       }
 
       const done = fetched + failed;

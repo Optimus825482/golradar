@@ -11,9 +11,12 @@ const CLUBELO_TIMEOUT = 8000;
 
 // ── Source 1: ClubElo API ────────────────────────────────────────
 
+/** Rate limit sinyali — AIMD sadece bunu gorunce yavaslar */
+export class RateLimitedError extends Error {
+  constructor(source: string) { super(`RateLimited:${source}`); this.name = 'RateLimitedError'; }
+}
+
 async function fetchClubElo(teamName: string): Promise<number | null> {
-  // clubelo.com sometimes only responds on one protocol depending on
-  // network conditions. Try both HTTP and HTTPS.
   const urls = [
     `https://api.clubelo.com/${teamName}`,
     `http://api.clubelo.com/${teamName}`,
@@ -23,6 +26,7 @@ async function fetchClubElo(teamName: string): Promise<number | null> {
       const resp = await fetch(url, {
         signal: AbortSignal.timeout(CLUBELO_TIMEOUT),
       });
+      if (resp.status === 429) throw new RateLimitedError('clubelo');
       if (!resp.ok) continue;
       const csv = await resp.text();
       const lines = csv.trim().split("\n");
@@ -85,6 +89,7 @@ async function fetchFootballDB(teamName: string): Promise<number | null> {
   for (const url of urls) {
     try {
       const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (resp.status === 429) throw new RateLimitedError('footballdb');
       if (!resp.ok) continue;
       const html = await resp.text();
       const ratingMatch =

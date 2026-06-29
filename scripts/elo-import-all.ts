@@ -10,8 +10,9 @@ import { fetchTeamRating } from "../src/lib/eloFetcher";
 import { bulkSetRatings } from "../src/lib/eloRating";
 
 const db = new PrismaClient();
-// WORKERS env ile override (örn: WORKERS=36 bun run scripts/elo-import-all.ts)
-const WORKERS = parseInt(process.env.WORKERS ?? '12', 10);
+// WORKERS env ile override (örn: WORKERS=10 bun run scripts/elo-import-all.ts)
+// ClubElo API rate limit: max ~1-2 req/saniye. Varsayilan 5 worker + 1sn delay = ~5 req/s
+const WORKERS = parseInt(process.env.WORKERS ?? '5', 10);
 
 async function main() {
   console.log("[EloImport] Fetching all teams from TeamMapping...");
@@ -34,6 +35,9 @@ async function main() {
       const idx = cursor++;
       if (idx >= teams.length) break;
       const team = teams[idx];
+      // Rate limit korumasi: her istek arasi 1000ms + random 0-500ms
+      // 5 worker ile = ~3-5 req/s — ClubElo API sinirina uygun
+      await new Promise((r) => setTimeout(r, 1000 + Math.random() * 500));
       try {
         const result = await fetchTeamRating(team);
         if (result) {

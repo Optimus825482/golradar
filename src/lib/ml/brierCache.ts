@@ -12,7 +12,7 @@
 import { db } from '@/lib/db';
 import { logError } from '@/lib/devLog';
 
-export type MeasuredModelName = 'rule' | 'poisson' | 'elo' | 'gap';
+export type MeasuredModelName = 'rule' | 'poisson' | 'elo' | 'gap' | 'pi' | 'glicko2';
 
 interface BrierSlot {
   value: number | null;
@@ -99,10 +99,13 @@ export async function setMeasuredBrier(
 
 /** Test/script integration helper: tek seferde DB'den taze oku (cache bypass). */
 export async function readAllMeasuredBriers(): Promise<Record<MeasuredModelName, number | null>> {
-  const [rule, poisson, elo] = await Promise.all([
+  const [rule, poisson, elo, gap, pi, glicko2] = await Promise.all([
     getMeasuredBrier('rule'),
     getMeasuredBrier('poisson'),
     getMeasuredBrier('elo'),
+    getMeasuredBrier('gap'),
+    getMeasuredBrier('pi'),
+    getMeasuredBrier('glicko2'),
   ]);
-  return { rule, poisson, elo };
+  return { rule, poisson, elo, gap, pi, glicko2 };
 }

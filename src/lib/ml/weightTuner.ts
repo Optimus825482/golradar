@@ -24,6 +24,8 @@ export interface WeightTunerInput {
   mlBrier?: number | null;
   teamStrengthBrier?: number | null;
   gapBrier?: number | null;
+  piBrier?: number | null;
+  glicko2Brier?: number | null;
   minute?: number;
   hasPressureHistory?: boolean;
 }
@@ -36,6 +38,8 @@ export interface EnsembleWeights {
   teamStrength: number;
   inplay: number;
   gap: number;
+  pi: number;
+  glicko2: number;
 }
 
 interface ModelSlot {
@@ -108,6 +112,22 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
       lateBonus: 0.02,
       pressureBonus: 0.01,
     },
+    {
+      name: 'pi',
+      brier: input.piBrier,
+      baseWeight: tierWeight(input.piBrier),
+      earlyBonus: -0.03,
+      lateBonus: 0.03,
+      pressureBonus: 0.02,
+    },
+    {
+      name: 'glicko2',
+      brier: input.glicko2Brier,
+      baseWeight: tierWeight(input.glicko2Brier),
+      earlyBonus: 0.02,
+      lateBonus: 0.02,
+      pressureBonus: 0.01,
+    },
   ];
 
   // Cap each slot's tier weight before applying bonuses, so bonuses
@@ -122,6 +142,8 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
     elo: 0.25,          // grid search: 0.20→0.25
     teamStrength: 0.15,
     gap: 0.15,          // Faz 4 (Yol B) — lite mode; ENV-gated, küçük cap
+    pi: 0.20,           // Faz 7 (Yol C) — Pi-Rating ENV-gated, iç/deplasman
+    glicko2: 0.20,      // Faz 7 (Yol C) — Glicko-2 ENV-gated, belirsizlik
   };
   // ⚠️  Applies grid search result but only on 51 records — recalibrate
   // when predictionLog reaches 500+ goalScored labels.
@@ -155,6 +177,8 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
   }
 
   const gapSlot = slots.find((s) => s.name === 'gap')!;
+  const piSlot = slots.find((s) => s.name === 'pi')!;
+  const glicko2Slot = slots.find((s) => s.name === 'glicko2')!;
   // Faz 4 — gap slot guardrail. brier null ise (henüz ölçülmediyse) slot
   // tier=0.20 unranked → küçük ağırlık. Tier ≥ 1.0 gelse bile max 0.15 cap.
   // Sinyal sayısı invariant: cap düşük → gap hiçbir zaman domine edemez.
@@ -166,13 +190,19 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
     teamStrength: slots.find((s) => s.name === 'teamStrength')!.baseWeight,
     inplay: inplaySlot.baseWeight,
     gap: gapSlot.baseWeight,
+    pi: piSlot.baseWeight,
+    glicko2: glicko2Slot.baseWeight,
   };
 
   // Normalize to sum = 1.0
   const sum =
-    raw.ruleBased + raw.poisson + raw.elo + raw.ml + raw.teamStrength + raw.inplay + raw.gap;
+    raw.ruleBased + raw.poisson + raw.elo + raw.ml + raw.teamStrength + raw.inplay +
+    raw.gap + raw.pi + raw.glicko2;
   if (sum <= 0) {
-    return { ruleBased: 0.5, poisson: 0.2, elo: 0.1, ml: 0.05, teamStrength: 0.05, inplay: 0, gap: 0 };
+    return {
+      ruleBased: 0.45, poisson: 0.15, elo: 0.08, ml: 0.05, teamStrength: 0.05,
+      inplay: 0, gap: 0, pi: 0, glicko2: 0,
+    };
   }
   return {
     ruleBased: raw.ruleBased / sum,
@@ -182,6 +212,8 @@ export function computeEnsembleWeights(input: WeightTunerInput): EnsembleWeights
     teamStrength: raw.teamStrength / sum,
     inplay: raw.inplay / sum,
     gap: raw.gap / sum,
+    pi: raw.pi / sum,
+    glicko2: raw.glicko2 / sum,
   };
 }
 
@@ -259,9 +291,12 @@ export function applyOnlineAdjustments(weights: EnsembleWeights): void {
   if (adjustments.elo) weights.elo *= adjustments.elo;
   if (adjustments.teamStrength) weights.teamStrength *= adjustments.teamStrength;
   if (adjustments.gap) weights.gap *= adjustments.gap;
+  if (adjustments.pi) weights.pi *= adjustments.pi;
+  if (adjustments.glicko2) weights.glicko2 *= adjustments.glicko2;
 
   // Re-normalize
-  const sum = weights.ruleBased + weights.poisson + weights.elo + weights.ml + weights.teamStrength + weights.inplay + weights.gap;
+  const sum = weights.ruleBased + weights.poisson + weights.elo + weights.ml +
+    weights.teamStrength + weights.inplay + weights.gap + weights.pi + weights.glicko2;
   if (sum > 0) {
     weights.ruleBased /= sum;
     weights.poisson /= sum;
@@ -270,5 +305,7 @@ export function applyOnlineAdjustments(weights: EnsembleWeights): void {
     weights.teamStrength /= sum;
     weights.inplay /= sum;
     weights.gap /= sum;
+    weights.pi /= sum;
+    weights.glicko2 /= sum;
   }
 }

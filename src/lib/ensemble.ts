@@ -31,6 +31,14 @@ import { computeEnsembleWeights, applyOnlineAdjustments } from './ml/weightTuner
 import { getChampionBrier } from './ml/modelRouter';
 import { getMeasuredBrier } from './ml/brierCache';
 import { getStackingSamplesCount } from './ml/stackingEnsemble';
+import {
+  predictPiFromRating as predictPi,
+  updatePiRating,
+} from './piRating';
+import {
+  predictGlicko2 as predictGlicko2Fn,
+  _useSimplifiedUpdate as updateGlicko2Simplified,
+} from './glicko2';
 	import { estimateXgFromShots } from './estimateXg';
 	// teamHistoryBackfill pulls in sofascore.ts (uses child_process via
 	// Python bridge) — keep it out of the client bundle by deferring
@@ -381,6 +389,46 @@ export async function predictEnsemble(
     }
   }
 
+  // ── Model 7: Pi-Rating (Constantinou 2013) ──
+  // ENABLE_PI_RATING=false ise eski elo davranışı korunur.
+  let piRatingP = 0;
+  let piRatingHomeWin = eloHomeWin;
+  let piRatingDraw = eloDraw;
+  let piRatingAwayWin = eloAwayWin;
+  if (process.env.ENABLE_PI_RATING === 'true' && homeTeam && awayTeam) {
+    try {
+      const piPred = predictPi(homeTeam, awayTeam);
+      // Pi-Rating'in any-goal olasılığı: P(gd > 0) ≈ homeWinP + 0.5 · drawP
+      // her gol olayında eloP proxy olarak kullanılır. BMA `P > 0` gate'ini
+      // bypass etmek için minimum any-goal olasılık 0.05 veriyoruz.
+      piRatingP = Math.max(0.05, Math.min(0.85, piPred.homeWinP + 0.5 * piPred.drawP));
+      piRatingHomeWin = piPred.homeWinP;
+      piRatingDraw = piPred.drawP;
+      piRatingAwayWin = piPred.awayWinP;
+    } catch (e) {
+      logError('ensemble', 'predictPiFromRating failed', e);
+      piRatingP = 0;
+    }
+  }
+
+  // ── Model 8: Glicko-2 (Glickman) ──
+  let glicko2P = 0;
+  let glicko2HomeWin = eloHomeWin;
+  let glicko2Draw = eloDraw;
+  let glicko2AwayWin = eloAwayWin;
+  if (process.env.ENABLE_GLICKO2 === 'true' && homeTeam && awayTeam) {
+    try {
+      const gPred = predictGlicko2Fn(homeTeam, awayTeam);
+      glicko2P = Math.max(0.05, Math.min(0.85, gPred.homeWinP + 0.5 * gPred.drawP));
+      glicko2HomeWin = gPred.homeWinP;
+      glicko2Draw = gPred.drawP;
+      glicko2AwayWin = gPred.awayWinP;
+    } catch (e) {
+      logError('ensemble', 'predictGlicko2 failed', e);
+      glicko2P = 0;
+    }
+  }
+
   // ── Calculate dynamic weights (Brier tier-based) ──
   // Replaces the old calculateDynamicWeights() heuristic with a
   // Brier-driven tuner. Champion Brier values are extracted from
@@ -411,6 +459,8 @@ export async function predictEnsemble(
     mlBrier,
     teamStrengthBrier,
     gapBrier: null, // GAP stub — gapRating DB feature engineering gerektiriyor
+    piBrier: null, // Pi-Rating cold-start; commit edilmiş ölçümler DB'de
+    glicko2Brier: null, // Glicko-2 aynı şekilde cold-start
     ruleBrier: ruleMeasured,
     poissonBrier: poissonMeasured,
     eloBrier: eloMeasured,
@@ -438,6 +488,8 @@ export async function predictEnsemble(
     { name: 'TeamStrength', probability: teamStrengthP, brierScore: null as number | null },
     { name: 'InPlay5m', probability: inPlayP, brierScore: null as number | null },
     { name: 'GAP', probability: gapP, brierScore: null as number | null },
+    { name: 'PiRating', probability: piRatingP, brierScore: null as number | null },
+    { name: 'Glicko2', probability: glicko2P, brierScore: null as number | null },
   ].filter(m => m.probability > 0);
 
   // Get Brier scores from champion models
@@ -451,6 +503,8 @@ export async function predictEnsemble(
       getChampionBrier('team-strength').catch(() => null),
       getChampionBrier('inplay').catch(() => null),
       getMeasuredBrier('gap').catch(() => null),
+      getMeasuredBrier('pi').catch(() => null),
+      getMeasuredBrier('glicko2').catch(() => null),
     ]);
     brierMap['Rule-Based'] = rbBrier;
     brierMap['Poisson'] = poBrier;
@@ -459,6 +513,8 @@ export async function predictEnsemble(
     brierMap['TeamStrength'] = tsBrier;
     brierMap['InPlay5m'] = ipBrier;
     brierMap['GAP'] = gapBrierDb;
+    brierMap['PiRating'] = await getMeasuredBrier('pi').catch(() => null);
+    brierMap['Glicko2'] = await getMeasuredBrier('glicko2').catch(() => null);
   } catch {}
 
   const bmaInputs = bmaModels.map(m => ({
@@ -484,6 +540,8 @@ export async function predictEnsemble(
     teamStrength: teamStrengthP,
     inplay: inPlayP,
     gap: gapP,
+    pi: piRatingP,
+    glicko2: glicko2P,
   };
   const stackingP = predictStacking(stackingInput);
   // Stacking şu an sadece loglanır, kullanılmaz. İleride ensembleP yerine geçebilir.

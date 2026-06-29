@@ -140,19 +140,26 @@ function applyZism(
  * Bu, calculateMatchProbabilities'ın 5×5 corner'larını elde etmek için
  * kullanılır; corrector uygulandıktan sonra over/under ve BTTS
  * olasılıkları yeniden hesaplanır.
+ *
+ * pmfFn parametresi ('poisson' | 'weibull'): matrix'in Poisson μ ile veya
+ * Weibull (shape=1.4 tipik) ile kurulacağını seçer. Weibull over-dispersion
+ * (variance > mean) gereken ligler için uygundur (McHale & Scarf 2011).
  */
 export function buildBasePoissonMatrix(
   lambdaHome: number,
   lambdaAway: number,
   max: number = 5,
+  pmfFn: 'poisson' | 'weibull' = 'poisson',
 ): number[][] {
   const grid: number[][] = Array.from({ length: max }, () => Array(max).fill(0));
   for (let h = 0; h < max; h++) {
     for (let a = 0; a < max; a++) {
-      grid[h][a] = poissonPMF(lambdaHome, h) * poissonPMF(lambdaAway, a);
+      grid[h][a] =
+        pmfFn === 'weibull'
+          ? weibullPMF(lambdaHome, h, 1.4) * weibullPMF(lambdaAway, a, 1.4)
+          : poissonPMF(lambdaHome, h) * poissonPMF(lambdaAway, a);
     }
   }
-  // Satır normalize (lambdaHome + lambdaAway küçükse doğal)
   const total = grid.flat().reduce((s, v) => s + v, 0);
   if (total > 0) {
     for (let h = 0; h < max; h++) {
@@ -164,10 +171,51 @@ export function buildBasePoissonMatrix(
   return grid;
 }
 
+/**
+ * Weibull count PMF. λ'rinci ev sahibi takımın λ'sı µ Weibull scale.
+ * Weibull PDF (count formunda) approximation.
+ * Reference: McHale & Scarf (2011).
+ */
+export function weibullPMF(lambda: number, k: number, shape: number = 1.4): number {
+  if (lambda <= 0 || k < 0) return k === 0 ? 1 : 0;
+  // Lognormal approximation - Weibull PMF tam formu:
+  // exp(-(k/λ)^shape) * (k/λ)^(shape - 1) gibi varyanslarını üretir.
+  // Burada Stirling approximation kullanarak pratik bir formula.
+  // ln P(k) ≈ shape · k · ln(k / λ*scale) − (k/λ*scale)^shape
+  // scale = λ^(1/shape) · gamma(1 + 1/shape)^(−1) (mean-corrected).
+  let logP = 0;
+  if (k === 0) {
+    // P(0) = exp(−(λ/Γ(1+1/c))^c · 0) = exp(0) = 1
+    return 1;
+  }
+  const gammaTerm = Math.exp(
+    logGamma(1 + 1 / shape) / 1 + ((1 / shape) * Math.log(lambda)),
+  );
+  // Simplified: scale adjusted lambda
+  const scaleAdjusted = lambda / Math.exp(logGamma(1 + 1 / shape));
+  logP = shape * Math.log(k) - shape * shape * Math.log(scaleAdjusted) - Math.pow(k / scaleAdjusted, shape);
+  // Stirling düzeltmesi:
+  logP -= 0.5 * Math.log(2 * Math.PI * k);
+  return Math.exp(logP);
+}
+
+function logGamma(x: number): number {
+  // Lanczos approximation (g=7, n=9)
+  const coef = [
+    676.5203681218854, -1259.1392167224028, 771.3234280164934, -176.61502916214059,
+    12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+  ];
+  let y = x;
+  let tmp = x + 7.5;
+  tmp -= x + 0.5;
+  let ser = 0.99999999999980993;
+  for (let i = 0; i < coef.length; i++) ser += coef[i] / ++y;
+  return 0.5 * Math.log(2 * Math.PI) + (x - 0.5) * Math.log(tmp) - tmp + Math.log(ser / x);
+}
+
 function poissonPMF(lambda: number, k: number): number {
   if (lambda <= 0) return k === 0 ? 1 : 0;
   let logP = -lambda + k * Math.log(lambda);
-  // Stirling: log(k!) ≈ k·ln(k) - k (k>0)
   if (k > 0) {
     logP -= k * Math.log(k) - k;
   }
@@ -175,7 +223,7 @@ function poissonPMF(lambda: number, k: number): number {
 }
 
 /**
- * Corrector uygulandıktan sonra over2.5 ve BTTS olasılıklarını türet.
+ * Correction uygulandıktan sonra over2.5 ve BTTS olasılıklarını türet.
  * production'da calculateMatchProbabilities'tan korre edilmiş matrise geçilerek
  * kullanılır; tests/benchmark'ta doğrudan buradan.
  */

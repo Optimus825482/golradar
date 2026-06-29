@@ -21,6 +21,7 @@ interface SignalRow {
   calibratedP: number;
   signalLevel: string;
   goalHappened: boolean | null;
+  signalMinute: number | null;
   goalMinute: number | null;
   goalSide: string | null;
   correctPrediction: boolean | null;
@@ -33,7 +34,7 @@ interface SignalRow {
 async function loadSignals(): Promise<SignalRow[]> {
   const rows = await db.$queryRaw<SignalRow[]>`
     SELECT id, date, "matchCode", "signalSide", "signalScore", "calibratedP",
-           "signalLevel", "goalHappened", "goalMinute", "goalSide",
+           "signalLevel", "goalHappened", "signalMinute", "goalMinute", "goalSide",
            "correctPrediction", "minutesAfterSignal", "activeFactors",
            "homeScore", "awayScore"
     FROM "Signal"
@@ -122,6 +123,27 @@ function applySideFix(signals: SignalRow[]): SignalRow[] {
   });
 }
 
+// Simulate zone exclusion: ilk X dk, devre arasi, son X dk
+// Defaults match current code: 0-2, 43-45, 89+
+function applyZoneExclusion(signals: SignalRow[], opts: {
+  firstMin?: number;   // 0 to firstMin (default 2)
+  htStart?: number;    // htStart to htEnd (default 43-45)
+  htEnd?: number;
+  lastMin?: number;    // lastMin+ to end (default 89)
+} = {}): SignalRow[] {
+  const fm = opts.firstMin ?? 2;
+  const hs = opts.htStart ?? 43;
+  const he = opts.htEnd ?? 45;
+  const lm = opts.lastMin ?? 89;
+  return signals.filter(s => {
+    const m = s.signalMinute ?? 0;
+    if (m <= fm) return false;
+    if (m >= hs && m <= he) return false;
+    if (m >= lm) return false;
+    return true;
+  });
+}
+
 async function main() {
   console.log('📊 GolRadar2 Backtest — DB Signal Data (24-28 Haziran)\n');
 
@@ -175,6 +197,28 @@ async function main() {
     s = applyThreshold(s, th);
     const m = computeMetrics(s);
     console.log(`H3b+Both+Cooling+Eşik${th}: S=${m.signals} M1=%${m.m1} M2=%${m.m2} FA=${m.falseAlarms}`);
+  }
+
+  // ── ZONE EXCLUSION COMPARISON ─────────────────────────────
+  console.log('\n═'.repeat(70));
+  console.log('ZONE EXCLUSION KARŞILAŞTIRMA');
+  console.log('═'.repeat(70));
+  const scenarios = [
+    { name: 'Mevcut kod (0-2, 43-45, 89+)', opts: { firstMin: 2, htStart: 43, htEnd: 45, lastMin: 89 } },
+    { name: 'Sıkı (0-5, 43-45, 87+)',      opts: { firstMin: 5, htStart: 43, htEnd: 45, lastMin: 87 } },
+    { name: 'Geniş (0-3, 42-46, 85+)',       opts: { firstMin: 3, htStart: 42, htEnd: 46, lastMin: 85 } },
+    { name: 'Yasak yok (mevcut threshold)', opts: { firstMin: -1, htStart: 100, htEnd: -1, lastMin: 1000 } },
+  ];
+  console.log('Senaryo                    | Sinyal | FA  | M1%   | M2%');
+  console.log('─'.repeat(60));
+  for (const sc of scenarios) {
+    let s = applySideFix(all);
+    s = applyBothFix(s);
+    s = applyCoolingFix(s);
+    s = applyThreshold(s, 70);
+    s = applyZoneExclusion(s, sc.opts);
+    const m = computeMetrics(s);
+    console.log(`${sc.name.padEnd(26)} | ${String(m.signals).padStart(6)} | ${String(m.falseAlarms).padStart(3)} | ${m.m1.padStart(5)}% | ${m.m2.padStart(4)}%`);
   }
 
   // ── PER DAY BREAKDOWN (best combo) ─────────────────────────

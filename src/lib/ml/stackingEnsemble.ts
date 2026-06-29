@@ -6,36 +6,20 @@
 // Training: use PredictionLog records with known outcomes.
 //
 // Faz 2 (A2) — trainingData process-local mutable array'den JSONL dosyasına
-// (data/ml-training/stacking-samples.jsonl) taşındı. Process yeniden
-// başladığında set unutulmuyor; max 5K örnek ring buffer. Production-safe.
-
-/**
- * Server-only modül (fiziksel). fs ve path modülleri server runtime'da
- * çalışır; client bundle'da Next.js webpack bu dosyayı zaten
- * exclude eder (sinyal-skorunda çağrılan `predictStacking` server
- * route'larından importlanır).
- *
- * Not: 'server-only' package direktifini kullanmıyoruz çünkü
- * scripts/stacking-benchmark.ts gibi CLI araçları aynı modülü kendi
- * runtime context'lerinde require edebilir; onlar throw eder.
- * Doğrudan fs/path import'ları yeterli — webpack zaten server context'i
- * gereği bunları server bundle'a dahil eder, client'a değil.
- */
-// Server-only modül. fs ve path modülleri sadece server runtime'da çalışır;
-// client bundle'a sızmalarını önlemek için en başta browser-detection
-// koyuyoruz. Next.js webpack client bundle'a çekmeye çalışırken
-// `typeof window !== 'undefined'` true olur ve hemen throw eder — build
-// time'da yakalanır (silent failure yerine).
-if (typeof window !== 'undefined') {
-  throw new Error(
-    'stackingEnsemble.ts is server-only and must not be bundled into the client. ' +
-    'Bu hata build sırasında yakalanır; server-only bir API route veya server ' +
-    'component üzerinden import edin.',
-  );
-}
-
-import { promises as fs } from 'fs';
-import { join } from 'path';
+// (data/ml-training/stacking-samples.jsonl) taşındı.
+//
+// CRITICAL — Client-bundle guard: Bu dosya `predictStacking()` gibi
+// server-only API'leri içerir (fs/path tabanlı persistence). Ancak
+// `ensemble.ts` client boundary'leri tarafından implicit import edilir
+// (page.tsx → goalRadar → fotmobIntelligence → ensemble → stackingEnsemble).
+// Webpack bu zinciri client bundle'a çeker; fs/path modüllerini
+// resolve edemeyince build fail eder.
+//
+// Çözüm: 'fs' ve 'path' import'ları bu dosyada TOP-LEVEL DEĞİL; lazy
+// import + dynamic export. Server runtime'da fonksiyonlar çağrıldığında
+// fs/path modülleri yüklenir; client bundle'a hiçbir zaman dahil edilmez.
+// Bu pattern Next.js'in "use server" approach'u ile uyumludur (fonksiyon
+// bazlı izolasyon).
 
 export interface StackingInput {
   ruleBased: number;
@@ -77,19 +61,38 @@ let currentWeights: StackingWeights = {
 };
 
 const MAX_TRAINING_SAMPLES = 5000;
-const STACKING_DATA_PATH = join(process.cwd(), 'data', 'ml-training', 'stacking-samples.jsonl');
 
 // In-memory ring buffer (process-local mirror of JSONL dosyası)
 const trainingData: Array<{ input: StackingInput; actual: number }> = [];
 let dirty = false;
 
 /**
+ * Lazy-init: stack verisinin bulunduğu JSONL dosya yolu.
+ * Server runtime'da ilk erişildiğinde hesaplanır; client bundle'a
+ * `path` modülünü çekmemek için dynamic import.
+ */
+let _STACKING_DATA_PATH_CACHE: string | null = null;
+async function getStackingDataPath(): Promise<string> {
+  if (_STACKING_DATA_PATH_CACHE !== null) return _STACKING_DATA_PATH_CACHE;
+  const path = await import('node:path');
+  _STACKING_DATA_PATH_CACHE = path.join(
+    process.cwd(), 'data', 'ml-training', 'stacking-samples.jsonl',
+  );
+  return _STACKING_DATA_PATH_CACHE;
+}
+
+/**
  * Process başlangıcında JSONL'den ring buffer'a yükle.
  * Idempotent; predictStacking çağrılmadan önce implicit çağrılabilir
  * veya route-layer'dan explicit.
+ *
+ * fs modülü lazy import edilir — Next.js client bundle'a sızmasını
+ * engellemek için (predictStacking server tarafında çağrılır).
  */
 export async function loadStackingSamples(): Promise<number> {
   try {
+    const fs = await import('node:fs/promises');
+    const STACKING_DATA_PATH = await getStackingDataPath();
     const raw = await fs.readFile(STACKING_DATA_PATH, 'utf-8');
     const lines = raw.split('\n').filter((l) => l.trim().length > 0);
     for (const line of lines) {
@@ -121,8 +124,14 @@ export async function addStackingSample(input: StackingInput, actualGoal: number
   }
   dirty = true;
   // Best-effort dosyaya yaz; hata olursa in-memory ring yine geçerli.
+  // Tüm disk operasyonları lazy: client bundle'a fs modülü sızmaz.
   try {
-    await fs.mkdir(join(process.cwd(), 'data', 'ml-training'), { recursive: true });
+    const [fs, path] = await Promise.all([
+      import('node:fs/promises'),
+      import('node:path'),
+    ]);
+    await fs.mkdir(path.join(process.cwd(), 'data', 'ml-training'), { recursive: true });
+    const STACKING_DATA_PATH = await getStackingDataPath();
     await fs.appendFile(
       STACKING_DATA_PATH,
       JSON.stringify(sample) + '\n',

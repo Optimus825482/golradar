@@ -21,17 +21,34 @@ const CONTINENTS: Record<string, string> = {
 
 interface ClubEntry { name: string; slug: string; country: string; countryIso: string; points: number; continent: string; }
 
-async function scrapePage(continent: string, page: number): Promise<ClubEntry[]> {
+/** Sayfadaki pagination'dan son sayfa numarasini bul, yoksa null */
+function getMaxPage(html: string): number | null {
+  const links: number[] = [];
+  const re = /<a href="\/ranking\/[^/]+\/(\d+)"[^>]*>/g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    links.push(parseInt(m[1], 10));
+  }
+  return links.length > 0 ? Math.max(...links) : null;
+}
+
+/** true sayfa (50 klub) mi yoksa reklam/redirect sayfasi (19 klub) mi? */
+function isValidPage(clubs: ClubEntry[]): boolean {
+  return clubs.length >= 40; // gercek sayfa en az 40 klub icerir
+}
+
+async function scrapePage(continent: string, page: number, knownMaxPage?: number): Promise<{ clubs: ClubEntry[]; maxPage: number | null }> {
   const url = `https://www.footballdatabase.com/ranking/${continent}/${page}`;
   try {
     const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    if (!resp.ok) return [];
+    if (!resp.ok) return { clubs: [], maxPage: null };
     const html = await resp.text();
+    const maxPage = knownMaxPage ?? getMaxPage(html);
     const clubs: ClubEntry[] = [];
     const rowRegex = /<tr[^>]*>[\s\S]*?<\/tr>/g;
-    let m;
-    while ((m = rowRegex.exec(html)) !== null) {
-      const rh = m[0];
+    let rowMatch;
+    while ((rowMatch = rowRegex.exec(html)) !== null) {
+      const rh = rowMatch[0];
       const link = rh.match(/\/clubs-ranking\/([a-z0-9-]+)/);
       if (!link) continue;
       const pts = rh.match(/<td class="rank">(\d{3,4})<\/td>/);
@@ -50,9 +67,11 @@ async function scrapePage(continent: string, page: number): Promise<ClubEntry[]>
         continent,
       });
     }
-    return clubs;
+    // Sayfa gecersizse (reklam/redirect) clubs'i bos gonder
+    if (!isValidPage(clubs)) return { clubs: [], maxPage };
+    return { clubs, maxPage };
   } catch {
-    return [];
+    return { clubs: [], maxPage: null };
   }
 }
 
@@ -85,9 +104,10 @@ async function run() {
 
   for (const [ckey, clabel] of Object.entries(CONTINENTS)) {
     console.error(`Scraping ${clabel}...`);
-    let page = 1, total = 0;
+    let page = 1, total = 0, maxPage: number | null = null;
     while (true) {
-      const clubs = await scrapePage(ckey, page);
+      const { clubs, maxPage: mp } = await scrapePage(ckey, page, maxPage);
+      if (maxPage === null && mp !== null) maxPage = mp;
       if (clubs.length === 0) break;
       allClubs.push(...clubs);
       total += clubs.length;
@@ -101,6 +121,7 @@ async function run() {
         console.error(`  [AutoSave] ${allClubs.length} clubs`);
       }
       page++;
+      if (maxPage !== null && page > maxPage) break;
       await new Promise((r) => setTimeout(r, 300 + Math.random() * 200));
     }
     console.error(`  ${clabel}: ${total} clubs`);

@@ -1,9 +1,16 @@
 // ── Stacking Ensemble Meta-Model ──────────────────────────────
 // Instead of weighted averaging, train a small logistic regression
 // meta-model that takes individual model probabilities as input.
-// 
+//
 // Reference: Wolpert, D.H. (1992). "Stacked generalization."
 // Training: use PredictionLog records with known outcomes.
+//
+// Faz 2 (A2) — trainingData process-local mutable array'den JSONL dosyasına
+// (data/ml-training/stacking-samples.jsonl) taşındı. Process yeniden
+// başladığında set unutulmuyor; max 5K örnek ring buffer. Production-safe.
+
+import { promises as fs } from 'fs';
+import { join } from 'path';
 
 export interface StackingInput {
   ruleBased: number;
@@ -24,7 +31,7 @@ export interface StackingWeights {
   inplay: number;
 }
 
-// In-memory stacking weights — varsayılan eşit ağırlık
+// Default eşit ağırlık (eğitim verisi yokken)
 let currentWeights: StackingWeights = {
   intercept: 0,
   ruleBased: 1,
@@ -35,27 +42,85 @@ let currentWeights: StackingWeights = {
   inplay: 1,
 };
 
-const MAX_TRAINING_SAMPLES = 2000;
+const MAX_TRAINING_SAMPLES = 5000;
+const STACKING_DATA_PATH = join(process.cwd(), 'data', 'ml-training', 'stacking-samples.jsonl');
+
+// In-memory ring buffer (process-local mirror of JSONL dosyası)
 const trainingData: Array<{ input: StackingInput; actual: number }> = [];
+let dirty = false;
 
 /**
- * Yeni bir eğitim örneği ekle (gerçek sonuç bilindikten sonra).
+ * Process başlangıcında JSONL'den ring buffer'a yükle.
+ * Idempotent; predictStacking çağrılmadan önce implicit çağrılabilir
+ * veya route-layer'dan explicit.
  */
-export function addStackingSample(input: StackingInput, actualGoal: number): void {
-  trainingData.push({ input, actual: actualGoal });
+export async function loadStackingSamples(): Promise<number> {
+  try {
+    const raw = await fs.readFile(STACKING_DATA_PATH, 'utf-8');
+    const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.input && typeof parsed.actual === 'number') {
+          trainingData.push(parsed as { input: StackingInput; actual: number });
+        }
+      } catch { /* skip corrupt line */ }
+    }
+    if (trainingData.length > MAX_TRAINING_SAMPLES) {
+      trainingData.splice(0, trainingData.length - MAX_TRAINING_SAMPLES);
+    }
+    return trainingData.length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Yeni bir eğitim örneği ekle. Dosyaya async append (best-effort);
+ * bellek ring buffer'ı tutuyor, çıkışta flush.
+ */
+export async function addStackingSample(input: StackingInput, actualGoal: number): Promise<void> {
+  const sample = { input, actual: actualGoal };
+  trainingData.push(sample);
   if (trainingData.length > MAX_TRAINING_SAMPLES) {
     trainingData.shift();
   }
+  dirty = true;
+  // Best-effort dosyaya yaz; hata olursa in-memory ring yine geçerli.
+  try {
+    await fs.mkdir(join(process.cwd(), 'data', 'ml-training'), { recursive: true });
+    await fs.appendFile(
+      STACKING_DATA_PATH,
+      JSON.stringify(sample) + '\n',
+      'utf-8',
+    );
+  } catch { /* swallow — ring buffer authoritative */ }
+}
+
+/**
+ * Process çıkışında çağrılabilecek flush (graceful shutdown).
+ */
+export async function flushStackingSamples(): Promise<void> {
+  // dosya zaten append olmuş durumda; in-memory ile senkron tutmak için
+  // yeniden yazmak isteğe bağlı. Şu an no-op (append yeterli).
+  dirty = false;
 }
 
 /**
  * Logistic regression meta-model train.
  * Features: her modelin probability'si.
  * Target: goal oldu mu (0/1).
+ *
+ * Dosya persistence: ilk çağrıda JSONL'i yükler, sonrasında in-memory ring
+ * kullanılır. n < 100 ise mevcut ağırlıkları döndürür (cold-start guard).
  */
-export function trainStackingMetaModel(): StackingWeights {
+export async function trainStackingMetaModel(): Promise<StackingWeights> {
+  // İlk çağrıda disk'ten yükle (process yeniden başladıktan sonra)
+  if (trainingData.length === 0) {
+    await loadStackingSamples();
+  }
   const n = trainingData.length;
-  if (n < 100) return currentWeights; // yeterli veri yok
+  if (n < 100) return currentWeights;
 
   // Gradient descent for logistic regression
   let w = { ...currentWeights };
@@ -122,4 +187,18 @@ export function predictStacking(input: StackingInput): number {
  */
 export function getStackingWeights(): StackingWeights {
   return { ...currentWeights };
+}
+
+/**
+ * Benchmark/test için: ring buffer snapshot.
+ */
+export function getStackingSamples(): Array<{ input: StackingInput; actual: number }> {
+  return [...trainingData];
+}
+
+/**
+ * Benchmark/test için: ring buffer boyutu.
+ */
+export function getStackingSamplesCount(): number {
+  return trainingData.length;
 }

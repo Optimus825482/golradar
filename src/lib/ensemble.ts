@@ -26,6 +26,7 @@ import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml
 import { computeEnsembleWeights } from './ml/weightTuner';
 import { getChampionBrier } from './ml/modelRouter';
 import { getMeasuredBrier } from './ml/brierCache';
+import { getStackingSamplesCount } from './ml/stackingEnsemble';
 	import { estimateXgFromShots } from './estimateXg';
 	// teamHistoryBackfill pulls in sofascore.ts (uses child_process via
 	// Python bridge) — keep it out of the client bundle by deferring
@@ -453,6 +454,30 @@ export async function predictEnsemble(
     console.log(`[Stacking] ensemble=${ensembleP.toFixed(3)} stacking=${stackingP.toFixed(3)}`);
   }
 
+  // Faz 2 (C) — alpha-blend gating. Production feature flag
+  // STACKING_BLEND_ALPHA ∈ [0, 1]: 0=devre dışı (BMA-only), 1=full stacking.
+  // Yalnız ring buffer eğitim verisi yeterliyse ve model agreement yüksekse
+  // aktif olur (cold-start guard + agreement gate).
+  const stackingAlpha = parseFloat(process.env.STACKING_BLEND_ALPHA ?? '0');
+  const STACKING_MIN_SAMPLES = 200; // trainStackingMetaModel n<100 reddeder; burada 200 ile conservative
+  const stackingSampleCount = getStackingSamplesCount();
+  const stackingEligible =
+    stackingAlpha > 0 &&
+    stackingSampleCount >= STACKING_MIN_SAMPLES &&
+    agreement >= 0.4; // model-uyumu yüksekken stacking daha güvenli
+  let finalEnsembleP = ensembleP;
+  if (stackingEligible) {
+    finalEnsembleP = (1 - stackingAlpha) * ensembleP + stackingAlpha * stackingP;
+    finalEnsembleP = Math.max(0, Math.min(1, finalEnsembleP));
+    if (process.env.NODE_ENV === 'development') {
+      console.log(
+        `[Stacking-Blend] alpha=${stackingAlpha} samples=${stackingSampleCount} ` +
+        `agreement=${agreement.toFixed(3)} bma=${ensembleP.toFixed(3)} ` +
+        `stack=${stackingP.toFixed(3)} -> ${finalEnsembleP.toFixed(3)}`,
+      );
+    }
+  }
+
   // ── Model agreement (excluding zero predictions) ──
   const allPredictions = [ruleBasedP, poissonP, eloP, mlP].filter((p) => p > 0.01);
   const hasPredictions = allPredictions.length > 0;
@@ -535,13 +560,15 @@ export async function predictEnsemble(
   const side: "home" | "away" | "both" | null = determineSideByStats(stats);
 
   // ── Score (0-100 for compatibility) ──
-  const score = Math.round(ensembleP * 100);
+  // Faz 2 (C) — finalEnsembleP stacking-blend'i içerir (alpha > 0 ise).
+  // Sinyal sayısı invariant'ı alpha-blend kapalıyken (default) korunur.
+  const score = Math.round(finalEnsembleP * 100);
 
   // ── Alert level ──
   let level: "low" | "medium" | "high" | "critical";
-  if (ensembleP < 0.2) level = "low";
-  else if (ensembleP < 0.4) level = "medium";
-  else if (ensembleP < 0.6) level = "high";
+  if (finalEnsembleP < 0.2) level = "low";
+  else if (finalEnsembleP < 0.4) level = "medium";
+  else if (finalEnsembleP < 0.6) level = "high";
   else level = "critical";
 
   // ── Build result ──
@@ -599,7 +626,7 @@ export async function predictEnsemble(
   ];
 
   return {
-    probability: Math.round(ensembleP * 1000) / 1000,
+    probability: Math.round(finalEnsembleP * 1000) / 1000,
     score: Math.max(0, Math.min(100, score)),
     level,
     side,

@@ -9,6 +9,31 @@
 // (data/ml-training/stacking-samples.jsonl) taşındı. Process yeniden
 // başladığında set unutulmuyor; max 5K örnek ring buffer. Production-safe.
 
+/**
+ * Server-only modül (fiziksel). fs ve path modülleri server runtime'da
+ * çalışır; client bundle'da Next.js webpack bu dosyayı zaten
+ * exclude eder (sinyal-skorunda çağrılan `predictStacking` server
+ * route'larından importlanır).
+ *
+ * Not: 'server-only' package direktifini kullanmıyoruz çünkü
+ * scripts/stacking-benchmark.ts gibi CLI araçları aynı modülü kendi
+ * runtime context'lerinde require edebilir; onlar throw eder.
+ * Doğrudan fs/path import'ları yeterli — webpack zaten server context'i
+ * gereği bunları server bundle'a dahil eder, client'a değil.
+ */
+// Server-only modül. fs ve path modülleri sadece server runtime'da çalışır;
+// client bundle'a sızmalarını önlemek için en başta browser-detection
+// koyuyoruz. Next.js webpack client bundle'a çekmeye çalışırken
+// `typeof window !== 'undefined'` true olur ve hemen throw eder — build
+// time'da yakalanır (silent failure yerine).
+if (typeof window !== 'undefined') {
+  throw new Error(
+    'stackingEnsemble.ts is server-only and must not be bundled into the client. ' +
+    'Bu hata build sırasında yakalanır; server-only bir API route veya server ' +
+    'component üzerinden import edin.',
+  );
+}
+
 import { promises as fs } from 'fs';
 import { join } from 'path';
 

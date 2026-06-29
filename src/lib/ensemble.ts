@@ -401,10 +401,19 @@ export async function predictEnsemble(
       const piPred = predictPi(homeTeam, awayTeam);
       // Pi-Rating any-goal = homeWinP + 0.5·drawP.
       // Cold-start'ta predictPi 0 döner → probability=0 → BMA filtresi atlar.
-      piRatingP = Math.min(0.85, piPred.homeWinP + 0.5 * piPred.drawP);
-      piRatingHomeWin = piPred.homeWinP;
-      piRatingDraw = piPred.drawP;
-      piRatingAwayWin = piPred.awayWinP;
+      const piRawP = piPred.homeWinP + 0.5 * piPred.drawP;
+      // Cold-start'ta predictPiFromRating 0 döner → eloP fallback kullan
+      if (piRawP <= 0 || (piPred.homeWinP === 0 && piPred.drawP === 0 && piPred.awayWinP === 0)) {
+        piRatingP = Math.min(0.85, eloP);
+        piRatingHomeWin = eloHomeWin;
+        piRatingDraw = eloDraw;
+        piRatingAwayWin = eloAwayWin;
+      } else {
+        piRatingP = Math.min(0.85, piRawP);
+        piRatingHomeWin = piPred.homeWinP;
+        piRatingDraw = piPred.drawP;
+        piRatingAwayWin = piPred.awayWinP;
+      }
     } catch (e) {
       logError('ensemble', 'predictPiFromRating failed', e);
       piRatingP = 0;
@@ -420,10 +429,18 @@ export async function predictEnsemble(
   if (process.env.DISABLE_GLICKO2 !== 'true' && homeTeam && awayTeam) {
     try {
       const gPred = predictGlicko2Fn(homeTeam, awayTeam);
-      glicko2P = Math.min(0.85, gPred.homeWinP + 0.5 * gPred.drawP);
-      glicko2HomeWin = gPred.homeWinP;
-      glicko2Draw = gPred.drawP;
-      glicko2AwayWin = gPred.awayWinP;
+      const gRawP = gPred.homeWinP + 0.5 * gPred.drawP;
+      if (gRawP <= 0 || (gPred.homeWinP === 0 && gPred.drawP === 0 && gPred.awayWinP === 0)) {
+        glicko2P = Math.min(0.85, eloP);
+        glicko2HomeWin = eloHomeWin;
+        glicko2Draw = eloDraw;
+        glicko2AwayWin = eloAwayWin;
+      } else {
+        glicko2P = Math.min(0.85, gRawP);
+        glicko2HomeWin = gPred.homeWinP;
+        glicko2Draw = gPred.drawP;
+        glicko2AwayWin = gPred.awayWinP;
+      }
     } catch (e) {
       logError('ensemble', 'predictGlicko2 failed', e);
       glicko2P = 0;

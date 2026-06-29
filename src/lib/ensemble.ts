@@ -458,14 +458,34 @@ export async function predictEnsemble(
     : 0; // Low variance = high agreement
 
   // ── Ensemble derived predictions ──
+  // A4-fix: rule-based ham skordan türetilmiş O2.5/BTTS tahminleri Poisson'a
+  // tercih edilir; bu sayede `ensembleP · 1.5 / 0.7` gibi keyfi scaling ortadan
+  // kalkar (ruleP yüksek → O2.5 yüksek yöndeki korelasyon doğal).
+  // BASE_RATE_OVER25=0.53, BASE_RATE_BTTS=0.50 ligler-arası ortalama (Open
+  // International Soccer DB / Wheatcroft 2024 istatistikleri). ruleScore/100
+  // offset ile smoothed: ruleScore=60 → +0.05 push üzerinde base.
+  const ruleScoreNorm = Math.max(0, Math.min(1, ruleBasedP));
+  const BASE_RATE_OVER25 = 0.53;
+  const BASE_RATE_BTTS = 0.5;
+  const ruleOverUnder = Math.max(
+    0,
+    Math.min(1, BASE_RATE_OVER25 + (ruleScoreNorm - 0.5) * 0.5),
+  );
+  const ruleBTTS = Math.max(
+    0,
+    Math.min(1, BASE_RATE_BTTS + (ruleScoreNorm - 0.5) * 0.6),
+  );
   const ensembleOverUnder =
-    poissonOverUnder > 0 ? poissonOverUnder : ensembleP * 1.5;
-  const ensembleBTTS = poissonBTTS > 0 ? poissonBTTS : ensembleP * 0.7;
+    poissonOverUnder > 0 ? poissonOverUnder : ruleOverUnder;
+  const ensembleBTTS = poissonBTTS > 0 ? poissonBTTS : ruleBTTS;
 
   // Blend 1X2 predictions from Poisson, Elo, and Kalman team strength.
   // Team strength contributes 0.20 weight when both teams are rated,
   // tapers to 0.05 when only one is rated, 0 otherwise.
-  const tsRated = Math.min(teamStrengthConf > 0 ? 1 : 0, 1); // binary
+  // A4-fix: tsRated artık oransal güven yerine eşik-tabanlı binary karar.
+  // Önceki implementasyon `Math.min(teamStrengthConf>0?1:0, 1)` şeklindeydi
+  // ve Math.min no-op'tu; okunabilirliği ve niyeti netleştirmek için düzeltildi.
+  const tsRated = teamStrengthConf >= 0.5 ? 1 : 0; // 0.5 üstü tam katılım
   const ts1x2Weight = tsRated > 0 ? Math.min(0.2, teamStrengthConf * 0.25) : 0;
   const baseWeight = 1 - ts1x2Weight;
   const tsHome = tsRated > 0 ? teamStrengthHomeWin : 0;

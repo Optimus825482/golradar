@@ -53,3 +53,8 @@ test
 testsprite_tests\tmp\config.json
 yarn-debug.log*
 yarn-error.log*
+
+# Arbor session runtime state (run logs + coordinator working files)
+.arbor/sessions/*/.coordinator/
+.arbor/sessions/*/.worktrees/
+.arbor/*/eval_logs/

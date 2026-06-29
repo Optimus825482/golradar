@@ -146,6 +146,13 @@ model TeamRating {
   formJson        String   @default("[]") // JSON: last 10 results ["W","D","L",...]
   lastUpdated     DateTime @default(now())
 
+  // ── Pi-Rating (Constantinou & Fenton 2013) ──
+  piHa            Float    @default(0)    // Home attack strength
+  piHd            Float    @default(0)    // Home defense strength
+  piAa            Float    @default(0)    // Away attack strength
+  piAd            Float    @default(0)    // Away defense strength
+  piMatches       Int      @default(0)    // Matches used for Pi-Rating
+
   @@index([teamName])
   @@index([elo])
 }

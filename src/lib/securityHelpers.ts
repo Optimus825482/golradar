@@ -96,14 +96,23 @@ export function getClientIp(request: Request): string {
 }
 
 /**
- * Require a valid admin session token via Authorization header.
+ * Require a valid admin session token.
+ * Reads from `Authorization: Bearer <token>` first, then falls back to
+ * the `admin_token` cookie so browser-served admin pages don't have to
+ * duplicate the token into a header.
  */
 export async function requireAdmin(
   request: Request,
 ): Promise<{ ok: boolean; reason?: string }> {
   const auth = request.headers.get("authorization");
-  if (!auth) return { ok: false, reason: "no auth header" };
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (!m) return { ok: false, reason: "malformed auth header" };
-  return validateSession(m[1]!.trim());
+  if (auth) {
+    const m = auth.match(/^Bearer\s+(.+)$/i);
+    if (m) return validateSession(m[1]!.trim());
+  }
+  const cookie = request.headers.get("cookie");
+  if (cookie) {
+    const m = cookie.match(/admin_token=([^;]+)/);
+    if (m) return validateSession(m[1].trim());
+  }
+  return { ok: false, reason: "no auth" };
 }

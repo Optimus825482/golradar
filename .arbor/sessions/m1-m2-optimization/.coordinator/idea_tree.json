@@ -2,7 +2,7 @@
   "version": 3,
   "meta": {
     "baseline_score": 37,
-    "trunk_score": 77,
+    "trunk_score": 78,
     "eval_cmd": "cd {cwd} && npx tsx scripts/backtest-db.ts 2>&1",
     "metric_direction": "maximize"
   },
@@ -12,7 +12,7 @@
     "ROOT": {
       "id": "ROOT",
       "parent_id": null,
-      "children_ids": ["1", "2", "3", "4", "5", "6"],
+      "children_ids": ["1", "2", "3", "4", "5", "6", "7"],
       "depth": 0,
       "hypothesis": "GolRadar2 M1(gol tespit %37.4) ve M2(taraf %66.3) iyileştir. Hedef: M1>50 M2>75.",
       "status": "done"
@@ -22,7 +22,7 @@
       "parent_id": "ROOT",
       "children_ids": [],
       "depth": 1,
-      "hypothesis": "Mechanism: Golden sonra cooling linear(0.6çarpan) yetersiz. Hücum patlaması faktörü anlık spike ile skoru eşik üstüne taşıyor.\nHypothesis: Quadratic cooling + 0.3 çarpan + 3dk cooldown M1'i %37→%60+ çıkarır.\nObservable: 24h sonra false_alarm 179→60-, M1>%50, M2 sabit.\nConflicts: x0 kalibrasyon değişikliğiyle etkileşim.",
+      "hypothesis": "Mechanism: Golden sonra cooling linear(0.6çarpan) yetersiz. Hücum patlaması faktörü anlık spike ile skoru eşik üstüne taşıyor.\nHypothesis: Quadratic cooling + 0.3 çarpan + 3dk cooldown M1'i %37→%60+ çıkarır.\nObservable: 24h sonra false_alarm 179→60-, M1>%50, M2 sabit.",
       "status": "done",
       "score": 61,
       "insight": "Deploy edildi (22f2f0c). Backtest: false_alarm 218 düştü. M1 %37→%61. Süperstar fix — 28 Haziran'daki 179 false_alarm'ın %68'i golden sonra üretilmişti."
@@ -32,7 +32,7 @@
       "parent_id": "ROOT",
       "children_ids": [],
       "depth": 1,
-      "hypothesis": "Mechanism: .env RADAR_THRESHOLD=65 ölü kod, processMatch'te 60 hardcoded.\nHypothesis: Tek kaynak RADAR_THRESHOLD=65 (env'den okunur) M1'i artırır.\nObservable: 60-64 bandı sinyal 129→40-, M1 yükselir.\nConflicts: Tek başına M2 düşer.",
+      "hypothesis": "Mechanism: .env RADAR_THRESHOLD=65 ölü kod, processMatch'te 60 hardcoded.\nHypothesis: Tek kaynak RADAR_THRESHOLD=65 (env'den okunur) M1'i artırır.\nObservable: 60-64 bandı sinyal 129→40-, M1 yükselir.",
       "status": "done",
       "score": 39,
       "insight": "Deploy edildi (e55613f). Eşik 65: M1 %37→%39 (+2), M2 %67.5→%62.7 (-4.8). Tek başına yetersiz, diğer fixlerle kombine edilmeli."
@@ -42,7 +42,7 @@
       "parent_id": "ROOT",
       "children_ids": ["5"],
       "depth": 1,
-      "hypothesis": "Mechanism: M2 taraf dogrulugu home(%72) ile away(%60.6) arasinda %11.4 fark.\nHypothesis: Away deplasmanda doğal olarak daha az baskı üretir. Eşik home 0.62, away 0.58 — deplasman baskısı daha değerli.\nObservable: away M2 60.6→70+, home M2 72.\nConflicts: Home M2 düşebilir.",
+      "hypothesis": "Mechanism: M2 taraf dogrulugu home(%72) ile away(%60.6) arasinda %11.4 fark.\nHypothesis: Away deplasmanda doğal olarak daha az baskı üretir. Eşik home 0.62, away 0.58.",
       "status": "done",
       "score": 0,
       "insight": "Deploy edildi (4e86ca1). Eşik değişimi ama eşleşen sinyaller zaten away olarak işaretliydi. 28 Haziran'da yeni doğru/yanlış dönüşümü: 2 (1 doğru, 1 yanlış). Net M2 etkisi: minimal. Daha agresif fix gerekli (H3b)."
@@ -52,7 +52,7 @@
       "parent_id": "ROOT",
       "children_ids": [],
       "depth": 1,
-      "hypothesis": "Mechanism: SystemConfig'te x0=78, k=0.02 sigmoid bozuktu.\nHypothesis: x0=30, k=0.05, L=0.90 calibratedP'yi gercek olasiliga yaklastirir.\nObservable: calibratedP ortalamasi 0.37→0.55+. Brier score duser.\nConflicts: Auto-calibrate grid search bunu bozabilir.",
+      "hypothesis": "Mechanism: SystemConfig'te x0=78, k=0.02 sigmoid bozuktu.\nHypothesis: x0=30, k=0.05, L=0.90 calibratedP'yi gercek olasiliga yaklastirir.",
       "status": "done",
       "score": 0,
       "insight": "DB'de apply edildi (fb8fd8c). calibratedP artik skor≈60 icin ~0.02 degil ~0.71 dondurur. ECE iyilesmesi beklenir."
@@ -62,7 +62,7 @@
       "parent_id": "3",
       "children_ids": [],
       "depth": 2,
-      "hypothesis": "Mechanism: 27 yanlış tahminin 26'sı aynı pattern — bir taraf ezici üstün ama rakip kontra atak golü.\nHypothesis: Ezici üstünlükte (homeRatio>0.62 veya awayRatio>0.58) rakip hala skor üretiyorsa → 'both' döndür. Kontra atak golünü zaten 'both' yakalar.\nObservable: 28 Haziran'da 17 yanlış→both, 20 doğru→both, M2 %67.5→%78.3 (+10.8).\nConflicts: Çoklu kontra atak pozisyonları için agresif.",
+      "hypothesis": "Mechanism: 27 yanlış tahminin 26'sı aynı pattern — bir taraf ezici üstün ama rakip kontra atak golü.\nHypothesis: Ezici üstünlükte (homeRatio>0.62 veya awayRatio>0.58) rakip hala skor üretiyorsa → 'both' döndür.\nObservable: 28 Haziran'da 17 yanlış→both, 20 doğru→both, M2 %67.5→%78.3 (+10.8).",
       "status": "done",
       "score": 78,
       "insight": "Deploy edildi (98bf0b4). homeDominant + awayScore>=30 → both, awayDominant + homeScore>=25 → both. Backtest M2 +10.8pp. H3'ün asıl kazancı bu — H3 tek başına minimaldi, H3b ile büyük fark yarattı."
@@ -72,10 +72,20 @@
       "parent_id": "ROOT",
       "children_ids": [],
       "depth": 1,
-      "hypothesis": "Mechanism: Eşik 65 yalnız M2 hedefi karşılamıyor (%68.5). Eşik 70 M2=%77.6 — hedef üstü. Sinyal sayısı %28 düşer ama rastgele para atışı sinyalleri elenir.\nHypothesis: RADAR_THRESHOLD=70 deploy edilirse M2>%75, M1>%50 aynı anda sağlanır.\nObservable: Backtest 28 Haziran Eşik70: S=62 M1=%69.4 M2=%71.4. 5 gün ort: M1=%62.3 M2=%77.6.\nConflicts: Sinyal sayısı %28 düşer — kullanıcı etkileşimi izlenmeli.",
+      "hypothesis": "Mechanism: 5 farklı eşik test edildi (60, 65, 70, 75, 80). Eşik 70 optimal trade-off: M1>50 M2>75 aynı anda. Eşik 75 düşüş nedeni: 75-79 bandı en kötü M1=%33.3.\nHypothesis: RADAR_THRESHOLD=70 deploy edilirse M1>%62 M2>%77 elde edilir.",
       "status": "in_progress",
-      "score": null,
-      "insight": "Beklemede: .env'de RADAR_THRESHOLD=65→70 güncellemesi ve Coolify redeploy. Karar: Eşik 70 — %9 M2 artışı +25 sinyal kaybı kabul edilebilir trade."
+      "score": 78,
+      "insight": "Backtest (5 gün): S=146 FA=54 M1=%62.3 M2=%77.6. 75 eşik düşüş: M1=%55.1, M2=%70.8 — her iki hedef de kaçırıldı. 80 eşik: M1=%45.5, M2=%73.3 — volume yetersiz. 70 eşik optimal. Beklemede: .env RADAR_THRESHOLD=65→70 ve Coolify redeploy."
+    },
+    "7": {
+      "id": "7",
+      "parent_id": "ROOT",
+      "children_ids": [],
+      "depth": 1,
+      "hypothesis": "Mechanism: 3 yasaklı zaman dilimi test edildi (0-5dk, 43-45dk, 87+dk). Mevcut kod zaten 0-2/43-45/89+ yapıyor. Genişletme (0-5, 43-45, 87+) tüm fix'ler uygulandıktan sonra zero marginal value.\nHypothesis: Zone exclusion genişletilmesi M1/M2'ye etki etmiyor.",
+      "status": "done",
+      "score": 0,
+      "insight": "4 senaryo test edildi: Mevcut kod/Sıkı/Geniş/Yasak yok. Hepsi aynı sonucu verdi (S=146, M1=%62.3, M2=%77.6). Threshold 70 + cooling fix zaten kötü sinyalleri eliyor. Zone exclusion değişikliği atlandı."
     }
   }
 }

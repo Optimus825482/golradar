@@ -931,7 +931,23 @@ export default function OptimusGolRadariPage() {
         </div>
         <div className="bg-white rounded-xl border border-indigo-100 overflow-hidden shadow-sm">
           {upcomingMatches.map((m: any) => (
-            <div key={m.code} className="px-3 py-2.5 border-b border-gray-50 last:border-0 hover:bg-indigo-50/30 transition-colors">
+            <div key={m.code} className="px-3 py-2.5 border-b border-gray-50 last:border-0 hover:bg-indigo-50/30 transition-colors cursor-pointer"
+              onClick={() => {
+                const liveMatch = matches.find(mm => mm.code === m.code);
+                if (liveMatch) { handleSelectMatch(liveMatch); return; }
+                // Upcoming match icin minimal match objesi olustur
+                handleSelectMatch({
+                  code: m.code, bid: 0, league: m.league || '', leagueId: 0,
+                  home: m.home, away: m.away, homeTr: m.home, awayTr: m.away,
+                  homeGoals: 0, awayGoals: 0, firstHalfScore: '-',
+                  minute: m.time, status: 1, statusText: 'Baslamadi',
+                  time: m.time || '', isLive: false, isFinished: false, isUpcoming: true,
+                  country: '', stats: {}, hasStats: false,
+                  homeColor: null, awayColor: null, homeAbbrev: null, awayAbbrev: null,
+                  homeLogoUrl: null, awayLogoUrl: null, homeRedCards: 0, awayRedCards: 0,
+                } as any);
+              }}>
+              <div className="flex items-center justify-between">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="text-center w-12 shrink-0">

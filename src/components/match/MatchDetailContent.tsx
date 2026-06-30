@@ -20,7 +20,8 @@ interface TeamRatingInfo {
   matchesPlayed: number; wins: number; draws: number; losses: number;
   goalsFor: number; goalsAgainst: number;
   piHa: number; piHd: number; piAa: number; piAd: number; piMatches: number;
-  formJson: string;
+  seasonAvgGF: number; seasonAvgGA: number;
+  last5: Array<{ date: string; opponent: string; goalsFor: number; goalsAgainst: number; result: string; isHome: boolean }>;
 }
 
 export interface MatchDetailContentProps {
@@ -77,22 +78,20 @@ export const MatchDetailContent = memo(function MatchDetailContent({
     if (!match.home || !match.away) return;
     setRatingLoading(true);
     Promise.all([
-      fetch(`/api/admin/elo?search=${encodeURIComponent(match.home)}&limit=1`).then(r => r.json()).catch(() => null),
-      fetch(`/api/admin/elo?search=${encodeURIComponent(match.away)}&limit=1`).then(r => r.json()).catch(() => null),
+      fetch(`/api/team-detail?team=${encodeURIComponent(match.home)}`).then(r => r.json()).catch(() => null),
+      fetch(`/api/team-detail?team=${encodeURIComponent(match.away)}`).then(r => r.json()).catch(() => null),
     ]).then(([h, a]) => {
-      if (h?.rows?.[0]) setHomeRating(h.rows[0]);
-      if (a?.rows?.[0]) setAwayRating(a.rows[0]);
+      if (h?.team) setHomeRating(h);
+      if (a?.team) setAwayRating(a);
     }).finally(() => setRatingLoading(false));
   }, [match.home, match.away]);
 
-  // Parse formJson → emoji array
-  const parseForm = (json: string): string[] => {
-    try {
-      const arr = JSON.parse(json);
-      return (arr as string[]).slice(-5).map((r: string) =>
-        r === 'W' ? '✅' : r === 'D' ? '➖' : r === 'L' ? '❌' : r
-      );
-    } catch { return []; }
+  // Parse form results → emoji + score
+  const formatLast5 = (last5: TeamRatingInfo['last5']) => {
+    return last5.map(m => {
+      const resultEmoji = m.result === 'W' ? '✅' : m.result === 'L' ? '❌' : '➖';
+      return `${resultEmoji} ${m.goalsFor}-${m.goalsAgainst} ${m.isHome ? 'vs' : '@'}${m.opponent.slice(0, 12)}`;
+    });
   };
 
   // Map statsChartData → DangerousAttacksChart data format
@@ -574,7 +573,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       />
       </ErrorBoundary>
 
-      {/* ── Team Info: Elo + Pi-Rating + Form ── */}
+      {/* ── Team Info: Elo + Pi-Rating + Form + Last 5 with goals + Season avg ── */}
       {(homeRating || awayRating || ratingLoading) && (
         <div className="px-3 sm:px-4 pb-3 border-b border-gray-100">
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -583,137 +582,167 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               {ratingLoading && <div className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
-              {/* Home Team */}
-              <div className="p-4 space-y-2.5">
+
+              {/* ═══ Home Team ═══ */}
+              <div className="p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-gray-900">{match.home}</span>
-                  <span className="text-[10px] text-gray-400">#{homeRating?.matchesPlayed ?? 0} maç</span>
+                  <span className="text-[10px] text-gray-400">{homeRating?.matchesPlayed ?? 0} mac</span>
                 </div>
 
+                {/* Core ratings */}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-gray-50 rounded-lg px-2.5 py-2">
                     <div className="text-[9px] text-gray-500 font-medium">Elo</div>
                     <div className={`text-sm font-black font-mono ${(homeRating?.elo ?? 1500) >= 1700 ? 'text-emerald-600' : (homeRating?.elo ?? 1500) >= 1500 ? 'text-amber-600' : 'text-gray-500'}`}>
-                      {homeRating?.elo ?? '—'}
+                      {homeRating?.elo ?? '1500'}
                     </div>
                   </div>
                   <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">Atak/Defans</div>
+                    <div className="text-[9px] text-gray-500 font-medium">Atak / Savunma</div>
                     <div className="text-sm font-black font-mono text-gray-700">
-                      {homeRating?.attackStrength.toFixed(2) ?? '—'}/{homeRating?.defenseWeakness.toFixed(2) ?? '—'}
+                      {homeRating?.attackStrength.toFixed(2) ?? '1.0'} / {homeRating?.defenseWeakness.toFixed(2) ?? '1.0'}
                     </div>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">π Ha</div>
-                    <div className="text-sm font-black font-mono text-indigo-600">{homeRating?.piHa.toFixed(4) ?? '—'}</div>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">π Hd</div>
-                    <div className="text-sm font-black font-mono text-indigo-600">{homeRating?.piHd.toFixed(4) ?? '—'}</div>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">π Aa</div>
-                    <div className="text-sm font-black font-mono text-purple-600">{homeRating?.piAa.toFixed(4) ?? '—'}</div>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">π Ad</div>
-                    <div className="text-sm font-black font-mono text-purple-600">{homeRating?.piAd.toFixed(4) ?? '—'}</div>
                   </div>
                 </div>
 
-                {/* G/B/M */}
+                {/* Pi-Rating inline */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                  <span className="text-gray-500">π Ha: <strong className="text-indigo-600">{homeRating?.piHa.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Hd: <strong className="text-indigo-600">{homeRating?.piHd.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Aa: <strong className="text-purple-600">{homeRating?.piAa.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Ad: <strong className="text-purple-600">{homeRating?.piAd.toFixed(4) ?? '0'}</strong></span>
+                </div>
+
+                {/* Season totals */}
                 {homeRating && (
-                  <div className="flex items-center gap-3 text-[11px]">
-                    <span className="text-gray-500">G/B/M:</span>
-                    <span className="font-bold text-emerald-600">{homeRating.wins}</span>
-                    <span className="text-gray-300">/</span>
-                    <span className="font-bold text-amber-600">{homeRating.draws}</span>
-                    <span className="text-gray-300">/</span>
-                    <span className="font-bold text-red-600">{homeRating.losses}</span>
-                    <span className="text-gray-300 ml-1">|</span>
-                    <span className="text-gray-500">AG/YG:</span>
-                    <span className="font-mono font-bold text-gray-700">{homeRating.goalsFor}/{homeRating.goalsAgainst}</span>
+                  <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-500 font-medium">Sezon</span>
+                      <span className="font-bold text-gray-700">
+                        {homeRating.wins}G / {homeRating.draws}B / {homeRating.losses}M
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-500">Attigi / Yedigi</span>
+                      <span className="font-mono font-bold text-gray-700">
+                        {homeRating.goalsFor} / {homeRating.goalsAgainst}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-500">Mac basi AG / YG</span>
+                      <span className="font-mono font-bold text-gray-700">
+                        {homeRating.seasonAvgGF.toFixed(2)} / {homeRating.seasonAvgGA.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                 )}
 
-                {/* Son 5 maç form */}
-                {homeRating && homeRating.formJson && homeRating.formJson !== '[]' && (
-                  <div className="flex items-center gap-2 text-[11px]">
-                    <span className="text-gray-500">Son 5:</span>
-                    <span className="flex items-center gap-0.5">
-                      {parseForm(homeRating.formJson).map((emoji, i) => (
-                        <span key={i} className="text-xs">{emoji}</span>
+                {/* Last 5 matches with goals */}
+                {homeRating && homeRating.last5 && homeRating.last5.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Son 5 Mac</div>
+                    <div className="space-y-1">
+                      {homeRating.last5.map((m, i) => (
+                        <div key={i} className="flex items-center justify-between text-[11px] bg-gray-50 rounded px-2 py-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs">
+                              {m.result === 'W' ? '✅' : m.result === 'L' ? '❌' : '➖'}
+                            </span>
+                            <span className="font-medium text-gray-700 truncate max-w-[80px]">
+                              {m.isHome ? '' : '@'}{m.opponent}
+                            </span>
+                          </div>
+                          <span className={`font-mono font-bold ${m.result === 'W' ? 'text-emerald-600' : m.result === 'L' ? 'text-red-600' : 'text-amber-600'}`}>
+                            {m.goalsFor}-{m.goalsAgainst}
+                          </span>
+                        </div>
                       ))}
-                    </span>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Away Team */}
-              <div className="p-4 space-y-2.5">
+              {/* ═══ Away Team ═══ */}
+              <div className="p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-gray-900">{match.away}</span>
-                  <span className="text-[10px] text-gray-400">#{awayRating?.matchesPlayed ?? 0} maç</span>
+                  <span className="text-[10px] text-gray-400">{awayRating?.matchesPlayed ?? 0} mac</span>
                 </div>
 
+                {/* Core ratings */}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-gray-50 rounded-lg px-2.5 py-2">
                     <div className="text-[9px] text-gray-500 font-medium">Elo</div>
                     <div className={`text-sm font-black font-mono ${(awayRating?.elo ?? 1500) >= 1700 ? 'text-emerald-600' : (awayRating?.elo ?? 1500) >= 1500 ? 'text-amber-600' : 'text-gray-500'}`}>
-                      {awayRating?.elo ?? '—'}
+                      {awayRating?.elo ?? '1500'}
                     </div>
                   </div>
                   <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">Atak/Defans</div>
+                    <div className="text-[9px] text-gray-500 font-medium">Atak / Savunma</div>
                     <div className="text-sm font-black font-mono text-gray-700">
-                      {awayRating?.attackStrength.toFixed(2) ?? '—'}/{awayRating?.defenseWeakness.toFixed(2) ?? '—'}
+                      {awayRating?.attackStrength.toFixed(2) ?? '1.0'} / {awayRating?.defenseWeakness.toFixed(2) ?? '1.0'}
                     </div>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">π Ha</div>
-                    <div className="text-sm font-black font-mono text-indigo-600">{awayRating?.piHa.toFixed(4) ?? '—'}</div>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">π Hd</div>
-                    <div className="text-sm font-black font-mono text-indigo-600">{awayRating?.piHd.toFixed(4) ?? '—'}</div>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">π Aa</div>
-                    <div className="text-sm font-black font-mono text-purple-600">{awayRating?.piAa.toFixed(4) ?? '—'}</div>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">π Ad</div>
-                    <div className="text-sm font-black font-mono text-purple-600">{awayRating?.piAd.toFixed(4) ?? '—'}</div>
                   </div>
                 </div>
 
-                {/* G/B/M */}
+                {/* Pi-Rating inline */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                  <span className="text-gray-500">π Ha: <strong className="text-indigo-600">{awayRating?.piHa.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Hd: <strong className="text-indigo-600">{awayRating?.piHd.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Aa: <strong className="text-purple-600">{awayRating?.piAa.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Ad: <strong className="text-purple-600">{awayRating?.piAd.toFixed(4) ?? '0'}</strong></span>
+                </div>
+
+                {/* Season totals */}
                 {awayRating && (
-                  <div className="flex items-center gap-3 text-[11px]">
-                    <span className="text-gray-500">G/B/M:</span>
-                    <span className="font-bold text-emerald-600">{awayRating.wins}</span>
-                    <span className="text-gray-300">/</span>
-                    <span className="font-bold text-amber-600">{awayRating.draws}</span>
-                    <span className="text-gray-300">/</span>
-                    <span className="font-bold text-red-600">{awayRating.losses}</span>
-                    <span className="text-gray-300 ml-1">|</span>
-                    <span className="text-gray-500">AG/YG:</span>
-                    <span className="font-mono font-bold text-gray-700">{awayRating.goalsFor}/{awayRating.goalsAgainst}</span>
+                  <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-500 font-medium">Sezon</span>
+                      <span className="font-bold text-gray-700">
+                        {awayRating.wins}G / {awayRating.draws}B / {awayRating.losses}M
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-500">Attigi / Yedigi</span>
+                      <span className="font-mono font-bold text-gray-700">
+                        {awayRating.goalsFor} / {awayRating.goalsAgainst}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-500">Mac basi AG / YG</span>
+                      <span className="font-mono font-bold text-gray-700">
+                        {awayRating.seasonAvgGF.toFixed(2)} / {awayRating.seasonAvgGA.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                 )}
 
-                {/* Son 5 maç form */}
-                {awayRating && awayRating.formJson && awayRating.formJson !== '[]' && (
-                  <div className="flex items-center gap-2 text-[11px]">
-                    <span className="text-gray-500">Son 5:</span>
-                    <span className="flex items-center gap-0.5">
-                      {parseForm(awayRating.formJson).map((emoji, i) => (
-                        <span key={i} className="text-xs">{emoji}</span>
+                {/* Last 5 matches with goals */}
+                {awayRating && awayRating.last5 && awayRating.last5.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Son 5 Mac</div>
+                    <div className="space-y-1">
+                      {awayRating.last5.map((m, i) => (
+                        <div key={i} className="flex items-center justify-between text-[11px] bg-gray-50 rounded px-2 py-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs">
+                              {m.result === 'W' ? '✅' : m.result === 'L' ? '❌' : '➖'}
+                            </span>
+                            <span className="font-medium text-gray-700 truncate max-w-[80px]">
+                              {m.isHome ? '' : '@'}{m.opponent}
+                            </span>
+                          </div>
+                          <span className={`font-mono font-bold ${m.result === 'W' ? 'text-emerald-600' : m.result === 'L' ? 'text-red-600' : 'text-amber-600'}`}>
+                            {m.goalsFor}-{m.goalsAgainst}
+                          </span>
+                        </div>
                       ))}
-                    </span>
+                    </div>
                   </div>
                 )}
               </div>
+
             </div>
           </div>
         </div>

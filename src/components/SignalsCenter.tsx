@@ -11,6 +11,8 @@ interface SignalRecord {
   level: string; goalHappened: boolean | null;
   goalMinute: number | null; minutesAfterSignal: number | null;
   homeScore: number; awayScore: number;
+  currentHomeGoals: number; currentAwayGoals: number;
+  finalHomeScore: number | null; finalAwayScore: number | null;
 }
 
 interface SignalsCenterProps {
@@ -156,7 +158,9 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
                       onSelectMatch({
                         code: s.matchCode, bid: 0, league: s.league, leagueId: 0,
                         home: s.homeTeam, away: s.awayTeam, homeTr: s.homeTeam, awayTr: s.awayTeam,
-                        homeGoals: s.homeScore, awayGoals: s.awayScore, firstHalfScore: "-",
+                        homeGoals: s.finalHomeScore ?? s.currentHomeGoals ?? 0,
+                        awayGoals: s.finalAwayScore ?? s.currentAwayGoals ?? 0,
+                        firstHalfScore: "-",
                         minute: s.goalMinute != null ? `${s.goalMinute}` : "MS", status: 0, statusText: "Bitti",
                         time: "", isLive: false, isFinished: true, country: "", stats: {}, hasStats: false,
                         homeColor: null, awayColor: null, homeAbbrev: null, awayAbbrev: null,

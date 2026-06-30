@@ -103,19 +103,36 @@ export function simulateProfit(records: BetRecord[]): SimulationResult {
 
 /**
  * Signal'leri BetRecord'lara çevir.
- * Her sinyal için implied odds = 1 / calibratedP
+ * opsiyonel: Kelly Criterion stake hesaplama.
+ * Bankroll baslangıcı 100 birim, Kelly fraksiyonu cap 0.25.
  */
 export function signalsToBetRecords(
-  signals: Array<{ calibratedP: number; goalHappened: boolean | null }>,
+  signals: Array<{ calibratedP: number; goalHappened: boolean | null; signalLevel?: string }>,
   stakePerSignal: number = 1,
+  useKelly: boolean = false,
 ): BetRecord[] {
+  let bankroll = 100;
   return signals
     .filter(s => s.calibratedP > 0 && s.calibratedP < 1 && s.goalHappened != null)
-    .map(s => ({
-      predicted: s.calibratedP,
-      actual: s.goalHappened ? 1 : 0,
-      odds: Math.round((1 / s.calibratedP) * 100) / 100,
-      stake: stakePerSignal,
-      timestamp: Date.now(),
-    }));
+    .map(s => {
+      const odds = Math.round((1 / s.calibratedP) * 100) / 100;
+      let stake = stakePerSignal;
+      if (useKelly) {
+        // Kelly: f* = (p * odds - 1) / (odds - 1)
+        const kellyFrac = (s.calibratedP * odds - 1) / (odds - 1);
+        stake = Math.max(0.1, Math.min(bankroll * 0.25, bankroll * Math.max(0, kellyFrac)));
+      }
+      const result: BetRecord = {
+        predicted: s.calibratedP,
+        actual: s.goalHappened ? 1 : 0,
+        odds,
+        stake: Math.round(stake * 100) / 100,
+        timestamp: Date.now(),
+      };
+      // Track bankroll for next Kelly calc
+      if (useKelly) {
+        bankroll += result.actual === 1 ? result.stake * (result.odds - 1) : -result.stake;
+      }
+      return result;
+    });
 }

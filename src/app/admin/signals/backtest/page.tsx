@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { authFetch, KPICard } from '@/lib/adminAuth';
+import { RefreshCw } from 'lucide-react';
 
 interface BucketResult {
 	  bucket: string;
@@ -61,6 +62,17 @@ export default function AdminSignalsBacktestPage() {
   const [result, setResult] = useState<BacktestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [flagSummary, setFlagSummary] = useState<string>('');
+
+  useEffect(() => {
+    fetch('/api/admin/settings').then(r => r.json()).then(d => {
+      if (!d.flags) return;
+      const toggles = d.flags.filter((f: any) => f.type === 'toggle');
+      const active = toggles.filter((f: any) => f.effectiveValue === 'true');
+      const stacking = d.flags.find((f: any) => f.key === 'STACKING_BLEND_ALPHA');
+      setFlagSummary(`${active.length}/${toggles.length} toggle aktif · α=${stacking?.effectiveValue ?? '0.5'}`);
+    }).catch(() => {});
+  }, []);
 
   const run = async () => {
     setLoading(true);
@@ -93,6 +105,15 @@ export default function AdminSignalsBacktestPage() {
 
       {error && (
         <div className="rounded-lg px-4 py-2.5 bg-red-50 text-red-700 border border-red-200 text-sm">{error}</div>
+      )}
+
+      {/* Feature flag status */}
+      {flagSummary && (
+        <div className="flex items-center gap-2 text-[11px] text-gray-500 bg-gray-50 rounded-lg px-4 py-2 border border-gray-200">
+          <RefreshCw className="size-3" />
+          <span>Anlik feature flag konfigurasyonu: <strong>{flagSummary}</strong></span>
+          <span className="text-[10px] text-gray-400 ml-auto">Backtest, aktif flag'ler ile calisir</span>
+        </div>
       )}
 
       {/* Konfig */}

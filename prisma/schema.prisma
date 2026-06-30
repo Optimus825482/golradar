@@ -471,6 +471,22 @@ model FootballdbClub {
   @@map("FootballdbClub")
 }
 
+// ── Eloratings.net Milli Takim Elo Ratingleri ────────────────
+// scripts/import-national-elo.ts ile guncellenir.
+// Kaynak: https://www.eloratings.net/World.tsv
+model NationalTeamElo {
+  id          String   @id @default(cuid())
+  countryCode String   @unique // ISO 2-letter code (TR, EN, FR, ...)
+  countryName String   // Full name (Turkey, England, France, ...)
+  elo         Int      // Current Elo rating
+  rank        Int      // Current world rank
+  lastUpdated DateTime @default(now())
+
+  @@index([elo])
+  @@index([rank])
+  @@map("NationalTeamElo")
+}
+
 // ── Feature Flag Runtime Override ───────────────────────────────
 // Admin settings sayfasından runtime'da değiştirilen flag değerleri.
 // Öncelik sırası: FeatureFlag → process.env → kod default.

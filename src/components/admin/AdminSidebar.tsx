@@ -85,8 +85,9 @@ const NAV_GROUPS: NavGroup[] = [
     icon: Database,
     items: [
       { key: "ml-data-import", href: "/admin/ml/data-import", label: "Veri İçe Aktar", icon: Download, description: "Geçmiş maçları çek" },
-      { key: "team-ratings", href: "/admin/team-ratings", label: "Takım Ratingleri", icon: Trophy, description: "Elo + Pi-Rating + istatistikler" },
-      { key: "settings", href: "/admin/settings", label: "Özellikler", icon: Settings2, description: "Feature flag'ler, env parametreleri" },
+	      { key: "team-ratings", href: "/admin/team-ratings", label: "Takım Ratingleri", icon: Trophy, description: "Elo + Pi-Rating + istatistikler" },
+	      { key: "national-elo", href: "/admin/national-elo", label: "Milli Takım Elo", icon: Trophy, description: "Eloratings.net milli takım ranking" },
+	      { key: "settings", href: "/admin/settings", label: "Özellikler", icon: Settings2, description: "Feature flag'ler, env parametreleri" },
       { key: "elo", href: "/admin/elo", label: "Elo Ratings", icon: Zap, description: "Takım gücü ratingleri" },
       { key: "reset", href: "/admin/reset", label: "Sıfırlama", icon: RotateCcw, description: "Sistem reset" },
     ],

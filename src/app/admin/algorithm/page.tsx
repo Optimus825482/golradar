@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+interface FeatureFlag {
+  key: string; effectiveValue: string; type: string; default: string; overridden: boolean;
+}
+
 // ── Mermaid diagram source ───────────────────────────────────────
 const SIGNAL_FLOW_DIAGRAM = `
 flowchart TD
@@ -184,8 +188,22 @@ flowchart LR
 
 export default function AdminAlgorithmPage() {
   const [mermaidReady, setMermaidReady] = useState(false);
+  const [flags, setFlags] = useState<Record<string, FeatureFlag>>({});
   const diagramRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const idCounter = useRef(0);
+
+  useEffect(() => {
+    fetch('/api/admin/settings')
+      .then(r => r.json())
+      .then(d => {
+        if (d.flags) {
+          const map: Record<string, FeatureFlag> = {};
+          for (const f of d.flags) map[f.key] = f;
+          setFlags(map);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -421,32 +439,38 @@ export default function AdminAlgorithmPage() {
           <Formula
             title="✅ Pi-Rating (Constantinou 2013)"
             formula="δ_exp = (Ha + Ad)/2 − (Hd + Aa)/2 + HOME_ADV"
-            description="PI_RATING (varsayılan AÇIK). 4 rating per takım: Ha, Hd, Aa, Ad. İç/deplasman ayrı, gol-farkı bazlı update. ξ=3.25e-3/gün, ω=0.05. false ile kapatılır."
+            flag={flags['PI_RATING']}
+            description="4 rating per takım: Ha, Hd, Aa, Ad. İç/deplasman ayrı, gol-farkı bazlı update. ξ=3.25e-3/gün, ω=0.05."
           />
           <Formula
             title="✅ Glicko-2 (Glickman 2013)"
             formula="g(φ)=1/√(1+3φ²/π²) · E=1/(1+exp(-g(μᵢ-μⱼ)))"
-            description="GLICKO2 (varsayılan AÇIK). 3-param r, RD, σ. RD=350 cold-start. Simplified Illinois. false ile kapatılır."
+            flag={flags['GLICKO2']}
+            description="3-param r, RD, σ. RD=350 cold-start. Simplified Illinois."
           />
           <Formula
             title="✅ Frank's Copula Corrector"
             formula="cell'[h][a] = cell[h][a] · w(h,a; κ)"
-            description="ZISM_CORRECTOR (varsayılan AÇIK). κ<0 pozitif korelasyon (equal-score boost). κ=-0.30 önerilen (BTTS %2.16 iyileşme). false ile kapatılır."
+            flag={flags['ZISM_CORRECTOR']}
+            description="κ<0 pozitif korelasyon (equal-score boost). κ=-0.30 önerilen (BTTS %2.16 iyileşme)."
           />
           <Formula
             title="✅ Weibull PMF + Copula"
             formula="weibullPMF(λ, k, shape=1.4)"
-            description="ZISM_CORRECTOR (varsayılan AÇIK) + SKOR_PMF=weibull. Over-dispersion (variance>mean) için Weibull sayımı. Frank κ=-0.30 ile BTTS %19 iyileşme."
+            flag={flags['ZISM_CORRECTOR']}
+            description="ZISM_CORRECTOR + SKOR_PMF=weibull. Over-dispersion (variance>mean) için Weibull sayımı. Frank κ=-0.30 ile BTTS %19 iyileşme."
           />
           <Formula
             title="✅ Lite GAP Rating"
             formula="S_H = (Haᵢ + Adⱼ) / 2"
-            description="GAP_RATING (varsayılan AÇIK). Generalized Attacking Performance. 4 rating per takım. Singleton state ile MatchSnapshot verisi beslenir. false ile kapatılır."
+            flag={flags['GAP_RATING']}
+            description="Generalized Attacking Performance. 4 rating per takım. Singleton state ile MatchSnapshot verisi beslenir."
           />
           <Formula
             title="✅ Stacking α-Blend"
             formula="finalP = (1-α)·BMA + α·Stacking"
-            description="STACKING_BLEND_ALPHA (varsayılan α=0.5). %23.6 Brier iyileşme. Cold-start guard: 200+ örnek + agreement ≥0.4."
+            flag={flags['STACKING_BLEND_ALPHA']}
+            description="%23.6 Brier iyileşme. Cold-start guard: 200+ örnek + agreement ≥0.4."
           />
         </div>
       </div>
@@ -479,12 +503,30 @@ export default function AdminAlgorithmPage() {
   );
 }
 
-function Formula({ title, formula, description }: { title: string; formula: string; description: string }) {
+function Formula({ title, formula, description, flag }: { title: string; formula: string; description: string; flag?: FeatureFlag }) {
+  const isToggle = flag?.type === 'toggle';
+  const isActive = flag?.effectiveValue === 'true';
+  const isNum = flag?.type === 'number';
+  const label = flag ? (isToggle ? (isActive ? 'AÇIK' : 'KAPALI') : `${flag.effectiveValue}`) : null;
   return (
-    <div className="rounded-lg border border-gray-200 p-3 bg-gradient-to-br from-gray-50 to-white">
-      <div className="font-bold text-gray-800 mb-1">{title}</div>
+    <div className={`rounded-lg border p-3 bg-gradient-to-br from-gray-50 to-white ${
+      flag ? (isToggle && !isActive ? 'border-red-200 opacity-70' : 'border-gray-200') : 'border-gray-200'
+    }`}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="font-bold text-gray-800 text-[12px]">{title}</div>
+        {label && (
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+            isToggle
+              ? isActive ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'
+              : 'bg-indigo-50 text-indigo-600'
+          }`}>
+            {isToggle ? (isActive ? '✅ AÇIK' : '🔴 KAPALI') : `α=${label}`}
+          </span>
+        )}
+      </div>
       <div className="font-mono text-xs text-indigo-700 bg-white px-2 py-1.5 rounded border border-indigo-100 mb-1.5">{formula}</div>
-      <div className="text-gray-500">{description}</div>
+      <div className="text-gray-500 text-[11px]">{description}</div>
+      {flag?.overridden && <div className="text-[10px] text-amber-600 mt-1">⚡ Override aktif</div>}
     </div>
   );
 }

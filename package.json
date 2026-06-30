@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "bunx next dev -p 3028 2>&1",
-    "build": "bunx next build && node -e \"const fs=require('fs');fs.cpSync('.next/static','.next/standalone/.next/static',{recursive:true});fs.cpSync('public','.next/standalone/public',{recursive:true});\"",
+    "build": "bunx next build && node -e \"const fs=require('fs');const cps=(s,d)=>fs.cpSync(s,d,{recursive:true,dereference:true});cps('.next/static','.next/standalone/.next/static');cps('public','.next/standalone/public');try{cps('node_modules/socket.io','.next/standalone/node_modules/socket.io');cps('node_modules/socket.io-client','.next/standalone/node_modules/socket.io-client');cps('node_modules/engine.io','.next/standalone/node_modules/engine.io');cps('node_modules/cors','.next/standalone/node_modules/cors')}catch(e){console.error('Copy deps failed:',e.message)}\"",
     "start": "NODE_ENV=production bun .next/standalone/server.js",
     "push-server": "bun src/lib/pushServer.ts",
     "lint": "eslint .",

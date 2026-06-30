@@ -31,10 +31,9 @@ import {
 import { SIGNAL_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
 import SignalsCenter from '@/components/SignalsCenter'
 import { usePresence } from '@/hooks/usePresence'
+import { useRealtime } from '@/hooks/useRealtime'
 import { tierConfig } from '@/lib/tier'
 import { useMatchList } from '@/hooks/useMatchList'
-import { useFinishedMatches } from '@/hooks/useFinishedMatches'
-import { useDailyMetrics } from '@/hooks/useDailyMetrics'
 import { useGoalDetection } from '@/hooks/useGoalDetection'
 
 import { Badge } from '@/components/ui/badge'
@@ -45,7 +44,6 @@ import { CountryFlag, MatchStatusBadge } from '@/components/match/shared-compone
 import { MatchCard } from '@/components/match/MatchCard'
 import { MatchDetailContent } from '@/components/match/MatchDetailContent'
 import type { MatchDetailContentProps } from '@/components/match/MatchDetailContent'
-import { FinishedMatchesView } from '@/components/match/FinishedMatchesView'
 import { BottomNavBar } from '@/components/match/BottomNavBar'
 import { GoalRadarSection } from '@/components/match/GoalRadarSection'
 import { logError } from '@/lib/devLog';
@@ -242,6 +240,46 @@ export default function OptimusGolRadariPage() {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
   }, [fetchMatches, tier])
+
+  // WebSocket real-time — push server'dan gelen veri ile state guncelle
+  // WS bagliyken HTTP poll yine calisir ama WS verisi daha guncel oldugu icin
+  // UI WS verisi ile guncellenir. WS kesilince HTTP poll devreye girer.
+  const { connected: wsConnected, wsData, wsTimestamp: _wsTs } = useRealtime();
+
+  // WS'den gelen matches verisi varsa, mevcut matches state'ini guncelle
+  // (sadece canli maclarin goalRadar/skor bilgileri WS uzerinden gelir)
+  useEffect(() => {
+    if (!wsData?.matches || !Array.isArray(wsData.matches)) return;
+
+    setMatches(prev => {
+      if (!prev || prev.length === 0) return prev;
+      const wsMap = new Map(wsData.matches.map((m: any) => [m.code, m]));
+
+      return prev.map(m => {
+        const ws = wsMap.get(m.code);
+        if (!ws) return m;
+        // WS verisi varsa goalRadar, skor, dakika bilgilerini guncelle
+        return {
+          ...m,
+          homeGoals: ws.homeGoals ?? m.homeGoals,
+          awayGoals: ws.awayGoals ?? m.awayGoals,
+          minute: ws.minute ?? m.minute,
+          status: ws.status ?? m.status,
+          statusText: ws.statusText ?? m.statusText,
+          goalRadar: ws.goalRadar ?? m.goalRadar,
+          stats: ws.stats ?? m.stats,
+          firstHalfScore: ws.firstHalfScore ?? m.firstHalfScore,
+        };
+      });
+    });
+
+    if (wsData.timestamp) {
+      setLastUpdate(new Date(wsData.timestamp));
+    }
+  }, [wsData]);
+
+  // WS indicator
+  const wsIndicator = wsConnected;
 
   // Daily metrics fetch — refresh every 5 minutes
   const handleCloseMatch = useCallback(() => {
@@ -901,6 +939,8 @@ export default function OptimusGolRadariPage() {
 	              <p className="text-[10px] text-gray-400 leading-tight flex items-center gap-1">
 	                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
 	                {lastUpdate ? `Canlı · ${lastUpdate.toLocaleTimeString('tr-TR')}` : '—'}
+                {wsConnected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block ml-1" title="WebSocket bagli" />}
+                {!wsConnected && <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block ml-1" title="WebSocket bagli degil, HTTP poll aktif" />}
 	              </p>
             </div>
           </div>

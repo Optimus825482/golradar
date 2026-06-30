@@ -1,14 +1,16 @@
-// ── Next.js Server-Side Instrumentation ────────────────────────────
-// Runs once when the Node.js server boots. Use to wire up long-lived
-// background tasks (cache purges, schedulers, etc.) that shouldn't
-// be triggered by individual route handlers.
+// ── Next.js Instrumentation ──────────────────────────────────────
+// Server startup'ta Socket.io push server'ini baslatir.
+// Next.js'in kendi process'inde calisir, tum dependency'ler hazir.
+// Ayri port (3004) kullanir, ama ayri process degil.
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    // Server-side only — kicks off the FotMob cache maintenance
-    // scheduler (purge timer, stats logging, team-mapping rehydrate).
-    // The module self-starts on import, so a side-effect import is
-    // enough. Guarded against HMR re-entry by its internal singleton.
-    await import('./lib/fotmobCacheMaintenance');
+    try {
+      const { startPushServer } = await import('./lib/pushServer');
+      startPushServer();
+      console.error('[Instrumentation] Push server started');
+    } catch (err) {
+      console.error('[Instrumentation] Push server failed:', err);
+    }
   }
 }

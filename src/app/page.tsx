@@ -244,7 +244,7 @@ export default function OptimusGolRadariPage() {
   // WebSocket real-time — push server'dan gelen veri ile state guncelle
   // WS bagliyken HTTP poll yine calisir ama WS verisi daha guncel oldugu icin
   // UI WS verisi ile guncellenir. WS kesilince HTTP poll devreye girer.
-  const { connected: wsConnected, wsData, wsTimestamp: _wsTs } = useRealtime();
+  const { connected: wsConnected, wsData } = useRealtime();
 
   // WS'den gelen matches verisi varsa, mevcut matches state'ini guncelle
   // (sadece canli maclarin goalRadar/skor bilgileri WS uzerinden gelir)

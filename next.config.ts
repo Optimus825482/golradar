@@ -11,9 +11,6 @@ const nextConfig: NextConfig = {
   outputFileTracingExcludes: {
     "*": ["scripts/**/*", "mini-services/**/*", "docs/**/*", "data/**/*"],
   },
-  outputFileTracingIncludes: {
-    "*": ["node_modules/socket.io/**/*", "node_modules/socket.io-client/**/*", "node_modules/engine.io/**/*", "node_modules/cors/**/*"],
-  },
   // Keep Node built-ins out of client bundles; Turbopack resolves them
   // via import traces so listing them here prevents NFT over-collection.
   serverExternalPackages: ["fs", "fs/promises", "path", "child_process", "node:fs", "node:fs/promises", "node:path", "node:child_process"],

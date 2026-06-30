@@ -38,7 +38,6 @@ services:
         condition: service_started
     ports:
       - "3012:3012"
-      - "3004:3004"   # Socket.io push server
     networks:
       - golradar-net
       - coolify
@@ -51,11 +50,6 @@ services:
       PORT: "3012"
       HOSTNAME: "0.0.0.0"
       NEXT_PUBLIC_APP_URL: "https://radar.erkanerdem.online"
-      # Push Server (Socket.io)
-      PUSH_PORT: "3004"
-      PUSH_INTERNAL_URL: "http://localhost:3012"
-      NEXT_PUBLIC_PUSH_URL: "https://radar.erkanerdem.online:3004"
-      SOCKET_CORS_ORIGIN: "https://radar.erkanerdem.online"
       RADAR_THRESHOLD: "${RADAR_THRESHOLD:-65}"
       SIGNAL_5MIN_THRESHOLD: "${SIGNAL_5MIN_THRESHOLD:-0.25}"
       POISSON_BLEND_WEIGHT: "${POISSON_BLEND_WEIGHT:-0.25}"

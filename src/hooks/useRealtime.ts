@@ -1,81 +1,58 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
-
-const PUSH_URL = process.env.NEXT_PUBLIC_PUSH_URL ?? 'http://localhost:3004';
 
 interface PushPayload {
   matches: any[];
   signals: any[];
-  signalStats: {
-    totalSignals: number;
-    signalsWithGoal: number;
-    signalsWithoutGoal: number;
-    signalsPending: number;
-    accuracyRate: number;
-    goalAfterSignalRate: number;
-  };
+  signalStats: { totalSignals: number };
   timestamp: number;
 }
 
 /**
- * Socket.io baglantisi. Ilk denemede basarisiz olursa pes eder
- * ve sadece HTTP poll'a guvenir. Konsol spam'i yapmaz.
- * Production'da push server yoksa sorunsuz calisir.
+ * SSE (Server-Sent Events) ile canli veri akisi.
+ * /api/push endpoint'ine baglanir, her 15sn'de bir guncel veriyi alir.
+ * Socket.io yok, ek bagimlilik yok, tek port (3012).
+ *
+ * - connected: SSE baglantisi aktif mi
+ * - wsData: son guncel veri
  */
 export function useRealtime() {
-  const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [wsData, setWsData] = useState<PushPayload | null>(null);
-  const [wsTimestamp, setWsTimestamp] = useState<number | null>(null);
-  const gaveUpRef = useRef(false);
+  const esRef = useRef<EventSource | null>(null);
+  const gaveUp = useRef(false);
 
   useEffect(() => {
-    if (gaveUpRef.current) return;
+    if (gaveUp.current) return;
     if (typeof window === 'undefined') return;
 
-    // Sadece development'ta logla
-    const isDev = process.env.NODE_ENV === 'development';
+    const es = new EventSource('/api/push');
 
-    const socket = io(PUSH_URL, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 2,    // sadece 2 kez dene
-      reconnectionDelay: 5000,
-      timeout: 5000,              // 5sn timeout
-      autoConnect: true,
-    });
+    es.onopen = () => setConnected(true);
 
-    socket.on('connect', () => {
-      if (isDev) console.log('[WS] Connected');
-      setConnected(true);
-    });
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data) as PushPayload;
+        setWsData(data);
+      } catch {}
+    };
 
-    socket.on('update', (data: PushPayload) => {
-      setWsData(data);
-      setWsTimestamp(data.timestamp);
-    });
-
-    socket.on('disconnect', () => {
+    es.onerror = () => {
+      // Ilk hatada pes et — HTTP poll devam eder
+      gaveUp.current = true;
       setConnected(false);
-    });
+      es.close();
+    };
 
-    socket.on('connect_error', () => {
-      // Ilk hatada pes et — HTTP poll yeterli
-      gaveUpRef.current = true;
-      setConnected(false);
-      socket.disconnect();
-    });
-
-    socketRef.current = socket;
+    esRef.current = es;
 
     return () => {
-      socket.disconnect();
-      socketRef.current = null;
+      es.close();
+      esRef.current = null;
       setConnected(false);
     };
   }, []);
 
-  return { connected, wsData, wsTimestamp };
+  return { connected, wsData };
 }

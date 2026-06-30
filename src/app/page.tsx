@@ -948,7 +948,6 @@ export default function OptimusGolRadariPage() {
                 } as any);
               }}>
               <div className="flex items-center justify-between">
-              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="text-center w-12 shrink-0">
                     <div className="text-[11px] font-bold text-indigo-600">{m.time}</div>

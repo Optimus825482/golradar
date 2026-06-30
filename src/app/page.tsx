@@ -241,6 +241,13 @@ export default function OptimusGolRadariPage() {
     }
   }, [fetchMatches, tier])
 
+  // Notification izni iste (favori gollerinde push bildirimi icin)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
   // WebSocket real-time — push server'dan gelen veri ile state guncelle
   // WS bagliyken HTTP poll yine calisir ama WS verisi daha guncel oldugu icin
   // UI WS verisi ile guncellenir. WS kesilince HTTP poll devreye girer.
@@ -501,19 +508,34 @@ export default function OptimusGolRadariPage() {
         }
 
         if (favorites.has(m.code)) {
-	          const notification: GoalNotification = {
-	            id: `${m.code}-${now}`,
-	            matchCode: m.code,
-	            home: m.home, away: m.away,
-	            homeGoals: m.homeGoals, awayGoals: m.awayGoals,
-	            scoringTeam: homeScored ? 'home' : 'away',
-	            league: m.league, minute: m.minute, timestamp: now,
-	          }
-	          addGoalNotification(notification)
-	          setTimeout(() => {
-	            clearGoalNotification(notification.id)
-	          }, 8000)
-	        }
+          const notification: GoalNotification = {
+            id: `${m.code}-${now}`,
+            matchCode: m.code,
+            home: m.home, away: m.away,
+            homeGoals: m.homeGoals, awayGoals: m.awayGoals,
+            scoringTeam: homeScored ? 'home' : 'away',
+            league: m.league, minute: m.minute, timestamp: now,
+          }
+          addGoalNotification(notification)
+
+          // Browser push notification (izin varsa)
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            const scorer = homeScored ? m.home : m.away;
+            const opponent = homeScored ? m.away : m.home;
+            try {
+              new Notification(`⚽ Gol! ${scorer}`, {
+                body: `${scorer} ${m.homeGoals}-${m.awayGoals} ${opponent} · ${m.league}`,
+                icon: '/logo-192.png',
+                tag: `goal-${m.code}`,
+                silent: true, // ses zaten Web Audio ile oynuyor
+              });
+            } catch {}
+          }
+
+          setTimeout(() => {
+            clearGoalNotification(notification.id)
+          }, 8000)
+        }
       }
 
       // When match ends, finalize all pending signals for this match

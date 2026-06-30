@@ -38,6 +38,7 @@ export interface Match {
   time: string;
   isLive: boolean;
   isFinished: boolean;
+  isUpcoming: boolean;
   country: string;
   stats: MatchStats;
   hasStats: boolean;

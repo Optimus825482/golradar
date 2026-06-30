@@ -605,8 +605,17 @@ export default function OptimusGolRadariPage() {
     if (activeTab === 'live') return matches.filter(m => m.isLive)
     if (activeTab === 'radar') return matches.filter(m => goalProbabilities.has(m.code))
     if (activeTab === 'favorites') return matches.filter(m => favorites.has(m.code))
-    return matches
+    // "all" tab: exclude upcoming (shown separately above)
+    return matches.filter(m => !m.isUpcoming)
   }, [matches, activeTab, goalProbabilities, favorites])
+
+  const upcomingMatches = useMemo(() => {
+    if (activeTab !== 'all') return []
+    const now = new Date()
+    const todayStr = now.toISOString().slice(0, 10)
+    return matches.filter(m => m.isUpcoming)
+      .sort((a, b) => a.time.localeCompare(b.time))
+  }, [matches, activeTab])
 
   const favCount = matches.filter(m => favorites.has(m.code)).length
   const liveCount = matches.filter(m => m.isLive).length
@@ -882,8 +891,31 @@ export default function OptimusGolRadariPage() {
       )
     }
 
+    // ── Upcoming matches section ──
+    const upcomingSection = activeTab === 'all' && upcomingMatches.length > 0 ? (
+      <div className="mb-4">
+        <div className="flex items-center gap-2 px-3 py-1.5 mb-0.5">
+          <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <h2 className="text-xs font-bold text-gray-800 uppercase tracking-wide">Yaklasan Maclar</h2>
+          <span className="text-[10px] text-gray-400 ml-auto">{upcomingMatches.length}</span>
+        </div>
+        <div className="bg-white rounded-xl border border-indigo-100 overflow-hidden shadow-sm">
+          {upcomingMatches.map(match => (
+            <MatchCard key={match.code} match={match} onClick={() => handleSelectMatch(match)}
+              goalProb={undefined}
+              isSelected={selectedMatch?.code === match.code}
+              isFavorite={favorites.has(match.code)}
+              onToggleFavorite={(e) => toggleFavorite(match.code, e)}
+              hasGoalFlash={false} />
+          ))}
+        </div>
+      </div>
+    ) : null;
+
     if (groupedMatches.mode === 'league') {
-      return Object.entries(groupedMatches.groups).map(([league, leagueMatches]) => (
+      return (<>{upcomingSection}{Object.entries(groupedMatches.groups).map(([league, leagueMatches]) => (
         <div key={league} className="mb-3">
           <div className="flex items-center gap-2 px-3 py-1.5 mb-0.5">
             <CountryFlag code={leagueMatches[0]?.country || ''} />
@@ -901,11 +933,14 @@ export default function OptimusGolRadariPage() {
             ))}
           </div>
         </div>
-      ))
+      ))}</>
+      )
     } else {
       return (
-        <div className="mb-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 mb-0.5">
+        <div>
+          {upcomingSection}
+          <div className="mb-3">
+            <div className="flex items-center gap-2 px-3 py-1.5 mb-0.5">
             <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -922,10 +957,11 @@ export default function OptimusGolRadariPage() {
                 hasGoalFlash={!!goalFlashMap[match.code]} />
             ))}
           </div>
-        </div>
-      )
+            </div>
+          </div>
+        )
+      }
     }
-  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col touch-manipulation">

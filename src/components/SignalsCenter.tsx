@@ -162,7 +162,7 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
                         awayGoals: s.finalAwayScore ?? s.currentAwayGoals ?? 0,
                         firstHalfScore: "-",
                         minute: s.goalMinute != null ? `${s.goalMinute}` : "MS", status: 0, statusText: "Bitti",
-                        time: "", isLive: false, isFinished: true, country: "", stats: {}, hasStats: false,
+                        time: "", isLive: false, isFinished: true, isUpcoming: false, country: "", stats: {}, hasStats: false,
                         homeColor: null, awayColor: null, homeAbbrev: null, awayAbbrev: null,
                         homeLogoUrl: null, awayLogoUrl: null, homeRedCards: 0, awayRedCards: 0,
                       });

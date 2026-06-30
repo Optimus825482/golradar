@@ -98,6 +98,7 @@ export interface ParsedMatch {
   time: string;
   isLive: boolean;
   isFinished: boolean;
+  isUpcoming: boolean;
   country: string;
   stats: _MatchStats;
   hasStats: boolean;
@@ -336,6 +337,7 @@ export function parseMatch(m: any): ParsedMatch {
     time: matchTime,
     isLive: ACTIVE_STATUSES.has(status),
     isFinished: FINISHED_STATUSES.has(status),
+    isUpcoming: status === 1,
     country: m.FC || "",
     stats,
     hasStats: !!(m.SE && m.SE.length > 0),

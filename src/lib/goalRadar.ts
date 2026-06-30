@@ -262,7 +262,7 @@ export function calculateGoalProbability(
     if (process.env.DISABLE_CORRECTOR !== 'true') {
       const correctorParams: CorrectorParams = {
         mode: (process.env.ZISM_MODE as 'off' | 'frank' | 'zism') ?? 'frank',
-        kappa: parseFloat(process.env.SKOR_KAPPA ?? '-0.10'),
+        kappa: parseFloat(process.env.SKOR_KAPPA ?? '-0.30'),
         beta: parseFloat(process.env.ZISM_BETA ?? '0.10'),
       };
       const baseMatrix = buildBasePoissonMatrix(mp.params?.lambdaHome ?? homeAS, mp.params?.lambdaAway ?? awayAS, 5);

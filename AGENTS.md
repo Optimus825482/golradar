@@ -1,3 +1,7 @@
+# GLOBAL KURAL — Before any task, activate relevant skill(s)
+## ZORUNLU — ASLA ES GECILMEYECEK
+Herhangi bir goreve baslamadan ONCE, o goreve uygun skill yada skilleri Skill tool ile aktive et. Basit gorunen islerde bile %1 ihtimal varsa kontrol et. Bu kural tum gorevler icin gecerlidir, istisnasi yoktur. Bu kural AGENTS.md dosyasina kaydedilmistir.
+
 # Agent References
 
 ## Proje Agent'ları (`.claude/agents/`)

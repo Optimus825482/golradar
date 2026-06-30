@@ -470,3 +470,16 @@ model FootballdbClub {
   @@index([name])
   @@map("FootballdbClub")
 }
+
+// ── Feature Flag Runtime Override ───────────────────────────────
+// Admin settings sayfasından runtime'da değiştirilen flag değerleri.
+// Öncelik sırası: FeatureFlag → process.env → kod default.
+// PATCH /api/admin/settings ile yazılır, process.env[key] de set edilir.
+model FeatureFlag {
+  key       String   @id          // "STACKING_BLEND_ALPHA"
+  value     String                // override değeri
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("FeatureFlag")
+}

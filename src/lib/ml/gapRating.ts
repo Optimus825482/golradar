@@ -262,9 +262,7 @@ export function clamp(v: number): number {
  * Mevcut state üzerinden bir maç için 1X2 + imminent-goal olasılığı hesapla.
  * confidence: her iki takım için matches min'i. MIN_MATCHES altında düşük.
  *
-/**
- * Mevcut state üzerinden imminent-goal olasılığı.
- * Artık gerçek GAP state kullanılır (backfill ile).
+ * Gerçek GAP state kullanılır (singleton, MatchSnapshot verisiyle doldurulur).
  *
  * Eğer hiç güncelleme yoksa (cold-start) gapP=0 döner →
  * ensemble BMA filtresi sayesinde katılmaz (sinyal sayısı invariant).
@@ -330,6 +328,109 @@ export function predictGapMatch(
 
 function round3(v: number): number {
   return Math.round(v * 1000) / 1000;
+}
+
+// ── Singleton state (module-level, persists across predictions) ──
+let _singletonState: GapRatingState | null = null;
+let _initializing = false;
+let _initialized = false;
+
+/**
+ * Singleton GAP state — module seviyesinde tek instance.
+ * predictEnsemble her çağrıldığında yeni state oluşturmak yerine
+ * bu singleton'ı kullanır. State, MatchSnapshot verisiyle kademeli
+ * olarak doldurulur.
+ */
+export function getGapState(): GapRatingState {
+  if (!_singletonState) {
+    _singletonState = createGapRatingState();
+  }
+  return _singletonState;
+}
+
+/**
+ * Mevcut MatchSnapshot verisiyle GAP state'ini doldur.
+ * Backfill-gap-pi-ratings.ts ile aynı mantıkta çalışır.
+ * İlk predictEnsemble çağrısında otomatik tetiklenir.
+ */
+export async function initializeGapState(limit = 20000): Promise<void> {
+  if (_initialized || _initializing) return;
+  _initializing = true;
+
+  try {
+    const { db } = await import('@/lib/db');
+    const snapshots = await db.matchSnapshot.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    if (snapshots.length < 10) {
+      console.error(`[GAP] Too few snapshots (${snapshots.length}), skipping init`);
+      _initialized = true;
+      return;
+    }
+
+    // Unique matchCode'ları bul
+    const allCodes = [...new Set(snapshots.map(s => s.matchCode))];
+
+    // Team name'leri Signal tablosundan çöz
+    const signalRows = await db.signal.findMany({
+      where: { matchCode: { in: allCodes } },
+      select: { matchCode: true, homeTeam: true, awayTeam: true },
+      distinct: ['matchCode'],
+    });
+    const teamMap = new Map(signalRows.map(r => [r.matchCode, { home: r.homeTeam, away: r.awayTeam }]));
+
+    // Fallback: PredictionLog
+    const missingCodes = allCodes.filter(c => !teamMap.has(c));
+    if (missingCodes.length > 0) {
+      const logRows = await db.predictionLog.findMany({
+        where: { matchCode: { in: missingCodes } },
+        select: { matchCode: true, homeTeam: true, awayTeam: true },
+        distinct: ['matchCode'],
+      });
+      for (const r of logRows) {
+        if (!teamMap.has(r.matchCode)) {
+          teamMap.set(r.matchCode, { home: r.homeTeam, away: r.awayTeam });
+        }
+      }
+    }
+
+    const state = getGapState();
+    let updates = 0;
+
+    // Snapshots'ları matchCode + minute ile grupla, kronolojik sırala
+    const grouped = new Map<number, Array<typeof snapshots[0]>>();
+    for (const s of snapshots) {
+      const arr = grouped.get(s.matchCode) ?? [];
+      arr.push(s);
+      grouped.set(s.matchCode, arr);
+    }
+    for (const arr of grouped.values()) {
+      arr.sort((a, b) => a.minute - b.minute);
+    }
+
+    // Her maç için state güncelle
+    for (const [matchCode, arr] of grouped) {
+      const teams = teamMap.get(matchCode);
+      if (!teams) continue;
+
+      for (const snap of arr) {
+        const features = extractGapFeaturesFromMatchSnapshot(snap.statsJson, snap.minute);
+        if (features) {
+          updateGapRatingFromMatchSnapshot(state, teams.home, teams.away, features);
+          updates++;
+        }
+      }
+    }
+
+    console.error(`[GAP] Initialized: ${updates} updates across ${teamMap.size} matches, ${state.teams.size} teams`);
+  } catch (e) {
+    console.error('[GAP] Init failed:', e);
+  }
+
+  _initialized = true;
+  _initializing = false;
 }
 
 /**

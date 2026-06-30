@@ -24,7 +24,7 @@ import {
 import { predictFromElo, eloGoalAdjustment, getFormIndex } from './eloRating';
 import { predictMatch as predictKalmanMatch, type TeamStrengthModel } from './ml/teamStrengthKalman';
 import {
-  createGapRatingState,
+  getGapState,
   predictGapMatch,
 } from './ml/gapRating';
 import { computeEnsembleWeights, applyOnlineAdjustments } from './ml/weightTuner';
@@ -370,16 +370,18 @@ export async function predictEnsemble(
     teamStrengthP = 0;
   }
 
-  // ── Model 6: Lite GAP (Faz 4 / Yol B) — STUB ──
-  // Şu an predictGapMatch gapP=0 döner (featuresJson DB'de dolu değil).
-  // featuresJson backfill tamamlandığında predictGapMatch aktif olacak.
-  // ENABLE_GAP_RATING env gate kapalıyken hiç çağrılmaz (sinyal sayısı invariant).
+  // ── Model 6: Lite GAP (Faz 4 / Yol B) — singleton state ──
+  // Singleton GAP state, MatchSnapshot verisiyle kademeli olarak doldurulur.
+  // İlk çağrıda initializeGapState() tetiklenir (background).
+  // gapP > 0 olduğunda BMA'ya gerçek katkı sağlar.
   let gapP = 0;
-  let gapDetails = "GAP inactive (stub)";
-  // Faz 4 — Lite GAP. Default AÇIK (stub mod, backfill sonrası gerçek predict).
+  let gapDetails = "GAP inactive (no data)";
+  // Faz 4 — Lite GAP. Default AÇIK.
   if (process.env.DISABLE_GAP_RATING !== 'true' && homeTeam && awayTeam) {
     try {
-      const gapState = createGapRatingState();
+      const gapState = getGapState();
+      // İlk çağrıda background init tetikle (bekleme, sonraki predict'te veri hazır olur)
+      import('./ml/gapRating').then(m => m.initializeGapState()).catch(() => {});
       const gapPred = predictGapMatch(gapState, homeTeam, awayTeam);
       gapP = gapPred.gapP;
       gapDetails = `λ_h=${gapPred.lambdaHome.toFixed(2)} λ_a=${gapPred.lambdaAway.toFixed(2)} c=${gapPred.confidence} (matches=${Math.min(gapPred.matchesHome, gapPred.matchesAway)})`;
@@ -476,7 +478,7 @@ export async function predictEnsemble(
     inplayBrier,
     mlBrier,
     teamStrengthBrier,
-    gapBrier: null, // GAP stub — gapRating DB feature engineering gerektiriyor
+    gapBrier: null, // GAP — singleton state, Brier henüz ölçülmedi
     piBrier: null, // Pi-Rating cold-start; commit edilmiş ölçümler DB'de
     glicko2Brier: null, // Glicko-2 aynı şekilde cold-start
     ruleBrier: ruleMeasured,

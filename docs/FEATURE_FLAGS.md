@@ -7,10 +7,12 @@ Default değerler mevcut production davranışla **birebir aynıdır** (sinyal s
 
 | ENV Flag | Default | Faz | Açıklama | Aktivasyon Riski |
 |---|---|---|---|---|
-| `STACKING_BLEND_ALPHA` | `0` (kapalı) | A2+C | BMA çıktısını stacking meta-model ile blend eder (`alpha` ∈ [0,1]). α=0.5 önerilen (Brier −23.6%). Cold-start guard: 200+ eğitim örneği + agreement ≥ 0.4 gerekir. | **Düşük** — mevcut skeleton mevcut |
+| `STACKING_BLEND_ALPHA` | `0.5` (AÇIK) | A2+C | BMA çıktısını stacking meta-model ile blend eder (`alpha` ∈ [0,1]). α=0.5 optimal (Brier −23.6%). Cold-start guard: 200+ eğitim örneği + agreement ≥ 0.4 gerekir. | **Düşük** — mevcut skeleton mevcut |
 | `ENABLE_ONLINE_ADJUSTMENTS` | `false` | A3 | Rolling 500-window accuracy-based weight rebalance (son 500 prediction'dan). | **Düşük-Orta** — yeterli production trafiği ile |
-| `ENABLE_GAP_RATING` | `false` | B (Faz 4) | Lite GAP Rating predictor aktif. **DİKKAT**: featuresJson DB'de boş olduğundan gerçek tahmin üretmiyor (stub mod). Aktifleştirmek için: featuresJson backfill job'u gerekli. | **Yüksek** — backfill gerek |
-| `ENABLE_ZISM_CORRECTOR` | `false` | D (Faz 5) | Dixon-Coles corrector (Frank's κ veya ZISM β). over/under + BTTS tahminini zenginleştirir. | **Düşük** — %50 blend guardrail |
+| `DISABLE_PI_RATING` | `false` (AÇIK) | Rating | Constantinou (2013) Pi-Rating: iç/deplasman ayrı 4-rating (Ha/Hd/Aa/Ad). Brier 0.1992 (644 maç backfill). | **Düşük** |
+| `DISABLE_GLICKO2` | `false` (AÇIK) | Rating | Glicko-2 (Glickman 2013): RD+σ volatility rating. RD=350 cold-start. | **Düşük** |
+| `DISABLE_GAP_RATING` | `false` (AÇIK—stub) | B (Faz 4) | Lite GAP Rating predictor. **AKTİF ama stub mod**: featuresJson DB'de boş olduğundan `gapP=0` döner. Gerçek tahmin için: MatchSnapshot.statsJson beslemesi gerekli. | **Yüksek** — backfill gerek |
+| `DISABLE_CORRECTOR` | `false` (AÇIK) | D (Faz 5) | Dixon-Coles corrector (Frank's κ veya ZISM β). Over/under + BTTS tahminini zenginleştirir. `DISABLE_CORRECTOR=true` ile kapatılır. | **Düşük** — %50 blend guardrail |
 | `SKOR_KAPPA` | `-0.10` | D | Frank's Copula κ corrector parametresi. κ=-0.30 BTTS iyileşmesi −2.16% ile önerilen. | — |
 | `ZISM_BETA` | `0.10` | D | ZISM zero-inflation β. β=0.20 0-0 şişirir. | — |
 | `ZISM_MODE` | `'frank'` | D | 'frank' (κ) veya 'zism' (β) modu. | — |
@@ -28,10 +30,11 @@ STACKING_BLEND_ALPHA=0.5 bun start
 
 ### 2. ZISM Corrector (BTTS optimize)
 ```bash
-ENABLE_ZISM_CORRECTOR=true SKOR_KAPPA=-0.30 bun start
+SKOR_KAPPA=-0.30 bun start
 ```
+- DISABLE_CORRECTOR varsayılan `false` olduğu için corrector **zaten AÇIK**
+- SKOR_KAPPA=-0.30 ile Frank's κ optimize edilebilir
 - Frank κ=-0.30 BTTS −2.16% iyileşme üretti (dev-set 50K)
-- Üretimde default κ=-0.10; κ=-0.30 BTTS için daha iyi
 
 ### 3. Online Drift (1 hafta veri biriktirdikten sonra)
 ```bash
@@ -44,21 +47,23 @@ STACKING_BLEND_ALPHA=0.5 ENABLE_ONLINE_ADJUSTMENTS=true bun start
 ### 4. Full Ensemble (Stacking + Corrector + Online)
 ```bash
 STACKING_BLEND_ALPHA=0.5 \
-  ENABLE_ZISM_CORRECTOR=true SKOR_KAPPA=-0.30 \
+  SKOR_KAPPA=-0.30 \
   ENABLE_ONLINE_ADJUSTMENTS=true \
   BACKTEST_PERSIST_JSON=true \
   bun start
 ```
 
-### 5. GAP Rating (BACKLOG — featuresJson gerekli)
+### 5. GAP Rating (AKTIF — singleton state)
 ```bash
-# Önce featuresJson backfill (Faz 6 backlog job):
-# scripts/backfill-features-json.ts --take=50000
-
-ENABLE_GAP_RATING=true bun start
+# DISABLE_GAP_RATING varsayılan false (AÇIK)
+# Artık singleton state kullanır. İlk predictEnsemble çağrısında
+# MatchSnapshot verisiyle otomatik doldurulur.
 ```
-- **Şu an çalıştırma**: gapRating.ts stub modda, BMA `gapP > 0` filtresi sebep → 0 katkı
-- Backfill tamamlandıktan sonra aktif edilebilir
+- **Durum**: ✅ AKTIF — singleton state, MatchSnapshot verisiyle doluyor
+- `ensemble.ts`'de her seferinde `createGapRatingState()` yerine `getGapState()` (singleton) kullanılır
+- İlk çağrıda background `initializeGapState()` tetiklenir: son 20000 MatchSnapshot okunur, state doldurulur
+- `gapP > 0` olduğunda BMA'ya gerçek katkı sağlar
+- GAP için gerekli veriler: `dangerous_attacks`, `shots_on_target`, `corners`, `xG` (Nesine MatchSnapshot formatı)
 
 ## Sinyal Sayısı Invariant Kanıtı
 
@@ -69,10 +74,10 @@ ENABLE_GAP_RATING=true bun start
 | `MIN_PROB_FOR_SIGNAL` | 0.20 | ❌ hayır |
 | `EXCLUDED_MINUTE_RANGES` | [0-2, 43-45, 93-120] | ❌ hayır |
 
-Tüm yeni feature flag'ler default OFF. Yeni modüller (GAP, corrector, stacking):
-- Ya `probability > 0` filtresiyle BMA'ya katılmaz (stub mod aktifken)
-- Ya %50 blend ile küçük katkı (corrector, stacking α ≤ 1)
-- Ya prod shadow ile doğrulanana kadar varsayılan kapalı
+Tüm yeni feature flag'ler ya AÇIK (kod default) ya da opsiyonel:
+- DISABLE_* flag'leri varsayılan `false` → özellik AÇIK
+- ENABLE_* flag'leri varsayılan `false` → özellik KAPALI (opt-in)
+- Corrector %50 blend ile çalışır, stacking α ≤ 1, GAP stub modda
 
 ## Backtest Trend Analizi
 

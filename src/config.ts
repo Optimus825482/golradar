@@ -32,7 +32,7 @@ export function getDynamicThreshold(
   minute?: number,
   eloDiff?: number,
 ): number {
-  let threshold = SIGNAL_THRESHOLD;
+  let threshold = RADAR_THRESHOLD;
 
   // Lig bazlı offset
   // Atak liglerde eşik düşük, defans liglerde yüksek
@@ -77,7 +77,10 @@ export function getDynamicThreshold(
 export const SUSTAINED_THRESHOLD = 40;
 
 /** 5-dk içinde gol olasılığı eşiği — altında sinyal level "low"a düşer. */
-export const SIGNAL_5MIN_THRESHOLD = 0.25;
+export const SIGNAL_5MIN_THRESHOLD = (() => {
+  const env = parseFloat(process.env.SIGNAL_5MIN_THRESHOLD ?? '');
+  return isNaN(env) ? 0.25 : env;
+})();
 
 /** Momentum yükselirken kullanılan daha düşük 5-dk olasılık eşiği. */
 export const MIN_PROB_FOR_SIGNAL = 0.20;
@@ -224,3 +227,4 @@ export function brierToConfidence(brier: number): number {
 
 /** Ligo profili EMA koruması için minimum maç sayısı. Altındaysa default'lar aşırı ezilemez. */
 export const MIN_LEAGUE_SAMPLES = 10;
+

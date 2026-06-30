@@ -885,7 +885,7 @@ export default function OptimusGolRadariPage() {
         </div>
       )
     }
-    if (filteredMatches.length === 0) {
+    if (filteredMatches.length === 0 && activeTab !== 'all') {
       const tab = activeTab as BottomTab
       const tabLabel = tab === 'live' ? 'canlı'
         : tab === 'radar' ? 'radar'
@@ -919,7 +919,7 @@ export default function OptimusGolRadariPage() {
       )
     }
 
-    // ── Upcoming matches section ──
+    // ── Upcoming matches section (all tab) ──
     const upcomingSection = activeTab === 'all' && upcomingMatches.length > 0 ? (
       <div className="mb-4">
         <div className="flex items-center gap-2 px-3 py-1.5 mb-0.5">

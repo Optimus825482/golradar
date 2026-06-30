@@ -74,6 +74,20 @@ export const MatchDetailContent = memo(function MatchDetailContent({
   const [awayRating, setAwayRating] = useState<TeamRatingInfo | null>(null);
   const [ratingLoading, setRatingLoading] = useState(true);
 
+  // ── Upcoming match prediction ──
+  const [prediction, setPrediction] = useState<any>(null);
+  const [predLoading, setPredLoading] = useState(false);
+
+  useEffect(() => {
+    if (!match.isUpcoming || !match.home || !match.away) return;
+    setPredLoading(true);
+    fetch(`/api/predict-upcoming?home=${encodeURIComponent(match.home)}&away=${encodeURIComponent(match.away)}`)
+      .then(r => r.json())
+      .then(d => { if (d.eloPrediction) setPrediction(d); })
+      .catch(() => {})
+      .finally(() => setPredLoading(false));
+  }, [match.home, match.away, match.isUpcoming]);
+
   useEffect(() => {
     if (!match.home || !match.away) return;
     setRatingLoading(true);
@@ -572,6 +586,76 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         awayTeam={match.away}
       />
       </ErrorBoundary>
+
+      {/* ── Upcoming Match Prediction ── */}
+      {match.isUpcoming && prediction && (
+        <div className="px-3 sm:px-4 pb-3">
+          <div className="bg-white rounded-xl border border-indigo-200 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-indigo-100 bg-gradient-to-r from-indigo-50 to-purple-50">
+              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">🔮 Mac Tahmini</h3>
+              {predLoading && <div className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />}
+            </div>
+            <div className="p-4 space-y-3">
+              {/* Elo */}
+              <div className="flex items-center justify-between text-xs bg-gray-50 rounded-lg px-3 py-2">
+                <span className="font-medium text-gray-600">Elo</span>
+                <span className="font-mono font-bold">{prediction.homeElo} - {prediction.awayElo}</span>
+              </div>
+
+              {/* Kazanma olasiligi */}
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
+                  <span>{match.home}</span>
+                  <span>Beraberlik</span>
+                  <span>{match.away}</span>
+                </div>
+                <div className="flex h-4 rounded-full overflow-hidden bg-gray-100">
+                  <div className="h-full bg-indigo-500 transition-all" style={{ width: `${(prediction.eloPrediction.homeWinP * 100).toFixed(0)}%` }} />
+                  <div className="h-full bg-gray-300 transition-all" style={{ width: `${(prediction.eloPrediction.drawP * 100).toFixed(0)}%` }} />
+                  <div className="h-full bg-purple-500 transition-all" style={{ width: `${(prediction.eloPrediction.awayWinP * 100).toFixed(0)}%` }} />
+                </div>
+                <div className="flex items-center justify-between text-[10px] font-mono font-bold mt-0.5">
+                  <span className="text-indigo-600">%{(prediction.eloPrediction.homeWinP * 100).toFixed(0)}</span>
+                  <span className="text-gray-400">%{(prediction.eloPrediction.drawP * 100).toFixed(0)}</span>
+                  <span className="text-purple-600">%{(prediction.eloPrediction.awayWinP * 100).toFixed(0)}</span>
+                </div>
+              </div>
+
+              {/* Poisson tahmini */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                  <div className="text-[9px] text-gray-500 font-medium">Olası Skor</div>
+                  <div className="text-xl font-black text-indigo-600">{prediction.mostLikelyScore}</div>
+                  <div className="text-[9px] text-gray-400">λ={prediction.poissonPrediction.lambdaHome}/{prediction.poissonPrediction.lambdaAway}</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                  <div className="text-[9px] text-gray-500 font-medium">O2.5 / KG Var</div>
+                  <div className="text-lg font-black">
+                    <span className="text-emerald-600">%{(prediction.poissonPrediction.over25 * 100).toFixed(0)}</span>
+                    <span className="text-gray-300 mx-1">/</span>
+                    <span className="text-amber-600">%{(prediction.poissonPrediction.btts * 100).toFixed(0)}</span>
+                  </div>
+                  <div className="text-[9px] text-gray-400">Gol ihtimali %{(prediction.poissonPrediction.anyGoal * 100).toFixed(0)}</div>
+                </div>
+              </div>
+
+              {/* En olasi skorlar */}
+              <div>
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">En Olası Skorlar</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {prediction.topScores.map((s: any, i: number) => (
+                    <span key={i} className={`text-[11px] font-mono font-bold px-2 py-1 rounded-lg border ${
+                      i === 0 ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-gray-50 text-gray-600 border-gray-200'
+                    }`}>
+                      {s.score} <span className="text-[9px] font-normal">(%{(s.prob * 100).toFixed(1)})</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Team Info: Elo + Pi-Rating + Form + Last 5 with goals + Season avg ── */}
       {(homeRating || awayRating || ratingLoading) && (

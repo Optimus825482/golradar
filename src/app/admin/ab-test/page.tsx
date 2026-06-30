@@ -1,222 +1,371 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { KPICard } from '@/lib/adminAuth';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface SystemResult {
-  totalSignals: number; correctSignals: number; incorrectSignals: number;
+  label: string; totalSignals: number; correctSignals: number; incorrectSignals: number;
   falsePositives: number; truePositives: number;
   precision: number; recall: number; f1Score: number;
   avgMinutesToGoal: number; signalsByTier: Record<string, number>;
+  config: { threshold: number; flags: Record<string, string> };
 }
 
 interface ABTestResult {
-  ok: boolean; config: { daysBack: number; minScore: number };
-  totalMatches: number; oldSystem: SystemResult; newSystem: SystemResult;
+  ok: boolean; days: number; totalMatches: number;
+  baseline: SystemResult; test: SystemResult;
   improvement: {
     precisionDelta: number; recallDelta: number; f1Delta: number;
     falsePositiveDelta: number; signalCountDelta: number;
   };
 }
 
-interface FlagState { key: string; label: string; effectiveValue: string; type: string; default: string; overridden: boolean; group: string; }
+interface FlagState { key: string; effectiveValue: string; type: string; default: string; }
 
-function MetricRow({ label, oldVal, newVal, delta, format: fmt }: { label: string; oldVal: number; newVal: number; delta: number; format?: (v: number) => string }) {
-  const f = fmt ?? ((v: any) => v != null ? Number(v).toFixed(1) : '—');
+const FLAG_KEYS = ['PI_RATING', 'GLICKO2', 'GAP_RATING', 'ZISM_CORRECTOR'];
+const FLAG_LABELS: Record<string, string> = {
+  PI_RATING: 'Pi-Rating', GLICKO2: 'Glicko-2', GAP_RATING: 'Lite GAP', ZISM_CORRECTOR: 'ZISM Corrector',
+};
+
+function MetricRow({ label, baseline, test, delta, format: fmt }: {
+  label: string; baseline: number; test: number; delta: number; format?: (v: number) => string;
+}) {
+  const f = fmt ?? ((v: number) => v != null ? Number(v).toFixed(1) : '—');
   const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
-  const color = delta > 0 ? 'text-green-600' : delta < 0 ? 'text-red-500' : 'text-gray-400';
+  const color = delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-red-500' : 'text-gray-400';
   return (
-    <tr className="border-b border-gray-100">
-      <td className="py-2 px-3 font-medium text-sm">{label}</td>
-      <td className="py-2 px-3 text-right text-sm">{f(oldVal)}</td>
-      <td className="py-2 px-3 text-right text-sm">{f(newVal)}</td>
-      <td className={`py-2 px-3 text-right text-sm font-bold ${color}`}>{arrow} {delta >= 0 ? '+' : ''}{f(delta)}</td>
+    <tr className="border-b border-gray-50">
+      <td className="py-2 px-3 text-sm font-medium">{label}</td>
+      <td className="py-2 px-3 text-right text-sm">{f(baseline)}</td>
+      <td className="py-2 px-3 text-right text-sm">{f(test)}</td>
+      <td className={`py-2 px-3 text-right text-sm font-bold ${color}`}>{arrow} {delta >= 0 ? '+' : ''}{f(Math.abs(delta))}</td>
     </tr>
   );
 }
 
-const TOGGLE_FLAGS = ['PI_RATING', 'GLICKO2', 'GAP_RATING', 'ZISM_CORRECTOR', 'ENABLE_ONLINE_ADJUSTMENTS', 'BACKTEST_PERSIST_JSON'];
-const NUM_FLAGS = ['STACKING_BLEND_ALPHA', 'SKOR_KAPPA', 'ZISM_BETA'];
-
 export default function ABTestPage() {
-  const [days, setDays] = useState(30);
-  const [minScore, setMinScore] = useState(60);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<ABTestResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [flags, setFlags] = useState<FlagState[]>([]);
-  const [saving, setSaving] = useState<string | null>(null);
+  const [days, setDays] = useState(30);
+  const [baselineThreshold, setBaselineThreshold] = useState(60);
+  const [testThreshold, setTestThreshold] = useState(65);
+  const [baselineFlagOverrides, setBaselineFlagOverrides] = useState<Record<string, string>>({});
+  const [testFlagOverrides, setTestFlagOverrides] = useState<Record<string, string>>({});
+  const [result, setResult] = useState<ABTestResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  // Load live flag states
   useEffect(() => {
     fetch('/api/admin/settings').then(r => r.json()).then(d => {
-      if (d.flags) setFlags(d.flags.filter((f: FlagState) => [...TOGGLE_FLAGS, ...NUM_FLAGS].includes(f.key)));
+      if (d.flags) setFlags(d.flags.filter((f: FlagState) => FLAG_KEYS.includes(f.key)));
     }).catch(() => {});
   }, []);
 
-  const toggle = async (key: string, val: string) => {
-    setSaving(key);
-    await fetch('/api/admin/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value: val }) });
-    const r = await fetch('/api/admin/settings'); const d = await r.json();
-    if (d.flags) setFlags(d.flags.filter((f: FlagState) => [...TOGGLE_FLAGS, ...NUM_FLAGS].includes(f.key)));
-    setSaving(null);
-  };
+  // Sync live flags → test config
+  useEffect(() => {
+    const overrides: Record<string, string> = {};
+    for (const f of flags) {
+      overrides[f.key] = f.effectiveValue;
+    }
+    setTestFlagOverrides(overrides);
+  }, [flags]);
 
-  async function runTest() {
+  const runTest = async () => {
     setLoading(true); setError(null); setResult(null);
     try {
-      const res = await fetch(`/api/admin/ab-test?days=${days}&minScore=${minScore}`);
+      const params = new URLSearchParams({
+        days: String(days),
+        baselineThreshold: String(baselineThreshold),
+        testThreshold: String(testThreshold),
+      });
+      // Encode flag overrides
+      const blFlags = Object.entries(baselineFlagOverrides).map(([k, v]) => `${k}=${v}`).join(',');
+      const teFlags = Object.entries(testFlagOverrides).map(([k, v]) => `${k}=${v}`).join(',');
+      if (blFlags) params.set('baselineFlags', blFlags);
+      if (teFlags) params.set('testFlags', teFlags);
+
+      const res = await fetch(`/api/admin/ab-test?${params}`);
       const data = await res.json();
-      if (!data.ok) { setError(data.error ?? 'Test failed'); return; }
+      if (!data.ok) { setError(data.error ?? 'Test basarisiz'); return; }
       setResult(data);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
-  }
+  };
 
-  // Determine which toggle flags are ACIK
-  const activeFlags = flags.filter(f => f.type === 'toggle' && f.effectiveValue === 'true').map(f => f.key);
-  const stackingVal = flags.find(f => f.key === 'STACKING_BLEND_ALPHA')?.effectiveValue ?? '0.5';
+  const activeLiveFlags = flags.filter(f => f.effectiveValue === 'true').map(f => f.key);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold">A/B Test: Feature Flag Karsilastirmasi</h1>
+      <h1 className="text-xl font-bold text-gray-900">A/B Test: Flag Konfigurasyon Karsilastirmasi</h1>
       <p className="text-sm text-gray-500">
-        Feature flag'leri degistirerek sinyal sistemi uzerindeki etkilerini karsilastirin.
-        "Eski Sistem" = threshold-only. "Yeni Sistem" = aktif flag'ler ile.
+        Iki farkli feature flag konfigurasyonunu gecmis sinyaller uzerinde karsilastirir.
+        BASELINE = referans, TEST = karsilastirilacak konfigurasyon.
       </p>
 
-      {/* ── Feature Flag Config ── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-gray-800">🧪 Test Edilecek Ozellikler</h2>
-          <button onClick={() => fetch('/api/admin/settings').then(r => r.json()).then(d => {
-            if (d.flags) setFlags(d.flags.filter((f: FlagState) => [...TOGGLE_FLAGS, ...NUM_FLAGS].includes(f.key)));
-          })} className="p-1 rounded hover:bg-gray-100 text-gray-400"><RefreshCw className="size-3.5" /></button>
+      {/* ── Live Flag Status ── */}
+      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200 p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-xs font-bold text-indigo-700 uppercase tracking-wide">Anlik Canli Konfigurasyon</span>
         </div>
         <div className="flex flex-wrap gap-2">
-          {flags.filter(f => f.type === 'toggle').map(f => (
-            <div key={f.key} className="flex items-center gap-1.5 bg-gray-50 rounded-lg px-2.5 py-1.5 border border-gray-200 text-xs">
-              <span className="text-gray-500 font-mono text-[10px]">{f.key}</span>
-              <button
-                disabled={saving === f.key}
-                onClick={() => toggle(f.key, f.effectiveValue === 'true' ? 'false' : 'true')}
-                className={`relative w-8 h-4 rounded-full transition-colors ${f.effectiveValue === 'true' ? 'bg-indigo-500' : 'bg-gray-300'} ${saving === f.key ? 'opacity-50' : ''}`}
-              >
-                <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${f.effectiveValue === 'true' ? 'translate-x-4' : ''}`} />
-              </button>
-              <span className={`text-[10px] font-medium ${f.effectiveValue === 'true' ? 'text-emerald-600' : 'text-gray-400'}`}>
-                {f.effectiveValue === 'true' ? 'ACIK' : 'KAPALI'}
-              </span>
-            </div>
-          ))}
-          {flags.filter(f => f.type === 'number').map(f => (
-            <div key={f.key} className="flex items-center gap-1 bg-gray-50 rounded-lg px-2.5 py-1.5 border border-gray-200 text-xs">
-              <span className="text-gray-500 font-mono text-[10px]">{f.key}</span>
-              <span className="font-mono font-bold text-indigo-600">{f.effectiveValue}</span>
-            </div>
-          ))}
+          {FLAG_KEYS.map(key => {
+            const f = flags.find(ff => ff.key === key);
+            if (!f) return null;
+            const isActive = f.effectiveValue === 'true';
+            return (
+              <div key={key} className={`text-[11px] px-2.5 py-1 rounded-lg border font-medium ${
+                isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+              }`}>
+                {FLAG_LABELS[key]}: {isActive ? 'ACIK' : 'KAPALI'}
+              </div>
+            );
+          })}
+          <button onClick={() => fetch('/api/admin/settings').then(r => r.json()).then(d => {
+            if (d.flags) setFlags(d.flags.filter((f: FlagState) => FLAG_KEYS.includes(f.key)));
+          })} className="p-1 rounded hover:bg-white/50 text-gray-400">
+            <RefreshCw className="size-3.5" />
+          </button>
         </div>
-        <p className="text-[10px] text-gray-400 mt-2">Toggle'lari degistirerek ozellikleri ac/kapat. A/B testi aktif flag konfigurasyonu ile calisir.</p>
+      </div>
+
+      {/* ── Config Panels ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* BASELINE */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <h2 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-gray-400" />
+            BASELINE (Referans)
+          </h2>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">Threshold</label>
+              <select value={baselineThreshold} onChange={e => setBaselineThreshold(Number(e.target.value))}
+                className="w-full mt-1 border rounded px-2 py-1.5 text-sm">
+                {[50, 55, 60, 65, 70].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Flag Override</div>
+              <div className="space-y-1.5">
+                {FLAG_KEYS.map(key => {
+                  const val = baselineFlagOverrides[key];
+                  return (
+                    <div key={key} className="flex items-center justify-between text-xs">
+                      <span className="text-gray-600">{FLAG_LABELS[key]}</span>
+                      <select value={val ?? ''} onChange={e => {
+                        const v = e.target.value;
+                        setBaselineFlagOverrides(prev => {
+                          const copy = { ...prev };
+                          if (v === '' || v === 'default') delete copy[key];
+                          else copy[key] = v;
+                          return copy;
+                        });
+                      }}
+                        className="border rounded px-1.5 py-0.5 text-[11px]">
+                        <option value="">Varsayilan</option>
+                        <option value="true">ACIK</option>
+                        <option value="false">KAPALI</option>
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* TEST */}
+        <div className="bg-white rounded-xl border border-indigo-200 shadow-sm p-4 ring-1 ring-indigo-100">
+          <h2 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+            TEST (Karsilastirma)
+          </h2>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">Threshold</label>
+              <select value={testThreshold} onChange={e => setTestThreshold(Number(e.target.value))}
+                className="w-full mt-1 border rounded px-2 py-1.5 text-sm">
+                {[50, 55, 60, 65, 70].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Flag Override</div>
+              <div className="space-y-1.5">
+                {FLAG_KEYS.map(key => {
+                  const val = testFlagOverrides[key];
+                  const isLive = flags.find(f => f.key === key)?.effectiveValue;
+                  return (
+                    <div key={key} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1">
+                        <span className="text-gray-600">{FLAG_LABELS[key]}</span>
+                        {val === isLive ? null : val !== undefined && (
+                          <span className="text-[9px] text-amber-500 font-medium">(override)</span>
+                        )}
+                      </div>
+                      <select value={val ?? ''} onChange={e => {
+                        const v = e.target.value;
+                        setTestFlagOverrides(prev => {
+                          const copy = { ...prev };
+                          if (v === '' || v === 'default') delete copy[key];
+                          else copy[key] = v;
+                          return copy;
+                        });
+                      }}
+                        className="border rounded px-1.5 py-0.5 text-[11px]">
+                        <option value="">Anlik ({isLive === 'true' ? 'ACIK' : 'KAPALI'})</option>
+                        <option value="true">ACIK</option>
+                        <option value="false">KAPALI</option>
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ── Controls ── */}
-      <div className="flex flex-wrap gap-4 items-end bg-white p-4 rounded-lg border">
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Gun araligi</label>
-          <select value={days} onChange={e => setDays(Number(e.target.value))} className="border rounded px-3 py-1.5 text-sm">
-            <option value={7}>7 gun</option><option value={30}>30 gun</option><option value={60}>60 gun</option><option value={90}>90 gun</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Min Score</label>
-          <select value={minScore} onChange={e => setMinScore(Number(e.target.value))} className="border rounded px-3 py-1.5 text-sm">
-            <option value={50}>50</option><option value={55}>55</option><option value={60}>60</option><option value={65}>65</option><option value={70}>70</option>
-          </select>
+      <div className="flex items-center justify-between bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-medium text-gray-500">Periyot:</label>
+          <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
+            {[7, 30, 60, 90].map(d => (
+              <button key={d} onClick={() => setDays(d)}
+                className={`text-[11px] px-3 py-1.5 rounded-md font-semibold transition-all ${
+                  days === d ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}>{d}g</button>
+            ))}
+          </div>
         </div>
         <button onClick={runTest} disabled={loading}
-          className="bg-indigo-600 text-white px-5 py-1.5 rounded text-sm hover:bg-indigo-700 disabled:opacity-50">
-          {loading ? 'Calisiyor...' : '🚀 Testi Calistir'}
+          className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-bold rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all disabled:opacity-50">
+          {loading ? '⏳ Calisiyor...' : '🚀 Karsilastir'}
         </button>
       </div>
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded text-sm">{error}</div>}
+      {error && <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-sm"><AlertCircle className="size-4" /> {error}</div>}
 
       {result && (
         <>
-          {/* Active config summary */}
-          <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-4 py-2 border">
-            Test konfigurasyonu: <strong>{activeFlags.length}</strong> ozellik aktif · Stacking α={stackingVal} · Threshold={minScore}
-            {activeFlags.length > 0 && <span> · {activeFlags.join(', ')}</span>}
+          {/* Config summary */}
+          <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-4 py-2.5 border flex items-center justify-between">
+            <span>
+              Baseline: threshold={result.baseline.config.threshold}
+              {Object.keys(result.baseline.config.flags).length > 0 && ` · flag override: ${Object.entries(result.baseline.config.flags).map(([k, v]) => `${FLAG_LABELS[k]}=${v}`).join(', ')}`}
+            </span>
+            <span className="text-gray-300 mx-2">→</span>
+            <span>
+              Test: threshold={result.test.config.threshold}
+              {Object.keys(result.test.config.flags).length > 0 && ` · ${Object.entries(result.test.config.flags).map(([k, v]) => `${FLAG_LABELS[k]}=${v}`).join(', ')}`}
+            </span>
           </div>
 
+          {/* KPI */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KPICard label="Toplam Mac" value={String(result.totalMatches)} color="#6366f1" />
-            <KPICard label="ESKI Sinyal" value={String(result.oldSystem.totalSignals)} sub={result.oldSystem.correctSignals + ' dogru'} color="#f79520" />
-            <KPICard label="YENI Sinyal" value={String(result.newSystem.totalSignals)} sub={result.newSystem.correctSignals + ' dogru'} color="#10b981" />
-            <KPICard label="Fark" value={(result.improvement.signalCountDelta >= 0 ? '+' : '') + result.improvement.signalCountDelta} color={result.improvement.signalCountDelta <= 0 ? '#10b981' : '#f79520'} />
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+              <div className="text-xs text-gray-500 font-medium">Toplam Sinyal (DB)</div>
+              <div className="text-2xl font-black text-gray-800">{result.totalMatches}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+              <div className="text-xs text-gray-500 font-medium">Baseline Sinyal</div>
+              <div className="text-2xl font-black text-gray-800">{result.baseline.totalSignals}</div>
+              <div className="text-[10px] text-gray-400">{result.baseline.correctSignals} dogru</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+              <div className="text-xs text-gray-500 font-medium">Test Sinyal</div>
+              <div className="text-2xl font-black text-indigo-600">{result.test.totalSignals}</div>
+              <div className="text-[10px] text-gray-400">{result.test.correctSignals} dogru</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+              <div className="text-xs text-gray-500 font-medium">Fark</div>
+              <div className={`text-2xl font-black ${result.improvement.signalCountDelta <= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {result.improvement.signalCountDelta >= 0 ? '+' : ''}{result.improvement.signalCountDelta}
+              </div>
+            </div>
           </div>
 
-          <div className="bg-white rounded-lg border overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 border-b font-semibold text-sm">Metrik Karsilastirmasi</div>
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-                <tr><th className="py-2 px-3 text-left">Metrik</th><th className="py-2 px-3 text-right">Threshold Only</th><th className="py-2 px-3 text-right">Aktif Flagler</th><th className="py-2 px-3 text-right">Degisim</th></tr>
-              </thead>
-              <tbody>
-                <MetricRow label="Precision" oldVal={result.oldSystem.precision * 100} newVal={result.newSystem.precision * 100} delta={result.improvement.precisionDelta} />
-                <MetricRow label="Recall" oldVal={result.oldSystem.recall * 100} newVal={result.newSystem.recall * 100} delta={result.improvement.recallDelta} />
-                <MetricRow label="F1 Score" oldVal={result.oldSystem.f1Score * 100} newVal={result.newSystem.f1Score * 100} delta={result.improvement.f1Delta} />
-                <MetricRow label="False Positive" oldVal={result.oldSystem.falsePositives} newVal={result.newSystem.falsePositives} delta={-result.improvement.falsePositiveDelta} />
-                <MetricRow label="Dogru Sinyal" oldVal={result.oldSystem.correctSignals} newVal={result.newSystem.correctSignals} delta={result.newSystem.correctSignals - result.oldSystem.correctSignals} />
-                <MetricRow label="Yanlis Sinyal" oldVal={result.oldSystem.incorrectSignals} newVal={result.newSystem.incorrectSignals} delta={-(result.oldSystem.incorrectSignals - result.newSystem.incorrectSignals)} />
-              </tbody>
-            </table>
+          {/* Comparison Table */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 bg-gray-50 border-b font-semibold text-sm">📊 Metrik Karsilastirmasi</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-500 border-b">
+                  <tr><th className="py-2 px-3 text-left">Metrik</th><th className="py-2 px-3 text-right">Baseline</th><th className="py-2 px-3 text-right">Test</th><th className="py-2 px-3 text-right">Degisim</th></tr>
+                </thead>
+                <tbody>
+                  <MetricRow label="Precision" baseline={result.baseline.precision * 100} test={result.test.precision * 100} delta={result.improvement.precisionDelta} />
+                  <MetricRow label="Recall" baseline={result.baseline.recall * 100} test={result.test.recall * 100} delta={result.improvement.recallDelta} />
+                  <MetricRow label="F1 Score" baseline={result.baseline.f1Score * 100} test={result.test.f1Score * 100} delta={result.improvement.f1Delta} />
+                  <MetricRow label="False Positive" baseline={result.baseline.falsePositives} test={result.test.falsePositives} delta={-result.improvement.falsePositiveDelta} />
+                  <MetricRow label="Dogru Sinyal" baseline={result.baseline.correctSignals} test={result.test.correctSignals} delta={result.test.correctSignals - result.baseline.correctSignals} />
+                  <MetricRow label="Sinyal Sayisi" baseline={result.baseline.totalSignals} test={result.test.totalSignals} delta={result.improvement.signalCountDelta} />
+                  <MetricRow label="Ort. Gol Suresi (dk)" baseline={result.baseline.avgMinutesToGoal} test={result.test.avgMinutesToGoal} delta={-(result.baseline.avgMinutesToGoal - result.test.avgMinutesToGoal)} />
+                </tbody>
+              </table>
+            </div>
           </div>
 
+          {/* Tier distribution */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white rounded-lg border overflow-hidden">
-              <div className="px-4 py-3 bg-gray-50 border-b font-semibold text-sm">Threshold Only — Seviye Dagitimi</div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-3 bg-gray-50 border-b font-semibold text-sm">Baseline — Seviye Dagitimi</div>
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-xs uppercase text-gray-500"><tr><th className="py-2 px-3 text-left">Seviye</th><th className="py-2 px-3 text-right">Adet</th></tr></thead>
-                <tbody>{Object.entries(result.oldSystem.signalsByTier).map(([tier, count]) => (
+                <tbody>{Object.entries(result.baseline.signalsByTier).map(([tier, count]) => (
                   <tr key={tier} className="border-b border-gray-50"><td className="py-2 px-3 text-sm">{tier}</td><td className="py-2 px-3 text-right text-sm">{count}</td></tr>
                 ))}</tbody>
               </table>
             </div>
-            <div className="bg-white rounded-lg border overflow-hidden">
-              <div className="px-4 py-3 bg-gray-50 border-b font-semibold text-sm">Aktif Flagler — Seviye Dagitimi</div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-3 bg-gray-50 border-b font-semibold text-sm">Test — Seviye Dagitimi</div>
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-xs uppercase text-gray-500"><tr><th className="py-2 px-3 text-left">Seviye</th><th className="py-2 px-3 text-right">Adet</th></tr></thead>
-                <tbody>{Object.entries(result.newSystem.signalsByTier).map(([tier, count]) => (
+                <tbody>{Object.entries(result.test.signalsByTier).map(([tier, count]) => (
                   <tr key={tier} className="border-b border-gray-50"><td className="py-2 px-3 text-sm">{tier}</td><td className="py-2 px-3 text-right text-sm">{count}</td></tr>
                 ))}</tbody>
               </table>
             </div>
-          </div>
-
-          {/* Active features list */}
-          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-sm text-indigo-800 space-y-1">
-            <strong>🔬 Bu Testte Aktif Ozellikler:</strong>
-            {activeFlags.length === 0 ? <p>Threshold-only mod (hicbir ozellik aktif degil)</p> : (
-              <ul className="list-disc ml-5 text-xs space-y-0.5">
-                {activeFlags.includes('PI_RATING') && <li>✅ Pi-Rating — Constantinou 4-rating sistemi</li>}
-                {activeFlags.includes('GLICKO2') && <li>✅ Glicko-2 — RD+σ volatility rating</li>}
-                {activeFlags.includes('GAP_RATING') && <li>✅ Lite GAP — Generalized Attacking Performance (singleton state)</li>}
-                {activeFlags.includes('ZISM_CORRECTOR') && <li>✅ ZISM Corrector — Frank's Copula κ={flags.find(f=>f.key==='SKOR_KAPPA')?.effectiveValue ?? '-0.30'} (BTTS duzeltmesi)</li>}
-                {activeFlags.includes('ENABLE_ONLINE_ADJUSTMENTS') && <li>✅ Online Weight Drift — rolling 500-window rebalance</li>}
-                {stackingVal !== '0' && <li>✅ Stacking α-Blend — α={stackingVal} (Brier -%23.6)</li>}
-              </ul>
-            )}
           </div>
 
           {/* Interpretation */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
-            <strong>🔍 Yorum:</strong>
-            <ul className="list-disc ml-5 mt-1 space-y-1">
-              {result.improvement.precisionDelta > 0 ? <li>✅ Precision artti: aktif flag'ler daha az yanlis alarm uretiyor</li> : <li>❌ Precision dustu: flag'ler yanlis alarmi artiriyor</li>}
-              {result.improvement.f1Delta > 0 ? <li>✅ F1 artti: genel performans iyilesti</li> : <li>❌ F1 dustu: denge kaybi var</li>}
-              {result.improvement.signalCountDelta <= 0 ? <li>✅ Sinyal sayisi azaldi veya ayni: daha secici</li> : <li>⚠️ Sinyal sayisi artti: daha fazla gurultu riski</li>}
+          <div className={`rounded-lg p-4 text-sm border ${
+            result.improvement.f1Delta > 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'
+          }`}>
+            <div className="flex items-center gap-2 mb-2">
+              {result.improvement.f1Delta > 0 ? <CheckCircle2 className="size-5 text-emerald-500" /> : <AlertCircle className="size-5 text-amber-500" />}
+              <strong>🔍 Karsilastirma Sonucu</strong>
+            </div>
+            <ul className="list-disc ml-5 space-y-1 text-sm">
+              {result.improvement.f1Delta > 0
+                ? <li>✅ Test konfigurasyonu <strong>F1 {result.improvement.f1Delta > 0 ? '+' : ''}{(result.improvement.f1Delta).toFixed(1)}%</strong> ile daha iyi</li>
+                : <li>❌ Baseline daha iyi (F1 {Math.abs(result.improvement.f1Delta).toFixed(1)}% farkla)</li>}
+              {result.improvement.precisionDelta > 0
+                ? <li>✅ Precision {result.improvement.precisionDelta > 0 ? '+' : ''}{(result.improvement.precisionDelta).toFixed(1)}%: daha az yanlis alarm</li>
+                : <li>❌ Precision {(result.improvement.precisionDelta).toFixed(1)}%: test daha fazla yanlis alarm uretiyor</li>}
+              {result.improvement.signalCountDelta <= 0
+                ? <li>✅ Sinyal sayisi {Math.abs(result.improvement.signalCountDelta)} azaldi: daha secici</li>
+                : <li>⚠️ Sinyal sayisi +{result.improvement.signalCountDelta} artti: daha fazla gurultu riski</li>}
             </ul>
+          </div>
+
+          {/* Flag impact summary */}
+          <div className="bg-gray-50 rounded-lg p-4 border text-xs text-gray-600 space-y-1">
+            <strong>🔬 Bu Karsilastirmada Test Edilen:</strong>
+            <div className="grid grid-cols-2 gap-1 mt-1">
+              {FLAG_KEYS.map(key => {
+                const bl = result.baseline.config.flags[key];
+                const te = result.test.config.flags[key];
+                const same = bl === te;
+                return (
+                  <div key={key} className={`px-2 py-1 rounded ${same ? 'text-gray-400' : 'text-indigo-600 font-medium'}`}>
+                    {FLAG_LABELS[key]}: {bl ?? 'default'} → {te ?? 'default'}
+                    {!same && <span className="text-[10px] text-amber-500 ml-1">(farkli)</span>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </>
       )}

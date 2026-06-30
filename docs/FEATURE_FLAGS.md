@@ -9,10 +9,10 @@ Default değerler mevcut production davranışla **birebir aynıdır** (sinyal s
 |---|---|---|---|---|
 | `STACKING_BLEND_ALPHA` | `0.5` (AÇIK) | A2+C | BMA çıktısını stacking meta-model ile blend eder (`alpha` ∈ [0,1]). α=0.5 optimal (Brier −23.6%). Cold-start guard: 200+ eğitim örneği + agreement ≥ 0.4 gerekir. | **Düşük** — mevcut skeleton mevcut |
 | `ENABLE_ONLINE_ADJUSTMENTS` | `false` | A3 | Rolling 500-window accuracy-based weight rebalance (son 500 prediction'dan). | **Düşük-Orta** — yeterli production trafiği ile |
-| `DISABLE_PI_RATING` | `false` (AÇIK) | Rating | Constantinou (2013) Pi-Rating: iç/deplasman ayrı 4-rating (Ha/Hd/Aa/Ad). Brier 0.1992 (644 maç backfill). | **Düşük** |
-| `DISABLE_GLICKO2` | `false` (AÇIK) | Rating | Glicko-2 (Glickman 2013): RD+σ volatility rating. RD=350 cold-start. | **Düşük** |
-| `DISABLE_GAP_RATING` | `false` (AÇIK—stub) | B (Faz 4) | Lite GAP Rating predictor. **AKTİF ama stub mod**: featuresJson DB'de boş olduğundan `gapP=0` döner. Gerçek tahmin için: MatchSnapshot.statsJson beslemesi gerekli. | **Yüksek** — backfill gerek |
-| `DISABLE_CORRECTOR` | `false` (AÇIK) | D (Faz 5) | Dixon-Coles corrector (Frank's κ veya ZISM β). Over/under + BTTS tahminini zenginleştirir. `DISABLE_CORRECTOR=true` ile kapatılır. | **Düşük** — %50 blend guardrail |
+| `PI_RATING` | `true` (AÇIK) | Rating | Constantinou (2013) Pi-Rating: iç/deplasman ayrı 4-rating (Ha/Hd/Aa/Ad). Brier 0.1992 (644 maç backfill). `false` ile kapat. | **Düşük** |
+| `GLICKO2` | `true` (AÇIK) | Rating | Glicko-2 (Glickman 2013): RD+σ volatility rating. RD=350 cold-start. `false` ile kapat. | **Düşük** |
+| `GAP_RATING` | `true` (AÇIK) | B (Faz 4) | Lite GAP Rating predictor. Singleton state ile MatchSnapshot verisi beslenir. `false` ile kapat. | **Düşük** |
+| `ZISM_CORRECTOR` | `true` (AÇIK) | D (Faz 5) | Dixon-Coles corrector (Frank's κ veya ZISM β). Over/under + BTTS tahminini zenginleştirir. `false` ile kapatılır. | **Düşük** — %50 blend guardrail |
 | `SKOR_KAPPA` | `-0.10` | D | Frank's Copula κ corrector parametresi. κ=-0.30 BTTS iyileşmesi −2.16% ile önerilen. | — |
 | `ZISM_BETA` | `0.10` | D | ZISM zero-inflation β. β=0.20 0-0 şişirir. | — |
 | `ZISM_MODE` | `'frank'` | D | 'frank' (κ) veya 'zism' (β) modu. | — |
@@ -32,7 +32,7 @@ STACKING_BLEND_ALPHA=0.5 bun start
 ```bash
 SKOR_KAPPA=-0.30 bun start
 ```
-- DISABLE_CORRECTOR varsayılan `false` olduğu için corrector **zaten AÇIK**
+- ZISM_CORRECTOR varsayılan `true` olduğu için corrector **zaten AÇIK**
 - SKOR_KAPPA=-0.30 ile Frank's κ optimize edilebilir
 - Frank κ=-0.30 BTTS −2.16% iyileşme üretti (dev-set 50K)
 
@@ -55,7 +55,7 @@ STACKING_BLEND_ALPHA=0.5 \
 
 ### 5. GAP Rating (AKTIF — singleton state)
 ```bash
-# DISABLE_GAP_RATING varsayılan false (AÇIK)
+# GAP_RATING varsayılan true (AÇIK)
 # Artık singleton state kullanır. İlk predictEnsemble çağrısında
 # MatchSnapshot verisiyle otomatik doldurulur.
 ```
@@ -74,9 +74,10 @@ STACKING_BLEND_ALPHA=0.5 \
 | `MIN_PROB_FOR_SIGNAL` | 0.20 | ❌ hayır |
 | `EXCLUDED_MINUTE_RANGES` | [0-2, 43-45, 93-120] | ❌ hayır |
 
-Tüm yeni feature flag'ler ya AÇIK (kod default) ya da opsiyonel:
-- DISABLE_* flag'leri varsayılan `false` → özellik AÇIK
-- ENABLE_* flag'leri varsayılan `false` → özellik KAPALI (opt-in)
+Tüm yeni feature flag'ler `ENABLE_*` / `*` pattern'iyle isimlendirilir:
+- `* = true` → özellik AÇIK (toggle AÇIK)
+- `* = false` → özellik KAPALI (toggle KAPALI)
+- `ENABLE_*` flag'leri varsayılan `false` → özellik KAPALI (opt-in)
 - Corrector %50 blend ile çalışır, stacking α ≤ 1, GAP stub modda
 
 ## Backtest Trend Analizi

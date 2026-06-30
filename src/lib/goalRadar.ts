@@ -258,8 +258,8 @@ export function calculateGoalProbability(
     // ENV gate: ENABLE_ZISM_CORRECTOR=true. Kapalıyken corrector uygulanmaz
     // (mevcut davranışla birebir aynı; sinyal sayısı invariant).
     // SKOR_KAPPA, ZISM_BETA env flag'leri sırasıyla κ ve β'yi override eder.
-    // Faz 5 — ZISM Corrector. Default AÇIK. DISABLE_CORRECTOR=true ile kapat.
-    if (process.env.DISABLE_CORRECTOR !== 'true') {
+    // Faz 5 — ZISM Corrector. Default AÇIK. env=false ile kapat.
+    if (process.env.ZISM_CORRECTOR !== 'false') {
       const correctorParams: CorrectorParams = {
         mode: (process.env.ZISM_MODE as 'off' | 'frank' | 'zism') ?? 'frank',
         kappa: parseFloat(process.env.SKOR_KAPPA ?? '-0.30'),

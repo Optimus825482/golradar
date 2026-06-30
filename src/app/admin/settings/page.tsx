@@ -34,26 +34,25 @@ const FLAG_META: Record<string, FlagMeta> = {
     impact: 'Doğruluk artışı ~%1-2. Window=2000 önerilen.',
     whyDisabled: 'Henüz yeterli prediction verisi birikmedi. 500+ gerçek maç tahmini gerekiyor.',
   },
-  DISABLE_PI_RATING: {
+  PI_RATING: {
     trName: 'Pi-Rating (Constantinou)',
     trDesc: 'Takım başına 4 ayrı rating: iç saha hücum (Ha), iç saha defans (Hd), deplasman hücum (Aa), deplasman defans (Ad). Gol farkı bazlı güncelleme.',
     status: 'active',
     impact: 'Brier 0.1992 (644 maç backfill). Ensemble\'a rating bazlı katkı.',
   },
-  DISABLE_GLICKO2: {
+  GLICKO2: {
     trName: 'Glicko-2 Rating',
     trDesc: '3 parametreli rating sistemi: r (rating), RD (rating deviation), σ (volatility). RD=350 cold-start ile başlar. Zamanla daralan güven aralığı.',
     status: 'active',
     impact: 'Rating belirsizliğini ölçer. Soğuk başlangıçlı takımlar için idealdir.',
   },
-  DISABLE_GAP_RATING: {
+  GAP_RATING: {
     trName: 'Lite GAP Rating',
-    trDesc: 'Genelleştirilmiş Hücum Performansı. Her takım için 4 rating. Feature verisi (dangerous_attacks, shots_on_target, corners, xG) olmadığında stub modda çalışır.',
-    status: 'stub',
-    impact: 'Teorik katkı: Brier iyileşmesi bekleniyor. Şu an gapP=0 döndüğü için BMA\'ya katkısı 0.',
-    whyDisabled: 'Feature verisi (MatchSnapshot.statsJson) canlı yayında dolu ama ensemble.ts her seferinde sıfır state oluşturuyor. Veri beslemesi yapılınca çalışır.',
+    trDesc: 'Genelleştirilmiş Hücum Performansı. Her takım için 4 rating. MatchSnapshot.statsJson singleton state ile beslenir.',
+    status: 'active',
+    impact: 'Teorik katkı: Brier iyileşmesi bekleniyor.',
   },
-  DISABLE_CORRECTOR: {
+  ZISM_CORRECTOR: {
     trName: 'ZISM Corrector',
     trDesc: 'Dixon-Coles corrector (Frank\'s Copula κ veya ZISM β). Over/under ve BTTS tahminini zenginleştirir. %50 yumuşak blend ile uygulanır.',
     status: 'active',

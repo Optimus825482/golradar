@@ -377,7 +377,7 @@ export async function predictEnsemble(
   let gapP = 0;
   let gapDetails = "GAP inactive (no data)";
   // Faz 4 — Lite GAP. Default AÇIK.
-  if (process.env.DISABLE_GAP_RATING !== 'true' && homeTeam && awayTeam) {
+  if (process.env.GAP_RATING !== 'false' && homeTeam && awayTeam) {
     try {
       const gapState = getGapState();
       // İlk çağrıda background init tetikle (bekleme, sonraki predict'te veri hazır olur)
@@ -398,7 +398,7 @@ export async function predictEnsemble(
   let piRatingDraw = eloDraw;
   let piRatingAwayWin = eloAwayWin;
   // Faz 7 — Pi-Rating (Constantinou 2013). Default AÇIK. env=false ile kapatılabilir.
-  if (process.env.DISABLE_PI_RATING !== 'true' && homeTeam && awayTeam) {
+  if (process.env.PI_RATING !== 'false' && homeTeam && awayTeam) {
     try {
       const piPred = predictPi(homeTeam, awayTeam);
       // Pi-Rating any-goal = homeWinP + 0.5·drawP.
@@ -427,8 +427,8 @@ export async function predictEnsemble(
   let glicko2HomeWin = eloHomeWin;
   let glicko2Draw = eloDraw;
   let glicko2AwayWin = eloAwayWin;
-  // Faz 7 — Glicko-2 (Glickman 2013). Default AÇIK. DISABLE_GLICKO2 ile kapat.
-  if (process.env.DISABLE_GLICKO2 !== 'true' && homeTeam && awayTeam) {
+  // Faz 7 — Glicko-2 (Glickman 2013). Default AÇIK. env=false ile kapat.
+  if (process.env.GLICKO2 !== 'false' && homeTeam && awayTeam) {
     try {
       const gPred = predictGlicko2Fn(homeTeam, awayTeam);
       const gRawP = gPred.homeWinP + 0.5 * gPred.drawP;

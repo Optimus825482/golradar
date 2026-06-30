@@ -419,34 +419,34 @@ export default function AdminAlgorithmPage() {
             description="Sinyalleri hypothetical bahis olarak simüle eder: Sharpe, Drawdown, Win Rate."
           />
           <Formula
-            title="🔒 Pi-Rating (Constantinou 2013) — env gate"
+            title="✅ Pi-Rating (Constantinou 2013)"
             formula="δ_exp = (Ha + Ad)/2 − (Hd + Aa)/2 + HOME_ADV"
-            description="ENABLE_PI_RATING=true. 4 rating per takım: Ha, Hd, Aa, Ad. İç/deplasman ayrı, gol-farkı bazlı update. ξ=3.25e-3/gün, ω=0.05. Default KAPALI."
+            description="PI_RATING (varsayılan AÇIK). 4 rating per takım: Ha, Hd, Aa, Ad. İç/deplasman ayrı, gol-farkı bazlı update. ξ=3.25e-3/gün, ω=0.05. false ile kapatılır."
           />
           <Formula
-            title="🔒 Glicko-2 (Glickman 2013) — env gate"
+            title="✅ Glicko-2 (Glickman 2013)"
             formula="g(φ)=1/√(1+3φ²/π²) · E=1/(1+exp(-g(μᵢ-μⱼ)))"
-            description="ENABLE_GLICKO2=true. 3-param r, RD, σ. RD=350 cold-start. Simplified Illinois. Default KAPALI."
+            description="GLICKO2 (varsayılan AÇIK). 3-param r, RD, σ. RD=350 cold-start. Simplified Illinois. false ile kapatılır."
           />
           <Formula
-            title="🔒 Frank's Copula Corrector — env gate"
+            title="✅ Frank's Copula Corrector"
             formula="cell'[h][a] = cell[h][a] · w(h,a; κ)"
-            description="ENABLE_ZISM_CORRECTOR=true. κ<0 pozitif korelasyon (equal-score boost). κ=-0.30 önerilen (BTTS %2.16 iyileşme). Default KAPALI."
+            description="ZISM_CORRECTOR (varsayılan AÇIK). κ<0 pozitif korelasyon (equal-score boost). κ=-0.30 önerilen (BTTS %2.16 iyileşme). false ile kapatılır."
           />
           <Formula
-            title="🔒 Weibull PMF + Copula — env gate"
+            title="✅ Weibull PMF + Copula"
             formula="weibullPMF(λ, k, shape=1.4)"
-            description="ENABLE_ZISM_CORRECTOR=true + SKOR_PMF=weibull. Over-dispersion (variance>mean) için Weibull sayımı. Frank κ=-0.30 ile BTTS %19 iyileşme. Default KAPALI."
+            description="ZISM_CORRECTOR (varsayılan AÇIK) + SKOR_PMF=weibull. Over-dispersion (variance>mean) için Weibull sayımı. Frank κ=-0.30 ile BTTS %19 iyileşme."
           />
           <Formula
-            title="🔒 Lite GAP Rating (stub) — env gate"
+            title="✅ Lite GAP Rating"
             formula="S_H = (Haᵢ + Adⱼ) / 2"
-            description="ENABLE_GAP_RATING=true. Generalized Attacking Performance. 4 rating per takım. featuresJson DB boş olduğu için predictGapMatch gapP=0 döner (stub). Default KAPALI."
+            description="GAP_RATING (varsayılan AÇIK). Generalized Attacking Performance. 4 rating per takım. Singleton state ile MatchSnapshot verisi beslenir. false ile kapatılır."
           />
           <Formula
-            title="🔒 Stacking α-Blend — env gate"
+            title="✅ Stacking α-Blend"
             formula="finalP = (1-α)·BMA + α·Stacking"
-            description="STACKING_BLEND_ALPHA=0.5 önerilen (%23.6 Brier iyileşme). Cold-start guard: 200+ örnek + agreement ≥0.4. Default KAPALI (α=0)."
+            description="STACKING_BLEND_ALPHA (varsayılan α=0.5). %23.6 Brier iyileşme. Cold-start guard: 200+ örnek + agreement ≥0.4."
           />
         </div>
       </div>

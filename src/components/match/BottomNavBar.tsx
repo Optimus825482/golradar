@@ -9,19 +9,18 @@ interface NavTab {
   icon: (active: boolean) => React.ReactNode
 }
 
-	interface BottomNavBarProps {
-	  activeTab: string
-	  liveCount: number
-	  radarCount: number
-	  favCount: number
-	  finishedCount?: number
-	  onTabChange: (tab: BottomTab | 'signal-history') => void
-	}
+		interface BottomNavBarProps {
+		  activeTab: string
+		  liveCount: number
+		  radarCount: number
+		  favCount: number
+		  onTabChange: (tab: BottomTab | 'signal-history') => void
+		}
 
 export function BottomNavBar({
-  activeTab, liveCount, radarCount, favCount, finishedCount,
-  onTabChange,
-}: BottomNavBarProps) {
+	  activeTab, liveCount, radarCount, favCount,
+	  onTabChange,
+	}: BottomNavBarProps) {
   const tabs: NavTab[] = [
     {
       key: 'all', label: 'Ana Sayfa',
@@ -71,16 +70,8 @@ export function BottomNavBar({
         </svg>
       ),
     },
-    {
-      key: 'finished', label: 'Biten', badge: finishedCount,
-      icon: (active: boolean) => (
-        <svg className={`w-5 h-5 ${active ? 'text-blue-600' : 'text-gray-400'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-    },
-    {
-      key: 'signal-history', label: 'Sinyaller',
+	  {
+	      key: 'signal-history', label: 'Sinyaller',
       icon: (active: boolean) => (
         <svg className={`w-5 h-5 ${active ? 'text-indigo-600' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -102,8 +93,6 @@ export function BottomNavBar({
                   ? 'text-red-600'
                   : tab.key === 'favorites'
                   ? 'text-amber-500'
-                  : tab.key === 'finished'
-                  ? 'text-blue-600'
                   : tab.key === 'signal-history'
                   ? 'text-indigo-600'
                   : 'text-emerald-600'
@@ -118,7 +107,6 @@ export function BottomNavBar({
               <span className={`absolute -top-0.5 right-1/2 translate-x-4 text-[8px] font-bold px-1 rounded-full ${
                 tab.key === 'radar' ? 'bg-red-100 text-red-600' :
                 tab.key === 'live' ? 'bg-emerald-100 text-emerald-600' :
-                tab.key === 'finished' ? 'bg-blue-100 text-blue-600' :
                 'bg-amber-100 text-amber-600'
               }`}>
                 {tab.badge}

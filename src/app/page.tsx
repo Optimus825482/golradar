@@ -456,12 +456,12 @@ export default function OptimusGolRadariPage() {
     }
   }, [allPressureData, netscoresMapping, finishedNetscoresMapping, fetchScoremerDetails, goalooMatchIdMap, finishedDate])
 
-  // Fetch finished matches when tab changes to 'finished' OR when there are no live matches
+  // Fetch finished matches on mount (for detail view when needed)
   useEffect(() => {
-    if ((activeTab === 'finished' || matches.length === 0) && finishedMatches.length === 0 && !finishedLoading) {
+    if (matches.length === 0 && finishedMatches.length === 0 && !finishedLoading) {
       fetchFinishedMatches()
     }
-  }, [activeTab, matches.length, finishedMatches.length, fetchFinishedMatches, finishedLoading, tier])
+  }, [matches.length, finishedMatches.length, fetchFinishedMatches, finishedLoading, tier])
 
   // Goal Detection: report goals to signal tracker + UI notifications
   useEffect(() => {
@@ -816,43 +816,9 @@ export default function OptimusGolRadariPage() {
   const renderMatchList = () => {
     if (activeTab === 'signal-history') {
       return (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <button
-              onClick={() => setActiveTab('finished')}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
-              Biten Maçlar
-            </button>
-          </div>
-          <SignalsCenter
-            matches={matches}
-            onSelectMatch={(m) => handleSelectMatch(m)}
-          />
-        </div>
-      )
-    }
-
-    if (activeTab === 'finished') {
-      return (
-        <FinishedMatchesView
-          finishedMatches={finishedMatches}
-          finishedLoading={finishedLoading}
-          finishedError={finishedError}
-          finishedDate={finishedDate}
-          finishedNetscoresMapping={finishedNetscoresMapping}
-          scoremerMapping={scoremerMapping}
-          selectedMatch={selectedMatch}
-          favorites={favorites}
-          onSelectMatch={handleSelectMatch}
-          onToggleFavorite={toggleFavorite}
-          onFetchFinished={fetchFinishedMatches}
-          onSetDate={setFinishedDate}
-          onSetActiveTab={(tab: string) => setActiveTab(tab as BottomTab)}
-          setFinishedMatches={setFinishedMatches}
+        <SignalsCenter
+          matches={matches}
+          onSelectMatch={(m) => handleSelectMatch(m)}
         />
       )
     }
@@ -871,8 +837,8 @@ export default function OptimusGolRadariPage() {
           <div className="text-5xl mb-4">📡</div>
           <p className="text-red-500 text-sm mb-2">{error}</p>
           <button onClick={fetchMatches} className="text-emerald-600 text-sm underline hover:no-underline">Tekrar dene</button>
-          <button onClick={() => setActiveTab('finished')} className="text-blue-600 text-sm underline hover:no-underline mt-2">
-            Biten maçlara göz at →
+          <button onClick={() => setActiveTab('signal-history')} className="text-indigo-600 text-sm underline hover:no-underline mt-2">
+            Sinyallere göz at →
           </button>
         </div>
       )
@@ -882,16 +848,15 @@ export default function OptimusGolRadariPage() {
       const tabLabel = tab === 'live' ? 'canlı'
         : tab === 'radar' ? 'radar'
         : tab === 'favorites' ? 'favori'
-        : tab === 'finished' ? 'biten'
-        : tab === 'signal-history' ? 'sinyal geçmişi'
+        : tab === 'signal-history' ? 'sinyal'
         : ''
       return (
         <div className="flex flex-col items-center justify-center py-20">
           <div className="text-5xl mb-4">⚽</div>
           <p className="text-gray-500 text-sm mb-3">Şu an {tabLabel} maç yok</p>
-          {tab !== 'finished' && tab !== 'signal-history' && (
-            <button onClick={() => setActiveTab('finished')} className="px-4 py-2 bg-blue-50 text-blue-700 text-sm font-medium rounded-lg hover:bg-blue-100 transition-colors">
-              Biten maçlara göz at →
+          {tab !== 'signal-history' && (
+            <button onClick={() => setActiveTab('signal-history')} className="px-4 py-2 bg-indigo-50 text-indigo-700 text-sm font-medium rounded-lg hover:bg-indigo-100 transition-colors">
+              Sinyallere göz at →
             </button>
           )}
         </div>
@@ -1199,7 +1164,6 @@ export default function OptimusGolRadariPage() {
         liveCount={liveCount}
         radarCount={radarCount}
         favCount={favCount}
-        finishedCount={finishedMatches.length || undefined}
         onTabChange={(tab) => {
           setActiveTab(tab);
           setSelectedMatch(null);

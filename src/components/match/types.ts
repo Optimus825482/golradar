@@ -65,7 +65,7 @@ export interface GoalNotification {
   timestamp: number
 }
 
-export type BottomTab = 'all' | 'live' | 'radar' | 'favorites' | 'finished' | 'signal-history'
+export type BottomTab = 'all' | 'live' | 'radar' | 'favorites' | 'signal-history'
 
 export const statKeys: { key: string; label: string; suffix: string; isEstimated?: boolean }[] = [
   { key: 'possession', label: 'Topa Sahip %', suffix: '%' },

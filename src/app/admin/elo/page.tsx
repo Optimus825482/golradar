@@ -1,257 +1,277 @@
 'use client';
 
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { useEffect, useState, useCallback } from 'react';
+import { Search, ChevronLeft, ChevronRight, ArrowUpDown, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { authFetch } from '@/lib/adminAuth';
 
-interface EloRating {
-  id?: string;
-  teamName: string;
-  teamNameTr?: string;
-  elo: number;
-  attackStrength: number;
-  defenseWeakness: number;
-  matchesPlayed: number;
-  wins: number;
-  draws: number;
-  losses: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  lastUpdated: string;
+interface TeamRow {
+  id: string; teamName: string; teamNameTr: string | null;
+  elo: number; attackStrength: number; defenseWeakness: number;
+  matchesPlayed: number; wins: number; draws: number; losses: number;
+  goalsFor: number; goalsAgainst: number;
+  piHa: number; piHd: number; piAa: number; piAd: number; piMatches: number;
+}
+
+interface ApiResponse {
+  rows: TeamRow[]; total: number; page: number; totalPages: number;
 }
 
 interface EloImportJob {
-  id: string;
-  status: string;
-  totalTeams: number;
-  fetchedTeams: number;
-  failedTeams: number;
-  currentTeam: string | null;
-  progressPct: number;
-  startedAt: string;
-  finishedAt: string | null;
+  id: string; status: string; totalTeams: number;
+  fetchedTeams: number; failedTeams: number;
+  currentTeam: string | null; progressPct: number;
+  startedAt: string; finishedAt: string | null;
 }
 
+const SORTABLE = ['elo', 'teamName', 'matchesPlayed', 'wins', 'goalsFor', 'attackStrength', 'defenseWeakness', 'piHa', 'piHd'] as const;
+type SortCol = typeof SORTABLE[number];
+
 export default function AdminEloPage() {
-  const [ratings, setRatings] = useState<EloRating[]>([]);
-  const [jobs, setJobs] = useState<EloImportJob[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<ApiResponse | null>(null);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<SortCol>('elo');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [loading, setLoading] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<EloImportJob[]>([]);
 
-  // Elo chart data (top 20)
-  const chartData = [...ratings]
-    .sort((a, b) => b.elo - a.elo)
-    .slice(0, 20)
-    .map(r => ({ name: (r.teamName ?? '').slice(0, 14), elo: r.elo }))
-    .reverse();
-
-  const load = useCallback(async () => {
+  const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
-      const [ratingsRes, jobsRes] = await Promise.all([
-        authFetch('/api/admin/ml/team-strength-fit'),
-        authFetch('/api/admin/elo-import').catch(() => null),
-      ]);
-      if (ratingsRes.ok) {
-        const data = await ratingsRes.json();
-        setRatings((data.teams || data.ratings || []).slice(0, 100));
-      }
-      if (jobsRes && jobsRes.ok) {
-        const data = await jobsRes.json();
-        setJobs(data.jobs || []);
-      }
-    } catch { /* connection error */ }
+      const params = new URLSearchParams({ page: String(page), limit: '50', sortBy, sortDir });
+      if (search) params.set('search', search);
+      const resp = await fetch(`/api/admin/elo?${params}`);
+      const json = await resp.json();
+      setData(json);
+    } catch { /* */ }
     setLoading(false);
+  }, [page, search, sortBy, sortDir]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const loadJobs = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/admin/elo-import').catch(() => null);
+      if (res && res.ok) {
+        const j = await res.json();
+        setJobs(j.jobs || []);
+      }
+    } catch { /* */ }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadJobs(); }, [loadJobs]);
 
   // Poll active jobs
   useEffect(() => {
     if (jobs.some(j => j.status === 'running')) {
-      const i = setInterval(load, 5000);
+      const i = setInterval(() => { fetchData(); loadJobs(); }, 5000);
       return () => clearInterval(i);
     }
-  }, [jobs, load]);
+  }, [jobs, fetchData, loadJobs]);
 
   const startImport = async (action: string, body: any = {}) => {
     setImporting(true);
-    setError(null);
-    setSuccess(null);
+    setImportMsg(null);
     try {
       const res = await authFetch('/api/admin/elo-import', {
         method: 'POST',
         body: JSON.stringify({ action, ...body }),
       });
-      const data = await res.json();
-      if (data.ok || data.jobId) {
-        setSuccess(`✓ Import başlatıldı (${action})`);
-        load();
+      const d = await res.json();
+      if (d.ok || d.jobId) {
+        setImportMsg(`✓ Import başlatıldı`);
+        setTimeout(() => { fetchData(); loadJobs(); }, 1000);
       } else {
-        setError(data.error || 'Import başarısız');
+        setImportMsg(`✗ ${d.error || 'Başarısız'}`);
       }
-    } catch (e) {
-      setError('Bağlantı hatası');
-    }
+    } catch { setImportMsg('✗ Bağlantı hatası'); }
     setImporting(false);
   };
 
-  const filtered = ratings.filter(r =>
-    r.teamName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (r.teamNameTr || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const toggleSort = (col: SortCol) => {
+    if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortBy(col); setSortDir('desc'); }
+  };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <div className="animate-spin w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full" />
-      </div>
-    );
-  }
+  const chartData = [...(data?.rows ?? [])]
+    .sort((a, b) => b.elo - a.elo)
+    .slice(0, 20)
+    .map(r => ({ name: (r.teamNameTr ?? r.teamName ?? '').slice(0, 14), elo: r.elo }))
+    .reverse();
+
+  const cols: { key: SortCol; label: string }[] = [
+    { key: 'teamName', label: 'Takım' },
+    { key: 'elo', label: 'Elo' },
+    { key: 'attackStrength', label: 'Atak' },
+    { key: 'defenseWeakness', label: 'Defans' },
+    { key: 'piHa', label: 'π Ha' },
+    { key: 'piHd', label: 'π Hd' },
+    { key: 'matchesPlayed', label: 'Maç' },
+    { key: 'wins', label: 'G' },
+    { key: 'goalsFor', label: 'AG' },
+  ];
 
   return (
-    <div className="space-y-5">
-      <div>
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-4">
+      <div className="flex items-center justify-between">
         <h1 className="text-xl font-black text-gray-800">⚡ Elo Ratings</h1>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Takım gücü ratingleri, import job'ları ve fit history
-        </p>
+        <button
+          onClick={() => setImportOpen(!importOpen)}
+          className="text-xs flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600"
+        >
+          {importOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+          Import
+        </button>
       </div>
 
-      {(error || success) && (
-        <div className={`rounded-lg px-4 py-2.5 text-sm font-medium ${
-          error ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-        }`}>
-          {error || success}
-        </div>
-      )}
-
-      {/* Import Butonları */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-        <h2 className="text-sm font-bold text-gray-800 mb-3">📥 Import İşlemleri</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <button onClick={() => startImport('fetch-league', { country: 'TUR' })} disabled={importing}
-            className="p-4 rounded-lg border-2 border-orange-200 bg-orange-50/40 hover:bg-orange-50 transition-all disabled:opacity-50">
-            <div className="text-2xl mb-1">🇹🇷</div>
-            <div className="text-sm font-bold text-gray-800">Türkiye Süper Lig</div>
-            <div className="text-[10px] text-gray-500 mt-1">ClubElo API'den çek</div>
-          </button>
-          <button onClick={() => startImport('fetch-league', { country: 'ENG' })} disabled={importing}
-            className="p-4 rounded-lg border-2 border-blue-200 bg-blue-50/40 hover:bg-blue-50 transition-all disabled:opacity-50">
-            <div className="text-2xl mb-1">🏴󠁧󠁢󠁥󠁮󠁧󠁿</div>
-            <div className="text-sm font-bold text-gray-800">İngiltere Premier Lig</div>
-            <div className="text-[10px] text-gray-500 mt-1">ClubElo API'den çek</div>
-          </button>
-          <button onClick={() => startImport('fetch-league', { country: 'ESP' })} disabled={importing}
-            className="p-4 rounded-lg border-2 border-red-200 bg-red-50/40 hover:bg-red-50 transition-all disabled:opacity-50">
-            <div className="text-2xl mb-1">🇪🇸</div>
-            <div className="text-sm font-bold text-gray-800">İspanya La Liga</div>
-            <div className="text-[10px] text-gray-500 mt-1">ClubElo API'den çek</div>
-          </button>
-        </div>
-        <div className="mt-3 flex gap-2">
+      {/* ── Collapsible Import Section ── */}
+      {importOpen && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 space-y-3">
+          <h2 className="text-sm font-bold text-gray-800">📥 Import ClubElo</h2>
+          {importMsg && (
+            <div className={`text-xs font-medium px-3 py-1.5 rounded-lg ${
+              importMsg.startsWith('✓') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+            }`}>{importMsg}</div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <button onClick={() => startImport('fetch-league', { country: 'TUR' })} disabled={importing}
+              className="p-3 rounded-lg border-2 border-orange-200 bg-orange-50/40 hover:bg-orange-50 transition-all disabled:opacity-50 text-left">
+              <div className="text-xl mb-0.5">🇹🇷</div>
+              <div className="text-sm font-bold text-gray-800">Süper Lig</div>
+              <div className="text-[10px] text-gray-500">ClubElo API</div>
+            </button>
+            <button onClick={() => startImport('fetch-league', { country: 'ENG' })} disabled={importing}
+              className="p-3 rounded-lg border-2 border-blue-200 bg-blue-50/40 hover:bg-blue-50 transition-all disabled:opacity-50 text-left">
+              <div className="text-xl mb-0.5">🏴󠁧󠁢󠁥󠁮󠁧󠁿</div>
+              <div className="text-sm font-bold text-gray-800">Premier Lig</div>
+              <div className="text-[10px] text-gray-500">ClubElo API</div>
+            </button>
+            <button onClick={() => startImport('fetch-league', { country: 'ESP' })} disabled={importing}
+              className="p-3 rounded-lg border-2 border-red-200 bg-red-50/40 hover:bg-red-50 transition-all disabled:opacity-50 text-left">
+              <div className="text-xl mb-0.5">🇪🇸</div>
+              <div className="text-sm font-bold text-gray-800">La Liga</div>
+              <div className="text-[10px] text-gray-500">ClubElo API</div>
+            </button>
+          </div>
           <button onClick={() => startImport('fetch-all')} disabled={importing}
-            className="flex-1 px-4 py-2 bg-gradient-to-r from-orange-500 to-red-500 text-white text-sm font-bold rounded-lg hover:from-orange-600 hover:to-red-600 transition-all disabled:opacity-50">
+            className="w-full py-2 bg-gradient-to-r from-orange-500 to-red-500 text-white text-sm font-bold rounded-lg hover:from-orange-600 hover:to-red-600 transition-all disabled:opacity-50">
             {importing ? '⏳ Çalışıyor...' : '🌍 Tüm Aktif Ligleri Çek'}
           </button>
-        </div>
-      </div>
 
-      {/* Aktif Import Jobs */}
-      {jobs.filter(j => j.status === 'running').length > 0 && (
-        <div className="bg-white rounded-xl border border-amber-200 shadow-sm p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            <h2 className="text-sm font-bold text-gray-800">Aktif Import İşlemleri</h2>
-          </div>
-          {jobs.filter(j => j.status === 'running').map(j => (
-            <div key={j.id} className="bg-amber-50/40 rounded-lg p-3 border border-amber-100">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-[11px] font-mono text-gray-700">
-                  {j.fetchedTeams}/{j.totalTeams} takım · {j.failedTeams} hata
-                  {j.currentTeam && <span className="ml-2 text-amber-700">→ {j.currentTeam}</span>}
+          {/* Active import jobs */}
+          {jobs.filter(j => j.status === 'running').length > 0 && (
+            <div className="bg-amber-50/40 rounded-lg p-3 border border-amber-100">
+              {jobs.filter(j => j.status === 'running').map(j => (
+                <div key={j.id}>
+                  <div className="flex items-center justify-between text-[11px] font-mono text-gray-700 mb-1">
+                    <span>{j.fetchedTeams}/{j.totalTeams} takım · {j.failedTeams} hata{j.currentTeam && <span className="ml-2 text-amber-700">→ {j.currentTeam}</span>}</span>
+                    <span className="text-[10px] font-bold text-amber-700">{j.progressPct}%</span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-amber-400 to-orange-500" style={{ width: `${j.progressPct}%` }} />
+                  </div>
                 </div>
-                <span className="text-[10px] font-bold text-amber-700">{j.progressPct}%</span>
-              </div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-amber-400 to-orange-500" style={{ width: `${j.progressPct}%` }} />
-              </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
-      {/* Arama */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h2 className="text-sm font-bold text-gray-800">📊 Takım Ratingleri</h2>
-          <input type="text" placeholder="Takım ara..." value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg focus:border-orange-400 focus:ring-2 focus:ring-orange-100 outline-none w-48" />
-        </div>
-
-        {filtered.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-6">
-            Henüz rating verisi yok. Yukarıdaki butonlardan import başlatın.
-          </p>
-        ) : (
-          <>
-            {chartData.length > 0 && (
-              <div className="h-48 mb-4">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} layout="vertical" margin={{ left: 100, right: 10 }}>
-                    <XAxis type="number" domain={[1000, 2000]} tick={{fontSize:10}} />
-                    <YAxis type="category" dataKey="name" tick={{fontSize:10}} width={90} />
-                    <Tooltip contentStyle={{fontSize:11,borderRadius:6}} formatter={(v:unknown)=>[typeof v==="number"?v.toFixed(0):"-","Elo"]} />
-                    <Bar dataKey="elo" fill="#6366f1" radius={[0,3,3,0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-            <div className="overflow-x-auto">
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr className="border-b border-gray-200 text-gray-500">
-                  <th className="text-left py-2 px-2 font-semibold">Takım</th>
-                  <th className="text-right py-2 px-2 font-semibold">Elo</th>
-                  <th className="text-right py-2 px-2 font-semibold">Atak</th>
-                  <th className="text-right py-2 px-2 font-semibold">Defans</th>
-                  <th className="text-right py-2 px-2 font-semibold">Maç</th>
-                  <th className="text-right py-2 px-2 font-semibold">G/B/M</th>
-                  <th className="text-right py-2 px-2 font-semibold">AG/YG</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.slice(0, 50).map(r => (
-                  <tr key={r.teamName} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-2 px-2 font-bold text-gray-800">
-                      {r.teamNameTr || r.teamName}
-                      {r.teamNameTr && r.teamName !== r.teamNameTr && (
-                        <span className="ml-1 text-[10px] font-normal text-gray-400">({r.teamName})</span>
-                      )}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono font-bold" style={{ color: r.elo >= 1700 ? '#10b981' : r.elo >= 1500 ? '#f59e0b' : '#6b7280' }}>
-                      {r.elo}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono text-gray-600">{r.attackStrength?.toFixed(2) ?? '—'}</td>
-                    <td className="py-2 px-2 text-right font-mono text-gray-600">{r.defenseWeakness?.toFixed(2) ?? '—'}</td>
-                    <td className="py-2 px-2 text-right font-mono text-gray-500">{r.matchesPlayed}</td>
-                    <td className="py-2 px-2 text-right font-mono">
-                      <span className="text-emerald-600">{r.wins}</span>/
-                      <span className="text-amber-600">{r.draws}</span>/
-                      <span className="text-red-600">{r.losses}</span>
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono text-gray-600">{r.goalsFor}/{r.goalsAgainst}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* ── Bar Chart ── */}
+      {data && data.rows.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-gray-600">
+            <BarChart3 className="size-3.5" /> Top 20
           </div>
-          </>
-        )}
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} layout="vertical" margin={{ left: 100, right: 10 }}>
+                <XAxis type="number" domain={[1000, 2000]} tick={{ fontSize: 10 }} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={90} />
+                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} formatter={(v: unknown) => [typeof v === 'number' ? v.toFixed(0) : '-', 'Elo']} />
+                <Bar dataKey="elo" fill="#6366f1" radius={[0, 3, 3, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* ── Search ── */}
+      <div className="relative max-w-xs">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+        <input
+          className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          placeholder="Takım ara..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+        />
       </div>
+
+      {/* ── DataTable ── */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100">
+                {cols.map(c => (
+                  <th key={c.key} className="text-left px-3 py-2 font-semibold text-gray-500 cursor-pointer hover:text-gray-700 select-none" onClick={() => toggleSort(c.key)}>
+                    <span className="flex items-center gap-1">{c.label}<ArrowUpDown className="size-3" /></span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr><td colSpan={cols.length} className="text-center py-8 text-gray-400">Yükleniyor...</td></tr>
+              )}
+              {!loading && data?.rows.length === 0 && (
+                <tr><td colSpan={cols.length} className="text-center py-8 text-gray-400">Henüz rating verisi yok. Import başlatın.</td></tr>
+              )}
+              {data?.rows.map(r => (
+                <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                  <td className="px-3 py-2 font-medium text-gray-800">{r.teamNameTr ?? r.teamName}</td>
+                  <td className={`px-3 py-2 font-mono font-bold ${
+                    r.elo >= 1700 ? 'text-emerald-600' : r.elo >= 1500 ? 'text-amber-600' : 'text-gray-500'
+                  }`}>{r.elo}</td>
+                  <td className="px-3 py-2 font-mono text-gray-600">{r.attackStrength.toFixed(2)}</td>
+                  <td className="px-3 py-2 font-mono text-gray-600">{r.defenseWeakness.toFixed(2)}</td>
+                  <td className="px-3 py-2 font-mono text-gray-600">{r.piHa.toFixed(4)}</td>
+                  <td className="px-3 py-2 font-mono text-gray-600">{r.piHd.toFixed(4)}</td>
+                  <td className="px-3 py-2 text-gray-600">{r.matchesPlayed}</td>
+                  <td className="px-3 py-2">
+                    <span className="text-emerald-600 font-mono">{r.wins}</span>
+                    <span className="text-gray-300 mx-0.5">/</span>
+                    <span className="text-amber-600 font-mono">{r.draws}</span>
+                    <span className="text-gray-300 mx-0.5">/</span>
+                    <span className="text-red-600 font-mono">{r.losses}</span>
+                  </td>
+                  <td className="px-3 py-2 font-mono text-gray-600">{r.goalsFor}/{r.goalsAgainst}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Pagination ── */}
+      {data && data.totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm text-gray-500">
+          <span>Toplam {data.total} takım</span>
+          <div className="flex items-center gap-2">
+            <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="p-1 rounded hover:bg-gray-100 disabled:opacity-30">
+              <ChevronLeft className="size-4" />
+            </button>
+            <span>Sayfa {page} / {data.totalPages}</span>
+            <button disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)} className="p-1 rounded hover:bg-gray-100 disabled:opacity-30">
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

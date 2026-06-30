@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useEffect, useState } from 'react'
 import type { GoalProbability } from '@/lib/nesine'
 import type { FotMobMatchDetails } from '@/lib/fotmob'
 import type { MomentumBarDataPoint, xGFlowPoint, ThreatIndex } from '@/lib/advancedAnalytics'
@@ -13,6 +13,15 @@ import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomen
 import { FotMobSection } from '@/components/fotmob/FotMobSection'
 import { estimateXgFromShots } from '@/lib/advancedAnalytics'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+
+interface TeamRatingInfo {
+  teamName: string; teamNameTr: string | null;
+  elo: number; attackStrength: number; defenseWeakness: number;
+  matchesPlayed: number; wins: number; draws: number; losses: number;
+  goalsFor: number; goalsAgainst: number;
+  piHa: number; piHd: number; piAa: number; piAd: number; piMatches: number;
+  formJson: string;
+}
 
 export interface MatchDetailContentProps {
   match: Match
@@ -58,6 +67,33 @@ export const MatchDetailContent = memo(function MatchDetailContent({
   scoremerHtStats,
   scoremerLoading,
 }: MatchDetailContentProps) {
+
+  // ── Team Rating data (Elo + Pi-Rating) ──
+  const [homeRating, setHomeRating] = useState<TeamRatingInfo | null>(null);
+  const [awayRating, setAwayRating] = useState<TeamRatingInfo | null>(null);
+  const [ratingLoading, setRatingLoading] = useState(true);
+
+  useEffect(() => {
+    if (!match.home || !match.away) return;
+    setRatingLoading(true);
+    Promise.all([
+      fetch(`/api/admin/elo?search=${encodeURIComponent(match.home)}&limit=1`).then(r => r.json()).catch(() => null),
+      fetch(`/api/admin/elo?search=${encodeURIComponent(match.away)}&limit=1`).then(r => r.json()).catch(() => null),
+    ]).then(([h, a]) => {
+      if (h?.rows?.[0]) setHomeRating(h.rows[0]);
+      if (a?.rows?.[0]) setAwayRating(a.rows[0]);
+    }).finally(() => setRatingLoading(false));
+  }, [match.home, match.away]);
+
+  // Parse formJson → emoji array
+  const parseForm = (json: string): string[] => {
+    try {
+      const arr = JSON.parse(json);
+      return (arr as string[]).slice(-5).map((r: string) =>
+        r === 'W' ? '✅' : r === 'D' ? '➖' : r === 'L' ? '❌' : r
+      );
+    } catch { return []; }
+  };
 
   // Map statsChartData → DangerousAttacksChart data format
   const daData = useMemo(
@@ -537,6 +573,151 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         awayTeam={match.away}
       />
       </ErrorBoundary>
+
+      {/* ── Team Info: Elo + Pi-Rating + Form ── */}
+      {(homeRating || awayRating || ratingLoading) && (
+        <div className="px-3 sm:px-4 pb-3 border-b border-gray-100">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50">
+              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Takım Bilgileri</h3>
+              {ratingLoading && <div className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
+              {/* Home Team */}
+              <div className="p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-gray-900">{match.home}</span>
+                  <span className="text-[10px] text-gray-400">#{homeRating?.matchesPlayed ?? 0} maç</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">Elo</div>
+                    <div className={`text-sm font-black font-mono ${(homeRating?.elo ?? 1500) >= 1700 ? 'text-emerald-600' : (homeRating?.elo ?? 1500) >= 1500 ? 'text-amber-600' : 'text-gray-500'}`}>
+                      {homeRating?.elo ?? '—'}
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">Atak/Defans</div>
+                    <div className="text-sm font-black font-mono text-gray-700">
+                      {homeRating?.attackStrength.toFixed(2) ?? '—'}/{homeRating?.defenseWeakness.toFixed(2) ?? '—'}
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">π Ha</div>
+                    <div className="text-sm font-black font-mono text-indigo-600">{homeRating?.piHa.toFixed(4) ?? '—'}</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">π Hd</div>
+                    <div className="text-sm font-black font-mono text-indigo-600">{homeRating?.piHd.toFixed(4) ?? '—'}</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">π Aa</div>
+                    <div className="text-sm font-black font-mono text-purple-600">{homeRating?.piAa.toFixed(4) ?? '—'}</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">π Ad</div>
+                    <div className="text-sm font-black font-mono text-purple-600">{homeRating?.piAd.toFixed(4) ?? '—'}</div>
+                  </div>
+                </div>
+
+                {/* G/B/M */}
+                {homeRating && (
+                  <div className="flex items-center gap-3 text-[11px]">
+                    <span className="text-gray-500">G/B/M:</span>
+                    <span className="font-bold text-emerald-600">{homeRating.wins}</span>
+                    <span className="text-gray-300">/</span>
+                    <span className="font-bold text-amber-600">{homeRating.draws}</span>
+                    <span className="text-gray-300">/</span>
+                    <span className="font-bold text-red-600">{homeRating.losses}</span>
+                    <span className="text-gray-300 ml-1">|</span>
+                    <span className="text-gray-500">AG/YG:</span>
+                    <span className="font-mono font-bold text-gray-700">{homeRating.goalsFor}/{homeRating.goalsAgainst}</span>
+                  </div>
+                )}
+
+                {/* Son 5 maç form */}
+                {homeRating && homeRating.formJson && homeRating.formJson !== '[]' && (
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="text-gray-500">Son 5:</span>
+                    <span className="flex items-center gap-0.5">
+                      {parseForm(homeRating.formJson).map((emoji, i) => (
+                        <span key={i} className="text-xs">{emoji}</span>
+                      ))}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Away Team */}
+              <div className="p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-gray-900">{match.away}</span>
+                  <span className="text-[10px] text-gray-400">#{awayRating?.matchesPlayed ?? 0} maç</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">Elo</div>
+                    <div className={`text-sm font-black font-mono ${(awayRating?.elo ?? 1500) >= 1700 ? 'text-emerald-600' : (awayRating?.elo ?? 1500) >= 1500 ? 'text-amber-600' : 'text-gray-500'}`}>
+                      {awayRating?.elo ?? '—'}
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">Atak/Defans</div>
+                    <div className="text-sm font-black font-mono text-gray-700">
+                      {awayRating?.attackStrength.toFixed(2) ?? '—'}/{awayRating?.defenseWeakness.toFixed(2) ?? '—'}
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">π Ha</div>
+                    <div className="text-sm font-black font-mono text-indigo-600">{awayRating?.piHa.toFixed(4) ?? '—'}</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">π Hd</div>
+                    <div className="text-sm font-black font-mono text-indigo-600">{awayRating?.piHd.toFixed(4) ?? '—'}</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">π Aa</div>
+                    <div className="text-sm font-black font-mono text-purple-600">{awayRating?.piAa.toFixed(4) ?? '—'}</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">π Ad</div>
+                    <div className="text-sm font-black font-mono text-purple-600">{awayRating?.piAd.toFixed(4) ?? '—'}</div>
+                  </div>
+                </div>
+
+                {/* G/B/M */}
+                {awayRating && (
+                  <div className="flex items-center gap-3 text-[11px]">
+                    <span className="text-gray-500">G/B/M:</span>
+                    <span className="font-bold text-emerald-600">{awayRating.wins}</span>
+                    <span className="text-gray-300">/</span>
+                    <span className="font-bold text-amber-600">{awayRating.draws}</span>
+                    <span className="text-gray-300">/</span>
+                    <span className="font-bold text-red-600">{awayRating.losses}</span>
+                    <span className="text-gray-300 ml-1">|</span>
+                    <span className="text-gray-500">AG/YG:</span>
+                    <span className="font-mono font-bold text-gray-700">{awayRating.goalsFor}/{awayRating.goalsAgainst}</span>
+                  </div>
+                )}
+
+                {/* Son 5 maç form */}
+                {awayRating && awayRating.formJson && awayRating.formJson !== '[]' && (
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="text-gray-500">Son 5:</span>
+                    <span className="flex items-center gap-0.5">
+                      {parseForm(awayRating.formJson).map((emoji, i) => (
+                        <span key={i} className="text-xs">{emoji}</span>
+                      ))}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 })

@@ -171,7 +171,7 @@ export async function GET(request: Request) {
   for (const m of rawMatches) {
     const status = m.S || 0;
     if (EXCLUDED_STATUSES.has(status)) continue;
-    if (!ACTIVE_STATUSES.has(status) && !FINISHED_STATUSES.has(status) && status !== 1)
+    if (!ACTIVE_STATUSES.has(status) && !FINISHED_STATUSES.has(status))
       continue;
 
     // WI-based filter removed — Nesine's WI field shape is unreliable

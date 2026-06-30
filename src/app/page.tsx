@@ -105,6 +105,15 @@ export default function OptimusGolRadariPage() {
   const [finishedDate, setFinishedDate] = useState<string>('')
   const [finishedNetscoresMapping, setFinishedNetscoresMapping] = useState<Record<number, string>>({})
 
+  // ── Upcoming matches from Nesine prebulten ──
+  const [upcomingList, setUpcomingList] = useState<any[]>([]);
+  useEffect(() => {
+    fetch('/api/upcoming-matches?days=3')
+      .then(r => r.json())
+      .then(d => { if (d.matches) setUpcomingList(d.matches); })
+      .catch(() => {});
+  }, []);
+
   // Scoremer integration for finished matches
   const [scoremerStats, setScoremerStats] = useState<Record<string, { home: number | null; away: number | null }> | null>(null)
   const [scoremerHtStats, setScoremerHtStats] = useState<Record<string, { home: number | null; away: number | null }> | null>(null)
@@ -632,12 +641,9 @@ export default function OptimusGolRadariPage() {
   }, [matches, activeTab, goalProbabilities, favorites])
 
   const upcomingMatches = useMemo(() => {
-    if (activeTab !== 'all') return []
-    const now = new Date()
-    const todayStr = now.toISOString().slice(0, 10)
-    return matches.filter(m => m.isUpcoming)
-      .sort((a, b) => a.time.localeCompare(b.time))
-  }, [matches, activeTab])
+    if (activeTab !== 'all') return [];
+    return upcomingList;
+  }, [activeTab, upcomingList])
 
   const favCount = matches.filter(m => favorites.has(m.code)).length
   const liveCount = matches.filter(m => m.isLive).length
@@ -924,13 +930,28 @@ export default function OptimusGolRadariPage() {
           <span className="text-[10px] text-gray-400 ml-auto">{upcomingMatches.length}</span>
         </div>
         <div className="bg-white rounded-xl border border-indigo-100 overflow-hidden shadow-sm">
-          {upcomingMatches.map(match => (
-            <MatchCard key={match.code} match={match} onClick={() => handleSelectMatch(match)}
-              goalProb={undefined}
-              isSelected={selectedMatch?.code === match.code}
-              isFavorite={favorites.has(match.code)}
-              onToggleFavorite={(e) => toggleFavorite(match.code, e)}
-              hasGoalFlash={false} />
+          {upcomingMatches.map((m: any) => (
+            <div key={m.code} className="px-3 py-2.5 border-b border-gray-50 last:border-0 hover:bg-indigo-50/30 transition-colors">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="text-center w-12 shrink-0">
+                    <div className="text-[11px] font-bold text-indigo-600">{m.time}</div>
+                    <div className="text-[9px] text-gray-400">{m.day?.slice(0,3)}</div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[13px] font-medium text-gray-800 truncate">{m.home}</span>
+                      {m.homeOdds && <span className="text-[12px] font-mono font-bold text-gray-500 ml-2 w-8 text-right">{m.homeOdds.toFixed(2)}</span>}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[13px] font-medium text-gray-800 truncate">{m.away}</span>
+                      {m.awayOdds && <span className="text-[12px] font-mono font-bold text-gray-500 ml-2 w-8 text-right">{m.awayOdds.toFixed(2)}</span>}
+                    </div>
+                    <div className="text-[9px] text-gray-400 mt-0.5">{m.league}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           ))}
         </div>
       </div>

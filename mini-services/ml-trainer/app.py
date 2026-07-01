@@ -272,6 +272,31 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
             )
             model.fit(Xtr, ytr, sample_weight=sample_weight, eval_set=[(Xte, yte)], verbose=False)
 
+        # ── TabNet deep tabular model (P2 alternative) ──
+        # Only runs when explicitly requested via req.name='tabnet'.
+        # Heavy dependency (pytorch) — kept gated so default XGBoost
+        # pipelines don't pay the import cost.
+        if req.name == 'tabnet':
+            try:
+                import torch
+                from pytorch_tabnet.tab_model import TabNetClassifier
+                model = TabNetClassifier(
+                    n_d=32, n_a=32, n_steps=4,
+                    gamma=1.5, lambda_sparse=1e-4,
+                    optimizer_fn=torch.optim.Adam,
+                    optimizer_params=dict(lr=2e-2),
+                    mask_type='entmax',
+                )
+                model.fit(
+                    Xtr, ytr,
+                    eval_set=[(Xte, yte)],
+                    max_epochs=200, patience=20,
+                    batch_size=256, virtual_batch_size=128,
+                    weights=1, drop_last=False,
+                )
+            except ImportError:
+                print("[trainer] pytorch-tabnet not installed — falling back to XGBoost")
+
         # TimeSeriesSplit for more robust evaluation
         try:
             from sklearn.model_selection import TimeSeriesSplit

@@ -1,0 +1,21 @@
+-- Pi-Rating ve Glicko-2 tabloları (Faz 4.6)
+-- TeamPiRating: Constantinou & Fenton 2013
+CREATE TABLE IF NOT EXISTS "TeamPiRating" (
+    "teamName" TEXT NOT NULL PRIMARY KEY,
+    "Ha" REAL NOT NULL DEFAULT 0,
+    "Hd" REAL NOT NULL DEFAULT 0,
+    "Aa" REAL NOT NULL DEFAULT 0,
+    "Ad" REAL NOT NULL DEFAULT 0,
+    "matches" INTEGER NOT NULL DEFAULT 0,
+    "lastUpdated" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TeamGlicko2Rating: Glickman 2013
+CREATE TABLE IF NOT EXISTS "TeamGlicko2Rating" (
+    "teamName" TEXT NOT NULL PRIMARY KEY,
+    "r" REAL NOT NULL DEFAULT 1500,
+    "RD" REAL NOT NULL DEFAULT 350,
+    "sigma" REAL NOT NULL DEFAULT 0.06,
+    "lastUpdate" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "matches" INTEGER NOT NULL DEFAULT 0
+);

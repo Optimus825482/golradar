@@ -170,6 +170,8 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
 
         X = np.array(df["features"].tolist(), dtype=np.float32)
         y = np.array(df["label"].tolist(), dtype=np.int32)
+        # NaN/Inf temizle (Fix D1): export'ta kaçan NaN'ları yakala
+        X = np.nan_to_num(X, nan=0.0, posinf=1.0, neginf=-1.0)
 
         n_pos = int(y.sum())
         n_neg = int(len(y) - n_pos)
@@ -220,8 +222,8 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                     m.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=0)
                 pred = m.predict_proba(Xte)[:, 1]
                 return float(brier_score_loss(yte, pred))
-            study = optuna.create_study(direction='minimize', sampler=optuna.samplers.RandomSampler(seed=42))
-            study.optimize(objective, n_trials=15, timeout=120)
+            study = optuna.create_study(direction='minimize', sampler=optuna.samplers.TPESampler(seed=42))
+            study.optimize(objective, n_trials=30, timeout=300)
             hp = study.best_params
             print(f"[trainer] HPO complete: best Brier={study.best_value:.4f}, params={hp}")
         except ImportError:

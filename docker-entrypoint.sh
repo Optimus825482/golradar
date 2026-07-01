@@ -50,9 +50,10 @@ if ! NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
     echo "[DB] migrate deploy başarısız → db push deneniyor..."
     NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
         $PRISMA_BIN db push 2>&1 || echo "[WARN] db push de başarısız, elle müdahale gerekebilir"
-    # db push başarılı olduysa failed migration'ı resolve et (P3009 hatasını önle)
+    # db push başarılı olduysa failed migration'ları resolve et (P3009 hatasını önle)
     echo "[DB] db push tamam, failed migration'lar resolve ediliyor..."
     $PRISMA_BIN migrate resolve --applied 20260624_174500_backfill_predictions 2>/dev/null || true
+    $PRISMA_BIN migrate resolve --applied 20260630_add_pi_rating_columns 2>/dev/null || true
 fi
 echo "[DB] ✅ Şema senkronizasyonu tamam"
 

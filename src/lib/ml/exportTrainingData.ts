@@ -213,6 +213,8 @@ export async function exportTrainingData(
       const extracted = await extractFeatures(input);
       features = featuresToArray(extracted);
     }
+    // NaN/Inf temizleme (Fix D1): XGBoost NaN değerleri tolere etmez
+    features = features.map(v => Number.isFinite(v) ? v : 0);
 
     // Primary label: PredictionLog.goalScored (set during backfill / finalize)
     // Secondary: MatchEvent join for logs where goalScored is still null

@@ -1480,6 +1480,86 @@ curl -s 'http://localhost:3028/api/predict?action=predict&matchCode=1&home=A&awa
 
 ---
 
+## FAZ 5: DEPLOYMENT SONRASI DÜZELTMELER **(✓ TAMAM — 5/5)**
+
+> Bu düzeltmeler deployment log'larında görülen hataları giderir. Optuna HPO, NaN/Inf temizleme ve migration yönetimi.
+
+### Fix 5.1: NaN/Inf temizleme — TS export pipeline **[✓ UYGULANDI]**
+
+**Dosya:** `src/lib/ml/exportTrainingData.ts:206`
+**Sorun:** XGBoost learner.cc:740 uyarısı — eğitim verisinde NaN/Inf değerler var. `estimateXgFromShots` edge case'lerde (SOT=0, corners=0, API xG yok) NaN döndürebiliyor. `Math.log(0)` durumu da log-odds çevriminde NaN üretiyor.
+
+**Düzeltme:** `featuresToArray` sonrası her feature değerini `Number.isFinite(v)` ile kontrol et, NaN/Inf → 0.
+
+```typescript
+// exportTrainingData.ts: feature extraction sonrası
+features = features.map(v => Number.isFinite(v) ? v : 0);
+```
+
+### Fix 5.2: NaN/Inf temizleme — Python trainer **[✓ UYGULANDI]**
+
+**Dosya:** `mini-services/ml-trainer/app.py:173`
+**Sorun:** Aynı NaN/Inf sorunu — çifte koruma. TS export pipeline'ından kaçan değerler olabilir.
+
+**Düzeltme:**
+```python
+X = np.nan_to_num(X, nan=0.0, posinf=1.0, neginf=-1.0)
+```
+
+### Fix 5.3: Optuna HPO sampler düzeltme **[✓ UYGULANDI]**
+
+**Dosya:** `mini-services/ml-trainer/app.py:223-224`
+**Sorun:** 15 trial'ın tamamı ~0.1558 Brier üretti — neredeyse hiç varyasyon yok. `RandomSampler` yerine `TPESampler` daha iyi hyperparameter search yapar. 15 trial çok az.
+
+**Düzeltme:**
+```python
+study = optuna.create_study(
+    direction='minimize',
+    sampler=optuna.samplers.TPESampler(seed=42)  # Random → TPE
+)
+study.optimize(objective, n_trials=30, timeout=300)  # 15→30
+```
+
+### Fix 5.4: Migration resolve — entrypoint güncelle **[✓ UYGULANDI]**
+
+**Dosya:** `docker-entrypoint.sh:56`
+**Sorun:** `P3009` hatası — `20260630_add_pi_rating_columns` migration'ı failed durumda. `prisma migrate deploy` başarısız olunca `db push` çalışıyor ama failed migration resolve edilmiyor.
+
+**Düzeltme:** `migrate resolve` komutuna `20260630_add_pi_rating_columns` eklendi:
+```bash
+$PRISMA_BIN migrate resolve --applied 20260630_add_pi_rating_columns 2>/dev/null || true
+```
+
+### Fix 5.5: Migration SQL dosyası oluştur **[✓ UYGULANDI]**
+
+**Dosya:** `prisma/migrations/20260630_add_pi_rating_columns/migration.sql`
+**Sorun:** Migration referansı var ama SQL dosyası yok — `prisma migrate deploy` fresh DB'de bu migration'ı uygulayamaz.
+
+**Düzeltme:** `TeamPiRating` ve `TeamGlicko2Rating` tablolarını oluşturan SQL migration dosyası oluşturuldu:
+
+```sql
+CREATE TABLE IF NOT EXISTS "TeamPiRating" (
+    "teamName" TEXT NOT NULL PRIMARY KEY,
+    "Ha" REAL NOT NULL DEFAULT 0,
+    "Hd" REAL NOT NULL DEFAULT 0,
+    "Aa" REAL NOT NULL DEFAULT 0,
+    "Ad" REAL NOT NULL DEFAULT 0,
+    "matches" INTEGER NOT NULL DEFAULT 0,
+    "lastUpdated" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS "TeamGlicko2Rating" (
+    "teamName" TEXT NOT NULL PRIMARY KEY,
+    "r" REAL NOT NULL DEFAULT 1500,
+    "RD" REAL NOT NULL DEFAULT 350,
+    "sigma" REAL NOT NULL DEFAULT 0.06,
+    "lastUpdate" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "matches" INTEGER NOT NULL DEFAULT 0
+);
+```
+
+---
+
 ## BAŞARI KRİTERLERİ
 
 Faz 1-3 tamamlandıktan sonra:

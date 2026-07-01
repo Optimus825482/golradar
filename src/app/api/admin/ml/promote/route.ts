@@ -13,7 +13,7 @@ import { adminRoute } from '@/lib/adminRoute';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_NAMES: ModelName[] = ['gbdt', 'xgb', 'inplay', 'team-strength', 'xt-grid'];
+const VALID_NAMES: ModelName[] = ['gbdt', 'xgb', 'inplay', 'team-strength', 'xt-grid', 'lightgbm'];
 
 export const POST = adminRoute(async (request: Request) => {
   if (typeof window !== 'undefined') {

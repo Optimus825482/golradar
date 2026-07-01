@@ -67,3 +67,4 @@ mini-services/*/__pycache__/
 mini-services/*/venv/
 mini-services/*/.env
 *.pyc
+docs/NEWALOGOMD/*

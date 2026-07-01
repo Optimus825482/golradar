@@ -43,6 +43,12 @@ import {
   getDynamicThreshold,
   SIGNAL_EXPIRY_MINUTES,
   EXPIRY_CHECK_INTERVAL_MS,
+  TIER_ELITE_THRESHOLD,
+  TIER_CONFIRMED_THRESHOLD,
+  TIER_WATCH_THRESHOLD,
+  TIER_ELITE_MIN_MODELS,
+  TIER_CONFIRMED_MIN_MODELS,
+  TIER_WATCH_MIN_MODELS,
 } from "@/config";
 import { db } from "./db";
 import { logError } from "./devLog";
@@ -125,6 +131,9 @@ export interface GoalSignalRecord {
 
   // ── Escalation (true when lastScore >= signalScore + 10) ──
   escalated: boolean;
+
+  // ── Multi-Tier N-of-M (Faz A) ──
+  signalTier?: "elite" | "confirmed" | "watch" | "radar" | null;
 }
 
 export interface ProbabilityBucket {
@@ -241,6 +250,7 @@ export async function checkAndRecordSignal(
   },
   currentHomeGoals: number,
   currentAwayGoals: number,
+  modelAgreement: number = 1, // NEW PARAMETER — default 1 for backward compat
 ): Promise<GoalSignalRecord | null> {
   const now = Date.now();
   const minNum = parseMinute(minute);
@@ -254,6 +264,24 @@ export async function checkAndRecordSignal(
   // P0: "both" sinyallerine izin ver — yön belirsiz ama gol olasılığı yüksek.
   // correctPrediction sadece signalSide !== "both" ise hesaplanır.
   if (!goalProbability.side) return null;
+
+  // ── Multi-Tier N-of-M Confirmation ─────────────────────────────
+  // Sinyal sayısını ARTIRIR: düşük threshold + model onayı = daha çok sinyal, daha doğru
+  let signalTier: "elite" | "confirmed" | "watch" | "radar" | null = null;
+
+  // Tier determination: highest tier that qualifies
+  if (goalProbability.score >= TIER_ELITE_THRESHOLD && modelAgreement >= TIER_ELITE_MIN_MODELS) {
+    signalTier = "elite";
+  } else if (goalProbability.score >= TIER_CONFIRMED_THRESHOLD && modelAgreement >= TIER_CONFIRMED_MIN_MODELS) {
+    signalTier = "confirmed";
+  } else if (goalProbability.score >= TIER_WATCH_THRESHOLD && modelAgreement >= TIER_WATCH_MIN_MODELS) {
+    signalTier = "watch";
+  } else if (goalProbability.score >= threshold) {
+    signalTier = "radar";
+  }
+
+  // If no tier qualifies, skip signal
+  if (!signalTier) return null;
 
   // ── Excluded minute zones ─────────────────────────────────────
   // Faz 9 — DB backed (excludedMinutes.ts), cache TTL 5dk. Config
@@ -340,6 +368,7 @@ export async function checkAndRecordSignal(
     finalHomeScore: null,
     finalAwayScore: null,
     escalated: false,
+    signalTier,
   };
 
   const created = await repoCreate(record);

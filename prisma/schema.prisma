@@ -263,6 +263,9 @@ model Signal {
   // Escalation tracking: how many times the score jumped >=10 pts
   escalated           Boolean  @default(false) // True when lastScore >= signalScore + 10
 
+  // Multi-Tier N-of-M confirmation (Faz A P0)
+  signalTier          String?  // "elite" | "confirmed" | "watch" | "radar"
+
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

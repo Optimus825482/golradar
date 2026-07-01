@@ -76,6 +76,19 @@ export function getDynamicThreshold(
 /** Side detection için SUSTAINED eşiği (40-59 arası + pressure spike → side "on"). */
 export const SUSTAINED_THRESHOLD = 40;
 
+// ── Multi-Tier Signal Thresholds (N-of-M confirmation) ──────────
+// Sinyal sayısını ARTIRIRAK doğruluğu yükselt: düşük threshold + model onayı
+export const TIER_ELITE_THRESHOLD = 50;    // score ≥ 50 + ≥5/9 model agree
+export const TIER_CONFIRMED_THRESHOLD = 55; // score ≥ 55 + ≥3/9 model agree
+export const TIER_WATCH_THRESHOLD = 60;     // score ≥ 60 + ≥2/9 model agree
+export const TIER_RADAR_THRESHOLD = RADAR_THRESHOLD; // score ≥ 65 + ≥1 model (mevcut)
+
+// Minimum model count for each tier (N-of-M)
+export const TIER_ELITE_MIN_MODELS = 5;
+export const TIER_CONFIRMED_MIN_MODELS = 3;
+export const TIER_WATCH_MIN_MODELS = 2;
+export const TIER_RADAR_MIN_MODELS = 1;
+
 /** 5-dk içinde gol olasılığı eşiği — altında sinyal level "low"a düşer. */
 export const SIGNAL_5MIN_THRESHOLD = (() => {
   const env = parseFloat(process.env.SIGNAL_5MIN_THRESHOLD ?? '');

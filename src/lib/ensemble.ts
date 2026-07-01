@@ -85,6 +85,7 @@ export interface EnsembleResult {
   weights: EnsembleWeights;
   dominantModel: string;       // Which model had most influence
   agreement: number;           // How much models agree (0-1)
+  modelAgreementCount: number;  // N-of-M: how many models predict >0.5
 
   // Derived predictions
   overUnder25: number;         // P(Over 2.5 goals)
@@ -570,6 +571,9 @@ export async function predictEnsemble(
     ? Math.max(0, 1 - Math.sqrt(variance) * 5)
     : 0; // Low variance = high agreement
 
+  // Count how many models predict >0.5 (for N-of-M confirmation)
+  const modelAgreementCount = allPredictions.filter(p => p > 0.5).length;
+
   // Faz 2 (C) — alpha-blend gating. Production feature flag
   // STACKING_BLEND_ALPHA ∈ [0, 1]: 0=devre dışı (BMA-only), 1=full stacking.
   // Yalnız ring buffer eğitim verisi yeterliyse ve model agreement yüksekse
@@ -740,6 +744,7 @@ export async function predictEnsemble(
     weights,
     dominantModel,
     agreement: Math.round(agreement * 100) / 100,
+    modelAgreementCount,
     overUnder25: Math.round(ensembleOverUnder * 1000) / 1000,
     btts: Math.round(ensembleBTTS * 1000) / 1000,
     homeWinP: Math.round(ensembleHomeWin * 1000) / 1000,

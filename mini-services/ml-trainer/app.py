@@ -198,33 +198,65 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         base_score = max(0.01, min(0.99, pos_rate))
         print(f"[trainer] {req.name}@{req.version}: n={len(df)}, pos_rate={pos_rate:.3f}, base_score={base_score:.3f}, features={X.shape[1]}")
 
+        # Hyperparameter optimization (Optuna) — optional, falls back to defaults
+        hp = {}  # HPO overrides
+        try:
+            import optuna
+            def objective(trial):
+                params = {
+                    'max_depth': trial.suggest_int('max_depth', 4, 10),
+                    'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),
+                    'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                    'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
+                    'reg_lambda': trial.suggest_float('reg_lambda', 0.5, 3.0),
+                    'reg_alpha': trial.suggest_float('reg_alpha', 0.01, 1.0, log=True),
+                    'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
+                }
+                if req.name == 'lightgbm' and _HAS_LGBM:
+                    m = lgb.LGBMClassifier(n_estimators=200, **params, objective='binary', random_state=req.random_state, n_jobs=-1)
+                    m.fit(Xtr, ytr, eval_set=[(Xte, yte)], callbacks=[lgb.early_stopping(stopping_rounds=30)])
+                else:
+                    m = xgb.XGBClassifier(n_estimators=200, **params, objective='binary:logistic', eval_metric='logloss', early_stopping_rounds=30, random_state=req.random_state, n_jobs=-1)
+                    m.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=0)
+                pred = m.predict_proba(Xte)[:, 1]
+                return float(brier_score_loss(yte, pred))
+            study = optuna.create_study(direction='minimize', sampler=optuna.samplers.RandomSampler(seed=42))
+            study.optimize(objective, n_trials=15, timeout=120)
+            hp = study.best_params
+            print(f"[trainer] HPO complete: best Brier={study.best_value:.4f}, params={hp}")
+        except ImportError:
+            print("[trainer] Optuna not installed — using request defaults")
+
+        # Use HPO params if available, else request defaults
+        hp = hp or {}
+
         # Train model
         if req.name == 'lightgbm' and _HAS_LGBM:
             model = lgb.LGBMClassifier(
                 n_estimators=req.n_estimators,
-                max_depth=req.max_depth,
-                learning_rate=req.learning_rate,
-                subsample=req.subsample,
-                colsample_bytree=req.colsample_bytree,
-                reg_lambda=req.reg_lambda,
-                reg_alpha=req.reg_alpha,
-                min_child_weight=req.min_child_weight,
+                max_depth=hp.get('max_depth', req.max_depth),
+                learning_rate=hp.get('learning_rate', req.learning_rate),
+                subsample=hp.get('subsample', req.subsample),
+                colsample_bytree=hp.get('colsample_bytree', req.colsample_bytree),
+                reg_lambda=hp.get('reg_lambda', req.reg_lambda),
+                reg_alpha=hp.get('reg_alpha', req.reg_alpha),
+                min_child_weight=hp.get('min_child_weight', req.min_child_weight),
                 objective="binary",
                 random_state=req.random_state,
                 n_jobs=-1,
             )
-            model.fit(Xtr, ytr, eval_set=[(Xte, yte)])
+            model.fit(Xtr, ytr, eval_set=[(Xte, yte)], callbacks=[lgb.early_stopping(stopping_rounds=50)])
         else:
             # XGBoost (default for xgb, inplay, team-strength, xt-grid)
             model = xgb.XGBClassifier(
                 n_estimators=req.n_estimators,
-                max_depth=req.max_depth,
-                learning_rate=req.learning_rate,
-                subsample=req.subsample,
-                colsample_bytree=req.colsample_bytree,
-                reg_lambda=req.reg_lambda,
-                reg_alpha=req.reg_alpha,
-                min_child_weight=req.min_child_weight,
+                max_depth=hp.get('max_depth', req.max_depth),
+                learning_rate=hp.get('learning_rate', req.learning_rate),
+                subsample=hp.get('subsample', req.subsample),
+                colsample_bytree=hp.get('colsample_bytree', req.colsample_bytree),
+                reg_lambda=hp.get('reg_lambda', req.reg_lambda),
+                reg_alpha=hp.get('reg_alpha', req.reg_alpha),
+                min_child_weight=hp.get('min_child_weight', req.min_child_weight),
                 objective="binary:logistic",
                 eval_metric=["logloss", "error", "auc"],
                 early_stopping_rounds=req.early_stopping_rounds,
@@ -233,6 +265,30 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                 n_jobs=-1,
             )
             model.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=False)
+
+        # TimeSeriesSplit for more robust evaluation
+        try:
+            from sklearn.model_selection import TimeSeriesSplit
+            tscv = TimeSeriesSplit(n_splits=5)
+            cv_brier_scores = []
+            for train_idx, test_idx in tscv.split(X):
+                X_tr_cv, X_te_cv = X[train_idx], X[test_idx]
+                y_tr_cv, y_te_cv = y[train_idx], y[test_idx]
+                cv_model = xgb.XGBClassifier(
+                    n_estimators=200, max_depth=hp.get('max_depth', 6),
+                    learning_rate=hp.get('learning_rate', 0.03),
+                    objective='binary:logistic', eval_metric='logloss',
+                    early_stopping_rounds=30, random_state=req.random_state,
+                    n_jobs=-1, use_label_encoder=False,
+                )
+                cv_model.fit(X_tr_cv, y_tr_cv, eval_set=[(X_te_cv, y_te_cv)], verbose=0)
+                cv_pred = cv_model.predict_proba(X_te_cv)[:, 1]
+                cv_brier_scores.append(float(brier_score_loss(y_te_cv, cv_pred)))
+            cv_brier = float(np.mean(cv_brier_scores))
+            print(f"[trainer] CV Brier (5-fold TSCV): {cv_brier:.4f}")
+        except ImportError:
+            cv_brier = None
+            print("[trainer] TimeSeriesSplit not available — skipping CV")
 
         # Predict + metrics
         p = model.predict_proba(Xte)[:, 1]

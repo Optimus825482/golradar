@@ -120,6 +120,10 @@ export function updateGlicko2(
 
   g2Cache.set(homeKey, home);
   g2Cache.set(awayKey, away);
+
+  // DB persist (fire-and-forget)
+  persistGlicko2Rating(homeKey, home).catch(() => {});
+  persistGlicko2Rating(awayKey, away).catch(() => {});
 }
 
 interface GameRecord {
@@ -287,6 +291,43 @@ export function exportGlicko2State(): Record<string, Glicko2Rating> {
 
 export function resetGlicko2(): void {
   g2Cache.clear();
+}
+
+// ── DB Persistans (Faz 4.6) ──────────────────────────────────────
+/**
+ * DB'den tüm Glicko-2 kayıtlarını okuyup in-memory cache'e yükler.
+ */
+export async function loadGlicko2CacheFromDB(): Promise<void> {
+  try {
+    const { db } = await import('./db');
+    const rows = await db.teamGlicko2Rating.findMany();
+    for (const row of rows) {
+      g2Cache.set(row.teamName, {
+        r: row.r,
+        RD: Math.max(MIN_RD, Math.min(MAX_RD, row.RD)),
+        sigma: row.sigma,
+        lastUpdate: row.lastUpdate.getTime(),
+      });
+    }
+    if (rows.length > 0) {
+      const { logInfo } = await import('./devLog');
+      logInfo('glicko2', `Loaded ${rows.length} team ratings from DB`);
+    }
+  } catch { /* DB not available — in-memory only */ }
+}
+
+/**
+ * Tek bir takımın Glicko-2 rating'ini DB'ye yazar.
+ */
+async function persistGlicko2Rating(teamName: string, rating: Glicko2Rating): Promise<void> {
+  try {
+    const { db } = await import('./db');
+    await db.teamGlicko2Rating.upsert({
+      where: { teamName },
+      update: { r: rating.r, RD: rating.RD, sigma: rating.sigma, lastUpdate: new Date(rating.lastUpdate) },
+      create: { teamName, r: rating.r, RD: rating.RD, sigma: rating.sigma, lastUpdate: new Date(rating.lastUpdate) },
+    });
+  } catch { /* silent — in-memory cache continues working */ }
 }
 
 function round3(v: number): number {

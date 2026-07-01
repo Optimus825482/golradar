@@ -499,3 +499,29 @@ model FeatureFlag {
 
   @@map("FeatureFlag")
 }
+
+// ── Pi-Rating (Constantinou 2013) — DB persistans ──────────────
+// Ha: Home attack, Hd: Home defense, Aa: Away attack, Ad: Away defense
+model TeamPiRating {
+  teamName  String   @id
+  Ha        Float    @default(0)
+  Hd        Float    @default(0)
+  Aa        Float    @default(0)
+  Ad        Float    @default(0)
+  matches   Int      @default(0)
+  lastUpdated DateTime @updatedAt
+
+  @@map("TeamPiRating")
+}
+
+// ── Glicko-2 Rating — DB persistans ────────────────────────────
+model TeamGlicko2Rating {
+  teamName   String   @id
+  r          Float    @default(1500)
+  RD         Float    @default(350)
+  sigma      Float    @default(0.06)
+  lastUpdate DateTime @default(now())
+  matches    Int      @default(0)
+
+  @@map("TeamGlicko2Rating")
+}

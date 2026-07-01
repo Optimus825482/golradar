@@ -105,6 +105,10 @@ export function updatePiRating(
 
   piCache.set(homeKey, home);
   piCache.set(awayKey, away);
+
+  // DB persist (fire-and-forget)
+  persistPiRating(homeKey, home).catch(() => {});
+  persistPiRating(awayKey, away).catch(() => {});
 }
 
 /**
@@ -176,6 +180,47 @@ export function exportPiState(): Record<string, PiTeamRating> {
  */
 export function resetPiState(): void {
   piCache.clear();
+}
+
+// ── DB Persistans (Faz 4.6) ──────────────────────────────────────
+/**
+ * DB'den tüm Pi-Rating kayıtlarını okuyup in-memory cache'e yükler.
+ * Server restart sonrası cold-start'ı önler.
+ */
+export async function loadPiCacheFromDB(): Promise<void> {
+  try {
+    const { db } = await import('./db');
+    const rows = await db.teamPiRating.findMany();
+    for (const row of rows) {
+      piCache.set(row.teamName, {
+        Ha: row.Ha,
+        Hd: row.Hd,
+        Aa: row.Aa,
+        Ad: row.Ad,
+        matches: row.matches,
+        lastUpdate: Date.now(),
+      });
+    }
+    if (rows.length > 0) {
+      const { logInfo } = await import('./devLog');
+      logInfo('piRating', `Loaded ${rows.length} team ratings from DB`);
+    }
+  } catch { /* DB not available — in-memory only */ }
+}
+
+/**
+ * Tek bir takımın Pi-Rating'ini DB'ye yazar.
+ * updatePiRating sonrası otomatik çağrılır.
+ */
+async function persistPiRating(teamName: string, rating: PiTeamRating): Promise<void> {
+  try {
+    const { db } = await import('./db');
+    await db.teamPiRating.upsert({
+      where: { teamName },
+      update: { Ha: rating.Ha, Hd: rating.Hd, Aa: rating.Aa, Ad: rating.Ad, matches: rating.matches },
+      create: { teamName, Ha: rating.Ha, Hd: rating.Hd, Aa: rating.Aa, Ad: rating.Ad, matches: rating.matches },
+    });
+  } catch { /* silent — in-memory cache continues working */ }
 }
 
 /**

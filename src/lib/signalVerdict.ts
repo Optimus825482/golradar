@@ -1,6 +1,8 @@
 // ── Signal Tier System (AI Berkshire inspired) ─────────────────
-// Force verdict + confidence tiers for goal signals.
-// Every signal gets a verdict tier based on model agreement and probability.
+// DEPRECATED: forceVerdict hiçbir yerde çağrılmıyor.
+// Signal tier belirleme artık ensemble.ts içinde model agreement ile yapılıyor.
+// Bu dosya backward compatibility için korunuyor, yeni kod kullanmayın.
+// Plan: Faz 5 cleanup — tüm referanslar temizlendiğinde silinecek.
 
 export type SignalVerdict = 'HIGH' | 'MEDIUM' | 'LOW' | 'SKIP';
 

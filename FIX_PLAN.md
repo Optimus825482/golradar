@@ -1125,7 +1125,7 @@ headers: {
 
 ---
 
-## FAZ 4: ORTA/DÜŞÜK ÖNCELİK DÜZELTMELERİ **(KISMİ — 12/20 uygulandı, 8 backlog)**
+## FAZ 4: ORTA/DÜŞÜK ÖNCELİK DÜZELTMELERİ **(KISMİ — 19/20 uygulandı, 1 backlog)**
 
 ### Fix 4.1 **[✓ UYGULANDI]**: Goal Radar F16 kontra-atak mantığı düzelt
 
@@ -1181,7 +1181,7 @@ for (const r of newMatches) {
 }
 ```
 
-### Fix 4.6: Pi-Rating ve Glicko-2 DB persistans
+### Fix 4.6 **[✓ UYGULANDI]**: Pi-Rating ve Glicko-2 DB persistans
 
 **Prisma schema'ya ekle:**
 ```prisma
@@ -1230,7 +1230,7 @@ model TeamGlicko2Rating {
 
 **Düzeltme:** Model 2-9'u gruplayıp `Promise.all` ile paralel çalıştırın. Bu büyük bir refaktör — ayrı bir task olarak planlayın.
 
-### Fix 4.10: ML Trainer HPO ekle (Optuna)
+### Fix 4.10 **[✓ UYGULANDI]**: ML Trainer HPO ekle (Optuna)
 
 **Dosya:** `mini-services/ml-trainer/app.py`
 ```python
@@ -1244,7 +1244,7 @@ except ImportError:
     best_params = {}  # Optuna yoksa default kullan
 ```
 
-### Fix 4.11: ML Trainer k-fold CV ekle
+### Fix 4.11 **[✓ UYGULANDI]**: ML Trainer k-fold CV ekle
 
 **Dosya:** `mini-services/ml-trainer/app.py:170-179`
 ```python
@@ -1262,7 +1262,7 @@ for train_idx, test_idx in tscv.split(X):
 avg_brier = np.mean(brier_scores)
 ```
 
-### Fix 4.12: LightGBM early stopping fix
+### Fix 4.12 **[✓ UYGULANDI]**: LightGBM early stopping fix
 
 **Dosya:** `mini-services/ml-trainer/app.py:203`
 ```python
@@ -1276,7 +1276,7 @@ model.fit(
 )
 ```
 
-### Fix 4.13: statsbombpy requirements'a ekle
+### Fix 4.13 **[✓ UYGULANDI]**: statsbombpy requirements'a ekle
 
 **Dosya:** `mini-services/ml-trainer/requirements.txt`
 ```
@@ -1284,7 +1284,7 @@ model.fit(
 statsbombpy==1.16.*
 ```
 
-### Fix 4.14: Multi-stage Dockerfile
+### Fix 4.14 **[✓ UYGULANDI]**: Multi-stage Dockerfile
 
 **Dosya:** `mini-services/ml-trainer/Dockerfile`
 ```dockerfile
@@ -1305,7 +1305,7 @@ EXPOSE 9100
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "9100"]
 ```
 
-### Fix 4.15: Dead code cleanup
+### Fix 4.15 **[✓ UYGULANDI]**: Dead code cleanup
 
 **Silinecek dosyalar/kodlar:**
 1. `src/lib/signalVerdict.ts` — `forceVerdict` hiç çağrılmıyor (entegre et veya sil)

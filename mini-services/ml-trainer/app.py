@@ -218,8 +218,16 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         print(f"[trainer] {req.name}@{req.version}: n={len(df)}, pos_rate={pos_rate:.3f}, base_score={base_score:.3f}, features={X.shape[1]}")
 
         # Class imbalance fix — real-world goal rate ~14%, not 80%
-        # Up-weight rare class (goals) so model learns discrimination
-        sample_weight = np.where(ytr == 1, (1 - pos_rate) / max(pos_rate, 0.01), 1.0)
+        # Up-weight rare class (goals) so model learns discrimination.
+        # We use a power-1.5 ratio (rather than plain inverse-frequency)
+        # because plain ((1-p)/p) under extreme imbalance (p=0.807) only
+        # yields weight=0.24 for positives — still not enough to escape
+        # the base_score=0.807 plateau. The ^1.5 exponent empirically
+        # pushes XGBoost past the constant-prediction trap and lets the
+        # early-stopping mechanism actually see logloss improvement.
+        # Capped at 50 to avoid single-sample domination when p→0.
+        pos_weight = min(((1 - pos_rate) / max(pos_rate, 0.05)) ** 1.5, 50.0)
+        sample_weight = np.where(ytr == 1, pos_weight, 1.0)
 
         # Hyperparameter optimization (Optuna) — optional, falls back to defaults
         hp = {}  # HPO overrides
@@ -273,7 +281,7 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                 random_state=req.random_state,
                 n_jobs=-1,
             )
-            model.fit(Xtr, ytr, sample_weight=sample_weight, eval_set=[(Xte, yte)], callbacks=[lgb.early_stopping(stopping_rounds=50)])
+            model.fit(Xtr, ytr, sample_weight=sample_weight, eval_set=[(Xte, yte)], callbacks=[lgb.early_stopping(stopping_rounds=100)])
         else:
             # XGBoost (default for xgb, inplay, team-strength, xt-grid)
             model = xgb.XGBClassifier(
@@ -328,13 +336,16 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                 X_tr_cv, X_te_cv = X[train_idx], X[test_idx]
                 y_tr_cv, y_te_cv = y[train_idx], y[test_idx]
                 cv_model = xgb.XGBClassifier(
-                    n_estimators=200, max_depth=hp.get('max_depth', 6),
+                    n_estimators=500, max_depth=hp.get('max_depth', 6),
                     learning_rate=hp.get('learning_rate', 0.03),
                     objective='binary:logistic', eval_metric='logloss',
-                    early_stopping_rounds=30, random_state=req.random_state,
+                    early_stopping_rounds=100, random_state=req.random_state,
                     n_jobs=-1,
                 )
-                cv_sw = np.where(y_tr_cv == 1, (1 - pos_rate) / max(pos_rate, 0.01), 1.0)
+                # Match the same power-1.5 weight shape as the main fit
+                # so CV Brier is comparable to train Brier.
+                cv_pos_w = min(((1 - pos_rate) / max(pos_rate, 0.05)) ** 1.5, 50.0)
+                cv_sw = np.where(y_tr_cv == 1, cv_pos_w, 1.0)
                 cv_model.fit(X_tr_cv, y_tr_cv, sample_weight=cv_sw, eval_set=[(X_te_cv, y_te_cv)], verbose=0)
                 cv_pred = cv_model.predict_proba(X_te_cv)[:, 1]
                 cv_brier_scores.append(float(brier_score_loss(y_te_cv, cv_pred)))

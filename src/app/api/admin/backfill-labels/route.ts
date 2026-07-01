@@ -79,6 +79,9 @@ interface BackfillProgress {
   startedAt: number;
   totalMatches: number;
   completedMatches: number;
+  matchesWithGoals: number;    // Kaç matchCode'da goal bulundu
+  matchesWithOnlyMev: number; // Kaç matchCode'da sadece MatchEvent'te goal var
+  matchesWithOnlySnap: number;// Kaç matchCode'da sadece MatchSnapshot'ta goal var
   totalLabeled: number;
   totalPositives: number;
   positiveRate: number;
@@ -89,6 +92,9 @@ let progress: BackfillProgress = {
   startedAt: 0,
   totalMatches: 0,
   completedMatches: 0,
+  matchesWithGoals: 0,
+  matchesWithOnlyMev: 0,
+  matchesWithOnlySnap: 0,
   totalLabeled: 0,
   totalPositives: 0,
   positiveRate: 0,
@@ -149,6 +155,9 @@ export const POST = adminRoute(async (request: Request) => {
     startedAt: Date.now(),
     totalMatches: matchCodes.length,
     completedMatches: 0,
+    matchesWithGoals: 0,
+    matchesWithOnlyMev: 0,
+    matchesWithOnlySnap: 0,
     totalLabeled: 0,
     totalPositives: 0,
     positiveRate: 0,
@@ -236,6 +245,20 @@ export const POST = adminRoute(async (request: Request) => {
       });
       totalLabeled += result.labeled;
       totalPositives += result.positives;
+      if (result.goalMinutes.length > 0) progress.matchesWithGoals++;
+
+      // Debug sample: ilk 20 matchCode'un goalMinutes durumu
+      if (idx < 20 && result.goalMinutes.length === 0) {
+        (progress as any)._debugSample = (progress as any)._debugSample || [];
+        if ((progress as any)._debugSample.length < 10) {
+          (progress as any)._debugSample.push({
+            matchCode,
+            goalCount: result.goalMinutes.length,
+            snapshotCount: "?",
+            mevCount: "?",
+          });
+        }
+      }
 
       if (idx % Math.max(1, Math.floor(matchCodes.length / 100)) === 0 || idx === matchCodes.length - 1) {
         progress.completedMatches = idx + 1;

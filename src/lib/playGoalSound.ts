@@ -1,4 +1,5 @@
 let audioCtx: AudioContext | null = null
+let unlockArmed = false
 
 function getAudioContext(): AudioContext {
   if (!audioCtx) {
@@ -11,9 +12,43 @@ function getAudioContext(): AudioContext {
 }
 
 /**
+ * Arm audio unlock on the first user gesture (click/tap/keydown).
+ * Modern browsers (Chrome/Safari/Firefox) refuse to start an AudioContext
+ * without prior user interaction. Without this call, the FIRST goal
+ * after page load plays silently even though playGoalSound() was called.
+ *
+ * Idempotent — safe to call from multiple event handlers.
+ */
+export function armAudioUnlock(): void {
+  if (typeof window === 'undefined') return
+  if (unlockArmed) return
+  unlockArmed = true
+  const unlock = () => {
+    try {
+      // Construct the context lazily on the gesture, then resume.
+      const ctx = getAudioContext()
+      if (ctx.state === 'suspended') {
+        void ctx.resume()
+      }
+    } catch {
+      // best-effort — sound is non-critical
+    }
+    // Detach after first successful gesture so we don't pay the cost
+    // on every subsequent click.
+    window.removeEventListener('click', unlock)
+    window.removeEventListener('keydown', unlock)
+    window.removeEventListener('touchstart', unlock)
+  }
+  window.addEventListener('click', unlock, { once: true, passive: true })
+  window.addEventListener('keydown', unlock, { once: true, passive: true })
+  window.addEventListener('touchstart', unlock, { once: true, passive: true })
+}
+
+/**
  * Play short "goal" chime using Web Audio API.
  * No external files needed. Browsers require user gesture first (click/tap)
- * to create AudioContext — works because user already interacted.
+ * to create AudioContext — call `armAudioUnlock()` once at app start to
+ * guarantee the first goal sound actually plays.
  */
 export function playGoalSound() {
   try {

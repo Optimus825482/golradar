@@ -1,0 +1,4 @@
+[test]
+# Apply happy-dom preload to every test so React hooks + DOM-touching
+# modules can run in the bun test runner without per-file pragmas.
+preload = ["./src/test-setup.ts"]

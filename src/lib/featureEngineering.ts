@@ -123,6 +123,11 @@ export interface MatchFeatures {
   team_beta_home: number;            // Home defense weakness (log-xG), clamped [-3, +3]
   team_alpha_away: number;           // Away attack strength (log-xG), clamped [-3, +3]
   team_beta_away: number;            // Away defense weakness (log-xG), clamped [-3, +3]
+
+  // ── C3: Closing Line Value features (Wilkens 2026 — ROI %10-15) ──
+  closing_over25_implied: number;    // Implied prob from closing over25 odds [0,1]
+  closing_btts_implied: number;      // Implied prob from closing BTTS odds [0,1]
+  model_vs_market_divergence: number;// |ensembleP - marketP| for over25 [0,1]
 }
 
 // ── Feature extraction function ────────────────────────────────────
@@ -173,6 +178,16 @@ export interface FeatureExtractionInput {
   /** P1.6: Last-match timestamps (ms) for fixture congestion calc */
   homeLastMatchTs?: number | null;
   awayLastMatchTs?: number | null;
+  /** C3: Closing odds for CLV features (Wilkens 2026). */
+  closingOdds?: {
+    over25: number;
+    btts: number;
+    homeWin: number;
+    draw: number;
+    awayWin: number;
+  } | null;
+  /** C3: Current model over25 probability for divergence feature. */
+  ensembleP?: number | null;
 }
 
 // Normalization helpers
@@ -198,7 +213,8 @@ function shotDistanceFromGoal(xPct: number, yPct: number): number {
 
 export async function extractFeatures(input: FeatureExtractionInput): Promise<MatchFeatures> {
   const { stats, minute, homeGoals, awayGoals, pressureHistory, weather, homeTeam, awayTeam,
-    shotmap, homeLastMatchTs, awayLastMatchTs, fotmobHomeTeamId, fotmobAwayTeamId } = input;
+    shotmap, homeLastMatchTs, awayLastMatchTs, fotmobHomeTeamId, fotmobAwayTeamId,
+    closingOdds, ensembleP } = input;
 
   // Parse minute (handle stoppage time correctly: "45+2'" -> 47)
   let minNum = (() => {
@@ -537,6 +553,19 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
   })();
   const consecutiveSotH = Math.min(1, sotCount10min / 4);
 
+  // ── C3: Closing Line Value features (Wilkens 2026 — ROI %10-15) ──
+  let closingOver25Implied = 0;
+  let closingBttsImplied = 0;
+  let modelVsMarketDivergence = 0;
+  if (closingOdds) {
+    const impliedProb = (odds: number) => (odds > 0 ? 1 / odds : 0);
+    closingOver25Implied = normLinear(impliedProb(closingOdds.over25), 0, 1);
+    closingBttsImplied = normLinear(impliedProb(closingOdds.btts), 0, 1);
+    const marketOver25 = impliedProb(closingOdds.over25);
+    const ensP = typeof ensembleP === 'number' ? ensembleP : 0;
+    modelVsMarketDivergence = normLinear(Math.abs(ensP - marketOver25), 0, 0.5);
+  }
+
   return {
     // Pressure & dominance
     pressure_home: pressureHome,
@@ -636,6 +665,11 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     team_beta_home: teamBetaHome,
     team_alpha_away: teamAlphaAway,
     team_beta_away: teamBetaAway,
+
+    // C3: Closing Line Value features
+    closing_over25_implied: closingOver25Implied,
+    closing_btts_implied: closingBttsImplied,
+    model_vs_market_divergence: modelVsMarketDivergence,
   };
 }
 
@@ -722,6 +756,8 @@ export const FEATURE_NAMES: (keyof MatchFeatures)[] = [
   'fixture_congestion_home', 'fixture_congestion_away', 'rest_advantage',
   // W4: Team-strength Kalman
   'team_alpha_home', 'team_beta_home', 'team_alpha_away', 'team_beta_away',
+  // C3: Closing Line Value features
+  'closing_over25_implied', 'closing_btts_implied', 'model_vs_market_divergence',
 ];
 
 // ── Concurrency limiter ───────────────────────────────────────────

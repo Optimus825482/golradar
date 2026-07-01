@@ -806,6 +806,38 @@ export async function fetchGoalooOdds(matchId: number): Promise<GoalooOdds | nul
   }
 }
 
+/**
+ * Closing-odds projection — uses the most recent live snapshot when
+ * available, falling back to the initial line. The returned shape is
+ * flat (over25 / btts / 1X2) so downstream feature engineering can
+ * consume it directly without bookmaker-specific unwrapping.
+ *
+ * btts and exact over25 line aren't published on Goaloo's primary
+ * row, so we proxy over25 from `over` when `ouLine === 2.5`, else 0.
+ * btts is left 0 (no source) — callers should treat it as missing.
+ */
+export async function fetchClosingOdds(matchId: number): Promise<{
+  over25: number;
+  btts: number;
+  homeWin: number;
+  draw: number;
+  awayWin: number;
+} | null> {
+  const odds = await fetchGoalooOdds(matchId);
+  if (!odds) return null;
+  // Prefer live (closing) when present, else fall back to initial.
+  const row = odds.live ?? odds.initial;
+  if (!row) return null;
+  const over25 = row.ouLine === 2.5 ? row.over : 0;
+  return {
+    over25,
+    btts: 0, // Goaloo primary row doesn't publish BTTS — caller should treat as missing
+    homeWin: row.homeWin,
+    draw: row.draw,
+    awayWin: row.awayWin,
+  };
+}
+
 function parseOddsRow(row: string): GoalooOdds['initial'] | null {
   if (!row || row.includes('Crown') === false && row.split(',').length < 10) return null;
 

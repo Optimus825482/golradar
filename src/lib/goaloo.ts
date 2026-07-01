@@ -838,6 +838,60 @@ export async function fetchClosingOdds(matchId: number): Promise<{
   };
 }
 
+/**
+ * Closing Line Value proxy (Wilkens 2026 — ROI %10-15).
+ * Returns implied probabilities (1/odds) plus bookmaker margin.
+ * Goaloo `initial` is the closest available signal to a "closing"
+ * line — Goaloo doesn't separate open/close rows, so we project
+ * the pre-match snapshot as the closing reference.
+ *
+ * BTTS isn't published on the primary row, so we approximate it
+ * from over25 with a fixed 0.85 multiplier (per published literature
+ * on O/U ↔ BTTS correlation). Callers should treat this as a proxy.
+ */
+export interface ClosingOddsProxy {
+  homeImplied: number;
+  drawImplied: number;
+  awayImplied: number;
+  over25Implied: number;
+  under25Implied: number;
+  bttsYesImplied: number;
+  /** Bookmaker margin (vig): Σ implied probs − 1. */
+  margin: number;
+}
+
+export async function fetchClosingOddsProxy(
+  matchId: number,
+): Promise<ClosingOddsProxy | null> {
+  const odds = await fetchGoalooOdds(matchId);
+  if (!odds?.initial) return null;
+
+  const { homeWin, draw, awayWin, over, under } = odds.initial;
+  const safeImplied = (o: number) => (o > 0 ? 1 / o : 0);
+
+  const homeImplied = safeImplied(homeWin);
+  const drawImplied = safeImplied(draw);
+  const awayImplied = safeImplied(awayWin);
+  const over25Implied = safeImplied(over);
+  const under25Implied = safeImplied(under);
+  // BTTS proxy: O/U 2.5 has a ~0.85 correlation with BTTS in major leagues.
+  const bttsYesImplied = over25Implied * 0.85;
+
+  // Margin = sum of 1X2 implied probabilities − 1. Sharp books (Pinnacle)
+  // operate at ~2% margin; recreational books at 5-10%.
+  const margin = Math.max(0, homeImplied + drawImplied + awayImplied - 1);
+
+  return {
+    homeImplied,
+    drawImplied,
+    awayImplied,
+    over25Implied,
+    under25Implied,
+    bttsYesImplied,
+    margin,
+  };
+}
+
 function parseOddsRow(row: string): GoalooOdds['initial'] | null {
   if (!row || row.includes('Crown') === false && row.split(',').length < 10) return null;
 

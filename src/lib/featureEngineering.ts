@@ -142,6 +142,7 @@ export interface MatchFeatures {
   // ── C3: Closing Line Value features (Wilkens 2026 — ROI %10-15) ──
   closing_over25_implied: number;    // Implied prob from closing over25 odds [0,1]
   closing_btts_implied: number;      // Implied prob from closing BTTS odds [0,1]
+  closing_margin: number;            // Bookmaker margin (vig) — 0-1 normalized
   model_vs_market_divergence: number;// |ensembleP - marketP| for over25 [0,1]
 }
 
@@ -617,11 +618,18 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
   // ── C3: Closing Line Value features (Wilkens 2026 — ROI %10-15) ──
   let closingOver25Implied = 0;
   let closingBttsImplied = 0;
+  let closingMargin = 0.05; // neutral default (typical retail margin)
   let modelVsMarketDivergence = 0;
   if (closingOdds) {
     const impliedProb = (odds: number) => (odds > 0 ? 1 / odds : 0);
     closingOver25Implied = normLinear(impliedProb(closingOdds.over25), 0, 1);
     closingBttsImplied = normLinear(impliedProb(closingOdds.btts), 0, 1);
+    // Bookmaker margin from 1X2 implied probabilities. Sharp books ≈ 2%
+    // (Pinnacle), retail books 5-10%, exotic books 10%+.
+    const h = impliedProb(closingOdds.homeWin);
+    const d = impliedProb(closingOdds.draw);
+    const a = impliedProb(closingOdds.awayWin);
+    closingMargin = normLinear(Math.max(0, h + d + a - 1), 0, 0.15);
     const marketOver25 = impliedProb(closingOdds.over25);
     const ensP = typeof ensembleP === 'number' ? ensembleP : 0;
     modelVsMarketDivergence = normLinear(Math.abs(ensP - marketOver25), 0, 0.5);
@@ -743,6 +751,7 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     // C3: Closing Line Value features
     closing_over25_implied: closingOver25Implied,
     closing_btts_implied: closingBttsImplied,
+    closing_margin: closingMargin,
     model_vs_market_divergence: modelVsMarketDivergence,
   };
 }
@@ -836,7 +845,8 @@ export const FEATURE_NAMES: (keyof MatchFeatures)[] = [
   // W4: Team-strength Kalman
   'team_alpha_home', 'team_beta_home', 'team_alpha_away', 'team_beta_away',
   // C3: Closing Line Value features
-  'closing_over25_implied', 'closing_btts_implied', 'model_vs_market_divergence',
+  'closing_over25_implied', 'closing_btts_implied', 'closing_margin',
+  'model_vs_market_divergence',
 ];
 
 // ── Concurrency limiter ───────────────────────────────────────────

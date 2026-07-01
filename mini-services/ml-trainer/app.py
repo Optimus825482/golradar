@@ -200,6 +200,10 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         base_score = max(0.01, min(0.99, pos_rate))
         print(f"[trainer] {req.name}@{req.version}: n={len(df)}, pos_rate={pos_rate:.3f}, base_score={base_score:.3f}, features={X.shape[1]}")
 
+        # Class imbalance fix — real-world goal rate ~14%, not 80%
+        # Up-weight rare class (goals) so model learns discrimination
+        sample_weight = np.where(ytr == 1, (1 - pos_rate) / max(pos_rate, 0.01), 1.0)
+
         # Hyperparameter optimization (Optuna) — optional, falls back to defaults
         hp = {}  # HPO overrides
         try:
@@ -247,7 +251,7 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                 random_state=req.random_state,
                 n_jobs=-1,
             )
-            model.fit(Xtr, ytr, eval_set=[(Xte, yte)], callbacks=[lgb.early_stopping(stopping_rounds=50)])
+            model.fit(Xtr, ytr, sample_weight=sample_weight, eval_set=[(Xte, yte)], callbacks=[lgb.early_stopping(stopping_rounds=50)])
         else:
             # XGBoost (default for xgb, inplay, team-strength, xt-grid)
             model = xgb.XGBClassifier(
@@ -266,7 +270,7 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                 base_score=base_score,
                 n_jobs=-1,
             )
-            model.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=False)
+            model.fit(Xtr, ytr, sample_weight=sample_weight, eval_set=[(Xte, yte)], verbose=False)
 
         # TimeSeriesSplit for more robust evaluation
         try:
@@ -283,7 +287,8 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                     early_stopping_rounds=30, random_state=req.random_state,
                     n_jobs=-1, use_label_encoder=False,
                 )
-                cv_model.fit(X_tr_cv, y_tr_cv, eval_set=[(X_te_cv, y_te_cv)], verbose=0)
+                cv_sw = np.where(y_tr_cv == 1, (1 - pos_rate) / max(pos_rate, 0.01), 1.0)
+                cv_model.fit(X_tr_cv, y_tr_cv, sample_weight=cv_sw, eval_set=[(X_te_cv, y_te_cv)], verbose=0)
                 cv_pred = cv_model.predict_proba(X_te_cv)[:, 1]
                 cv_brier_scores.append(float(brier_score_loss(y_te_cv, cv_pred)))
             cv_brier = float(np.mean(cv_brier_scores))

@@ -60,13 +60,12 @@ interface IsotonicTable {
 // ── Beta Calibration ──────────────────────────────────────────
 // Bilgi: Beta calibration fits a scaled Beta CDF transformation to
 // probability outputs. Particularly effective for [0,1]-bounded
-// predictions (Kull et al., 2017). Parameters: a, b (shape), c (scale).
-// Transform: log(p/(1-p)) → logit space → Beta CDF.
+// predictions (Kull et al., 2017). Parameters: a, b (logit coefs), c
+// (intercept). Transform: q = 1 / (1 + exp(-c - a*log(s) + b*log(1-s))).
 interface BetaParams {
-  a: number;      // Beta shape 1
-  b: number;      // Beta shape 2
-  c: number;      // Scale factor
-  d: number;      // Intercept
+  a: number;      // log(s) coefficient
+  b: number;      // log(1-s) coefficient
+  c: number;      // intercept
   fittedAt: number;
   fittedN: number;
 }
@@ -166,7 +165,7 @@ export async function hydrateCalibrationFromDB(): Promise<void> {
         }
       } else if (row.key === SYSTEM_KEY_BETA) {
         const v = row.value as BetaParams | null;
-        if (v && typeof v.c === 'number' && typeof v.d === 'number') {
+        if (v && typeof v.a === 'number' && typeof v.b === 'number' && typeof v.c === 'number') {
           cachedBeta = v;
         }
       }
@@ -193,7 +192,7 @@ async function persistParamsToDB(updatedBy: string): Promise<void> {
 
 // ── Beta Calibration ──────────────────────────────────────────
 // Beta calibration for [0,1]-bounded probability outputs.
-// Fits: logit(p) = c * log(p/(1-p)) + d, then applies Beta CDF.
+// 3-parameter form: q = 1 / (1 + exp(-c - a*log(s) + b*log(1-s)))
 // Reference: Kull, M., Silva Filho, T., & Flach, P. (2017). "Beta
 // calibration: a well-founded foundation for calibration."
 //
@@ -202,53 +201,42 @@ export function fitBeta(
   rawScores: number[],  // 0-100
   actuals: number[],     // 0 or 1
 ): BetaParams | null {
-  if (rawScores.length !== actuals.length || rawScores.length < 30) return null;
+  if (rawScores.length !== actuals.length || rawScores.length < 50) return null;
 
-  // Normalize scores to (0,1), clamping edges to avoid log(0)
-  const ps = rawScores.map(s => {
-    const p = s / 100;
-    return Math.max(1e-6, Math.min(1 - 1e-6, p));
-  });
-
-  // Logit transform: log(p / (1-p))
-  const logits = ps.map(p => Math.log(p / (1 - p)));
-
-  // Simple logistic regression in logit space:
-  // target ~ Bernoulli, link=logit, predictors=[logit(p), 1]
-  // Use gradient descent to fit a, b (slope=coeff, intercept)
-  // goal: minimize log loss
-  let a = 1.0; // slope (c in beta params)
-  let b = 0.0; // intercept (d in beta params)
-  const lr = 0.01;
-  const epochs = 1000;
-
-  for (let epoch = 0; epoch < epochs; epoch++) {
-    let gradA = 0, gradB = 0;
-    for (let i = 0; i < ps.length; i++) {
-      const z = a * logits[i] + b;
-      const pred = 1 / (1 + Math.exp(-z));
-      const err = pred - actuals[i];
-      gradA += err * logits[i];
-      gradB += err;
-    }
-    gradA /= ps.length;
-    gradB /= ps.length;
-    a -= lr * gradA;
-    b -= lr * gradB;
+  // Transform: log(s) and log(1-s) as features
+  // Target: log(odds) = log(p/(1-p)) where p = outcome
+  const X: [number, number, number][] = [];
+  const y: number[] = [];
+  for (let i = 0; i < rawScores.length; i++) {
+    const s = Math.max(1e-6, Math.min(1 - 1e-6, rawScores[i] / 100));
+    const lo = Math.log(s);
+    const lo1 = Math.log(1 - s);
+    X.push([lo, lo1, 1]); // [a_feature, b_feature, intercept]
+    y.push(actuals[i]);
   }
 
-  // Clamp to prevent extreme values
-  a = Math.max(0.1, Math.min(10, a));
-  b = Math.max(-10, Math.min(10, b));
+  // Logistic regression: minimize cross-entropy
+  // Simple gradient descent (3 params)
+  let a = 1.0, b = 1.0, c = 0.0;
+  const lr = 0.01;
+  const epochs = 500;
 
-  const params: BetaParams = {
-    a: 1,  // Beta shape 1 (default 1 = uniform prior)
-    b: 1,  // Beta shape 2
-    c: a,  // scale = logistic regression slope
-    d: b,  // intercept
-    fittedAt: Date.now(),
-    fittedN: rawScores.length,
-  };
+  for (let epoch = 0; epoch < epochs; epoch++) {
+    let ga = 0, gb = 0, gc = 0;
+    for (let i = 0; i < X.length; i++) {
+      const z = a * X[i][0] + b * X[i][1] + c;
+      const p = 1 / (1 + Math.exp(-z));
+      const err = p - y[i];
+      ga += err * X[i][0];
+      gb += err * X[i][1];
+      gc += err;
+    }
+    a -= lr * ga / X.length;
+    b -= lr * gb / X.length;
+    c -= lr * gc / X.length;
+  }
+
+  const params: BetaParams = { a, b, c, fittedAt: Date.now(), fittedN: rawScores.length };
   cachedBeta = params;
 
   db.systemConfig.upsert({
@@ -262,10 +250,8 @@ export function fitBeta(
 
 function applyBeta(rawScore: number): number | null {
   if (!cachedBeta) return null;
-  const p = Math.max(1e-6, Math.min(1 - 1e-6, rawScore / 100));
-  const logit = Math.log(p / (1 - p));
-  const z = cachedBeta.c * logit + cachedBeta.d;
-  // Beta CDF approximation via sigmoid in logit space
+  const s = Math.max(1e-6, Math.min(1 - 1e-6, rawScore / 100));
+  const z = cachedBeta.a * Math.log(s) - cachedBeta.b * Math.log(1 - s) + cachedBeta.c;
   const calibrated = 1 / (1 + Math.exp(-z));
   return Math.round(calibrated * 1000) / 1000;
 }
@@ -467,9 +453,8 @@ export function calibrateModelOutput(modelName: string, rawScore: number): numbe
 
   // Beta
   if (mc.beta) {
-    const p = Math.max(1e-6, Math.min(1 - 1e-6, rawScore / 100));
-    const logit = Math.log(p / (1 - p));
-    const z = mc.beta.c * logit + mc.beta.d;
+    const s = Math.max(1e-6, Math.min(1 - 1e-6, rawScore / 100));
+    const z = mc.beta.a * Math.log(s) - mc.beta.b * Math.log(1 - s) + mc.beta.c;
     const cal = 1 / (1 + Math.exp(-z));
     return Math.round(cal * 1000) / 1000;
   }

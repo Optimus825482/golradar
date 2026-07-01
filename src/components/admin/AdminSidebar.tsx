@@ -100,7 +100,6 @@ const NAV_GROUPS: NavGroup[] = [
       icon: Server,
       items: [
         { key: "system", href: "/admin/system", label: "Sistem Durumu", icon: Server, description: "Cache, SSE, writer, backfill durumu" },
-        { key: "signals-backtest", href: "/admin/signals/backtest", label: "Sinyal Backtest", icon: TestTube, description: "Algoritma backtest + replay" },
       ],
     },
 ];

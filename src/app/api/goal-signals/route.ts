@@ -301,6 +301,7 @@ export async function POST(request: Request) {
       },
       data.homeGoals,
       data.awayGoals,
+      data.modelAgreement,
     );
 
     if (result) {

@@ -103,6 +103,7 @@ export function calculateGoalProbability(
     score: 0, homeScore: 0, awayScore: 0, side: null, level: 'low',
     factors: [], calibratedP: 0, poissonP: 0, eloAdj: null,
     overUnder25: 0, btts: 0, timeMultiplier: 1.0, goalProbability5min: 0,
+    modelAgreementCount: 0,
   };
   if (!isLive) return emptyResult;
 
@@ -451,6 +452,10 @@ export function calculateGoalProbability(
     btts: bttsP,
     timeMultiplier: 1.0,
     goalProbability5min,
+    // modelAgreementCount is computed at the API route layer where
+    // the ensemble result is available. 0 = no ensemble (default
+    // for tests / not-yet-aggregated callers).
+    modelAgreementCount: 0,
   };
 }
 

@@ -25,6 +25,10 @@ export const recordSignalSchema = z.object({
   awayScore: z.number().int().min(0).max(99).default(0),
   homeGoals: z.number().int().min(0).max(99).default(0),
   awayGoals: z.number().int().min(0).max(99).default(0),
+  /** Faz A4 N-of-M: how many models in the ensemble predict >0.5.
+   *  Tier-determination in checkAndRecordSignal uses this. Default 1
+   *  keeps backward compatibility with old clients. */
+  modelAgreement: z.number().int().min(0).max(20).default(1),
 });
 
 export const expireHalftimeSchema = z.object({

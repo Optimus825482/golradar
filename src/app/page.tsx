@@ -647,6 +647,10 @@ export default function OptimusGolRadariPage() {
 	          homeScore: prob.homeScore, awayScore: prob.awayScore,
 	          level: prob.level, factors: prob.factors,
 	          calibratedP: prob.calibratedP, poissonP: prob.poissonP,
+	          // Faz A4 N-of-M — propagated end-to-end from
+	          // /api/matches → goalProbabilities → here. Default 1
+	          // for backward compatibility with cached/legacy data.
+	          modelAgreement: prob.modelAgreementCount ?? 1,
 	        }),
 	      }).catch((e) => { logError('page', e); })
 	    }

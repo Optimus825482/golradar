@@ -23,6 +23,7 @@ import { extractFeatures, featuresToArray, pushFeatureSample } from "@/lib/featu
 import { loadTeamLogos, getTeamLogo } from "@/lib/teamLogos";
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
+import { predictEnsemble } from "@/lib/ensemble";
 import { reportGoal, parseMinute } from "@/lib/goalSignalTracker";
 import type { GoalooEnrichment } from "@/lib/goalRadar";
 import {
@@ -366,6 +367,25 @@ export async function GET(request: Request) {
                 }
               } catch (e) { logError('route', e); /* try next */ }
             }
+            // Faz A4 N-of-M: count how many models in the ensemble
+            // predict >0.5 for the current match. Tier determination
+            // in goalSignalTracker uses this count. predictEnsemble is
+            // best-effort — failure leaves the count at 0 (treated
+            // as "no tier" → 'radar' fallback for backward compat).
+            try {
+              const ensemble = await predictEnsemble({
+                stats: parsed.stats,
+                minute: String(matchMinute),
+                isLive: true,
+                homeGoals: parsed.homeGoals ?? 0,
+                awayGoals: parsed.awayGoals ?? 0,
+                homeTeam: parsed.home,
+                awayTeam: parsed.away,
+              });
+              if (typeof ensemble.modelAgreementCount === 'number') {
+                goalRadar.modelAgreementCount = ensemble.modelAgreementCount;
+              }
+            } catch (e) { logError('route-ensemble', e); /* best-effort */ }
           } catch {
             // features not available — log without featuresJson
           }

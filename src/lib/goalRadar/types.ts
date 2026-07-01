@@ -22,6 +22,10 @@ export interface GoalProbability {
   btts: number;
   timeMultiplier: number;
   goalProbability5min: number;
+  /** Faz A4 N-of-M: how many models predict >0.5 for this match.
+   *  Tier determination in goalSignalTracker uses this count
+   *  (elite ≥5/9, confirmed ≥3/9, watch ≥2/9). */
+  modelAgreementCount: number;
 }
 
 export interface FotMobEnrichedResult {

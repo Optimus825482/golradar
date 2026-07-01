@@ -21,6 +21,9 @@ import {
   ChevronDown,
   Settings2,
   Trophy,
+  Server,
+  Radio,
+  FileJson,
   type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -80,18 +83,26 @@ const NAV_GROUPS: NavGroup[] = [
       { key: "profit", href: "/admin/profit", label: "Kâr Simülasyonu", icon: DollarSign, description: "Sinyal kârlılığı, ROI, Sharpe" },
     ],
   },
-  {
-    label: "Yönetim",
-    icon: Database,
-    items: [
-      { key: "ml-data-import", href: "/admin/ml/data-import", label: "Veri İçe Aktar", icon: Download, description: "Geçmiş maçları çek" },
-	      { key: "team-ratings", href: "/admin/team-ratings", label: "Takım Ratingleri", icon: Trophy, description: "Elo + Pi-Rating + istatistikler" },
-	      { key: "national-elo", href: "/admin/national-elo", label: "Milli Takım Elo", icon: Trophy, description: "Eloratings.net milli takım ranking" },
-	      { key: "settings", href: "/admin/settings", label: "Özellikler", icon: Settings2, description: "Feature flag'ler, env parametreleri" },
-      { key: "elo", href: "/admin/elo", label: "Elo Ratings", icon: Zap, description: "Takım gücü ratingleri" },
-      { key: "reset", href: "/admin/reset", label: "Sıfırlama", icon: RotateCcw, description: "Sistem reset" },
-    ],
-  },
+    {
+      label: "Yönetim",
+      icon: Database,
+      items: [
+        { key: "ml-data-import", href: "/admin/ml/data-import", label: "Veri İçe Aktar", icon: Download, description: "Geçmiş maçları çek" },
+        { key: "team-ratings", href: "/admin/team-ratings", label: "Takım Ratingleri", icon: Trophy, description: "Elo + Pi-Rating + istatistikler" },
+        { key: "national-elo", href: "/admin/national-elo", label: "Milli Takım Elo", icon: Trophy, description: "Eloratings.net milli takım ranking" },
+        { key: "settings", href: "/admin/settings", label: "Özellikler", icon: Settings2, description: "Feature flag'ler, env parametreleri" },
+        { key: "elo", href: "/admin/elo", label: "Elo Ratings", icon: Zap, description: "Takım gücü ratingleri" },
+        { key: "reset", href: "/admin/reset", label: "Sıfırlama", icon: RotateCcw, description: "Sistem reset" },
+      ],
+    },
+    {
+      label: "Sistem",
+      icon: Server,
+      items: [
+        { key: "system", href: "/admin/system", label: "Sistem Durumu", icon: Server, description: "Cache, SSE, writer, backfill durumu" },
+        { key: "signals-backtest", href: "/admin/signals/backtest", label: "Sinyal Backtest", icon: TestTube, description: "Algoritma backtest + replay" },
+      ],
+    },
 ];
 
 // ── Sidebar content (used in both desktop + mobile) ─────────────────

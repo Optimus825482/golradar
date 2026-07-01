@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { authFetch } from '@/lib/adminAuth';
 import {
   Brain, Activity, Target, BarChart3, Zap, Shield,
-  RefreshCw, ChevronRight, Bot, GitCompare,
+  RefreshCw, ChevronRight, Bot, GitCompare, Puzzle, Server,
 } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -56,17 +56,19 @@ export default function AdminPage() {
 
   const loadData = async () => {
     try {
-      const [mlRes, signalRes, dailyRes, monRes] = await Promise.all([
+      const [mlRes, signalRes, dailyRes, monRes, writerRes] = await Promise.all([
         authFetch('/api/admin/ml/status'),
         authFetch('/api/goal-signals?action=stats&days=30'),
         authFetch('/api/daily-metrics'),
         authFetch('/api/admin/ml/monitoring?days=7'),
+        authFetch('/api/cron/poll-matches').catch(() => null),
       ]);
       const ml = mlRes.ok ? await mlRes.json() : null;
       const signals = signalRes.ok ? await signalRes.json() : null;
       const daily = dailyRes.ok ? await dailyRes.json() : null;
       const mon = monRes.ok ? await monRes.json() : null;
-      setData({ ml, signals, daily, mon });
+      const writer = writerRes?.ok ? await writerRes.json() : null;
+      setData({ ml, signals, daily, mon, writer });
     } catch { /* connection error */ }
   };
 
@@ -187,7 +189,14 @@ export default function AdminPage() {
                       Object.entries(ml.champions).map(([name, c]: [string, any]) => (
                         <div key={name} className="text-xs flex justify-between bg-gray-50 rounded px-2 py-1">
                           <span className="font-semibold text-gray-700 capitalize">{name}</span>
-                          <span className="text-gray-500 font-mono">v{c.version}</span>
+                          <span className="flex items-center gap-2">
+                            {c.metrics?.auc != null && (
+                              <span className={`font-mono text-[10px] ${c.metrics.auc > 0.65 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                                AUC {c.metrics.auc.toFixed(3)}
+                              </span>
+                            )}
+                            <span className="text-gray-500 font-mono">v{c.version}</span>
+                          </span>
                         </div>
                       ))
                     ) : <p className="text-[11px] text-gray-400">Henüz champion yok</p>}
@@ -205,13 +214,15 @@ export default function AdminPage() {
               </div>
               {ml.scheduler && (
                 <div className="mt-4 pt-3 border-t border-gray-100 grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
-                  <div className="flex items-center gap-1.5"><span className="text-gray-400">Export:</span><StatusDot ok={!!ml.scheduler.exportRunning} /></div>
-                  <div className="flex items-center gap-1.5"><span className="text-gray-400">InPlay:</span><StatusDot ok={!!ml.scheduler.inplayRunning} /></div>
-                  <div className="flex items-center gap-1.5"><span className="text-gray-400">Son Export:</span>
-                    <span className="font-mono text-gray-600">{ml.scheduler.lastExportAt ? fmtDate(ml.scheduler.lastExportAt) : '—'}</span>
+                  <div className="flex items-center gap-1.5"><span className="text-gray-400">Export:</span><StatusDot ok={!!ml.scheduler.running} /></div>
+                  <div className="flex items-center gap-1.5"><span className="text-gray-400">Writer Cache:</span>
+                    <StatusDot ok={data?.writer?.cacheSize === '≥1'} label={data?.writer?.cacheSize === '≥1' ? 'DOLU' : 'BOŞ'} />
                   </div>
-                  <div className="flex items-center gap-1.5"><span className="text-gray-400">Cron:</span>
-                    <span className="font-mono text-gray-600">{ml.scheduler.lastCronAt ? fmtDate(ml.scheduler.lastCronAt) : '—'}</span>
+                  <div className="flex items-center gap-1.5"><span className="text-gray-400">Son Export:</span>
+                    <span className="font-mono text-gray-600">{ml.scheduler.lastExportDate || '—'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5"><span className="text-gray-400">Writer:</span>
+                    <StatusDot ok={data?.writer?.lastSuccessAt > 0} label={data?.writer?.lastSuccessAt > 0 ? 'Çalışıyor' : 'BEKLIYOR'} />
                   </div>
                 </div>
               )}
@@ -279,7 +290,7 @@ export default function AdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
             <Link href="/admin/ml" className="text-center py-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-all duration-150 ease-out hover:scale-[1.02] active:scale-[0.98]">
               <Bot className="size-5 mx-auto text-indigo-600 mb-0.5" />
               <div className="text-[11px] font-bold text-indigo-700">ML & Modeller</div>
@@ -289,8 +300,12 @@ export default function AdminPage() {
               <div className="text-[11px] font-bold text-emerald-700">Kalibrasyon</div>
             </Link>
             <Link href="/admin/algorithm" className="text-center py-3 rounded-lg bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-all duration-150 ease-out hover:scale-[1.02] active:scale-[0.98]">
-              <GitCompare className="size-5 mx-auto text-purple-600 mb-0.5" />
+              <Puzzle className="size-5 mx-auto text-purple-600 mb-0.5" />
               <div className="text-[11px] font-bold text-purple-700">Algoritma Akışı</div>
+            </Link>
+            <Link href="/admin/system" className="text-center py-3 rounded-lg bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 transition-all duration-150 ease-out hover:scale-[1.02] active:scale-[0.98]">
+              <Server className="size-5 mx-auto text-cyan-600 mb-0.5" />
+              <div className="text-[11px] font-bold text-cyan-700">Sistem</div>
             </Link>
             <a href="/" className="text-center py-3 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-all duration-150 ease-out hover:scale-[1.02] active:scale-[0.98]">
               <BarChart3 className="size-5 mx-auto text-blue-600 mb-0.5" />

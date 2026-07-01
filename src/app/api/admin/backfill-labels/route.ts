@@ -14,10 +14,9 @@
 // (AUC=0.500). The horizon-aware fix brings the positive rate
 // down to ~10-15% (real-world goal rate).
 //
-// Skips already-labeled rows. To FORCE a re-label pass, call
-// /api/admin/backfill-labels/reset first to clear goalScored.
-//
-// Optional `force=true` body param: re-labels ALL rows (not just null).
+// Usage:
+//   POST /api/admin/backfill-labels (with force=true)
+//   GET  /api/admin/backfill-labels?action=status
 
 import { NextResponse } from "next/server";
 import { adminRoute } from "@/lib/adminRoute";
@@ -37,10 +36,47 @@ interface MatchLabelSummary {
   positives: number;
 }
 
+// ── In-process progress tracker (singleton) ──────────────────────
+// GET endpoint'i buradaki son durumu okuyup progress gösterebilir.
+interface BackfillProgress {
+  startedAt: number;
+  totalMatches: number;
+  completedMatches: number;
+  totalLabeled: number;
+  totalPositives: number;
+  positiveRate: number;
+  running: boolean;
+}
+
+let progress: BackfillProgress = {
+  startedAt: 0,
+  totalMatches: 0,
+  completedMatches: 0,
+  totalLabeled: 0,
+  totalPositives: 0,
+  positiveRate: 0,
+  running: false,
+};
+
+// ── GET: Progress status ──────────────────────────────────────────
+export const GET = adminRoute(async (request: Request) => {
+  const { searchParams } = new URL(request.url);
+  if (searchParams.get("action") === "status") {
+    return NextResponse.json({ success: true, data: progress });
+  }
+  return NextResponse.json(
+    { ok: false, error: "unknown_action" },
+    { status: 400 },
+  );
+});
+
+// ── POST: Run backfill (chunk'li) ─────────────────────────────────
 export const POST = adminRoute(async (request: Request) => {
   let force = false;
   try {
-    const body = (await request.json().catch(() => ({}))) as { force?: boolean };
+    const body = (await request.json().catch(() => ({}))) as {
+      force?: boolean;
+    };
     force = body.force === true;
   } catch {
     /* no body — fine */
@@ -53,14 +89,14 @@ export const POST = adminRoute(async (request: Request) => {
     select: { matchCode: true },
     distinct: ["matchCode"],
   });
-  const matchCodes = unlabeled.map((r) => r.matchCode);
+  const matchCodes = unlabeled.map((r) => r.matchCode).sort((a, b) => a - b);
   if (matchCodes.length === 0) {
     return NextResponse.json({
       success: true,
       data: {
         matchesScanned: 0,
         totalLabeled: 0,
-        summaries: [] as MatchLabelSummary[],
+        positiveRate: 0,
         message: force
           ? "No rows to relabel"
           : "No unlabeled rows found",
@@ -68,11 +104,24 @@ export const POST = adminRoute(async (request: Request) => {
     });
   }
 
+  // Reset progress
+  progress = {
+    startedAt: Date.now(),
+    totalMatches: matchCodes.length,
+    completedMatches: 0,
+    totalLabeled: 0,
+    totalPositives: 0,
+    positiveRate: 0,
+    running: true,
+  };
+
   const summaries: MatchLabelSummary[] = [];
   let totalLabeled = 0;
   let totalPositives = 0;
 
-  for (const matchCode of matchCodes) {
+  for (let i = 0; i < matchCodes.length; i++) {
+    const matchCode = matchCodes[i];
+
     // Resolve ALL goal minutes for the match, sorted ascending.
     const goalEvents = await db.matchEvent.findMany({
       where: { matchCode, eventType: "goal" },
@@ -96,7 +145,10 @@ export const POST = adminRoute(async (request: Request) => {
       where: { matchCode },
       select: { id: true, minute: true },
     });
-    if (rows.length === 0) continue;
+    if (rows.length === 0) {
+      progress.completedMatches = i + 1;
+      continue;
+    }
 
     let labeled = 0;
     let positives = 0;
@@ -134,7 +186,26 @@ export const POST = adminRoute(async (request: Request) => {
       labeledRows: labeled,
       positives,
     });
+
+    // Update progress after every 20 matches (reduce DB write load)
+    if (i % 20 === 0 || i === matchCodes.length - 1) {
+      progress.completedMatches = i + 1;
+      progress.totalLabeled = totalLabeled;
+      progress.totalPositives = totalPositives;
+      progress.positiveRate =
+        totalLabeled > 0
+          ? Math.round((totalPositives / totalLabeled) * 10000) / 100
+          : 0;
+    }
   }
+
+  progress.running = false;
+  progress.totalLabeled = totalLabeled;
+  progress.totalPositives = totalPositives;
+  progress.positiveRate =
+    totalLabeled > 0
+      ? Math.round((totalPositives / totalLabeled) * 10000) / 100
+      : 0;
 
   logInfo(
     "backfill-labels",
@@ -147,10 +218,8 @@ export const POST = adminRoute(async (request: Request) => {
       matchesScanned: matchCodes.length,
       totalLabeled,
       totalPositives,
-      positiveRate:
-        totalLabeled > 0
-          ? Math.round((totalPositives / totalLabeled) * 10000) / 100
-          : 0,
+      positiveRate: progress.positiveRate,
+      durationMs: Date.now() - progress.startedAt,
       summaries,
     },
   });

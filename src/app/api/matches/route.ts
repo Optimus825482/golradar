@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { rateLimit, RATE_LIMIT_DEFAULTS } from "@/lib/rateLimit";
+import { getClientIp } from "@/lib/securityHelpers";
 import {
   LIVESCORE_API,
   HEADERS,
@@ -137,6 +139,16 @@ function updatePressureHistory(match: ParsedMatch) {
 }
 
 export async function GET(request: Request) {
+  // Rate limit — public endpoint koruması
+  const ip = getClientIp(request);
+  const rl = rateLimit(`matches:${ip}`, { windowMs: 60000, maxRequests: 60 });
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { ok: false, error: "rate_limited", resetMs: rl.resetMs },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.resetMs / 1000)) } }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const version = searchParams.get("v") || "0";
 

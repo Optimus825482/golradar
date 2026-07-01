@@ -82,19 +82,30 @@ function poolAdjacentViolators(xIn: number[], yIn: number[]): { x: number[]; y: 
   const xs = pairs.map(p => p[0]);
   const ys: number[] = pairs.map(p => p[1]);
 
+  // PAVA: ileri yönlü blok oluşturma + geriye birleştirme (backward merge)
+  // Referans: Ayer et al. (1955), Barlow et al. (1972)
   const blockMeans: number[] = [];
   const blockSizes: number[] = [];
   let curMean = ys[0];
   let curSize = 1;
   for (let i = 1; i < ys.length; i++) {
+    const newMean = (curMean * curSize + ys[i]) / (curSize + 1);
     if (ys[i] >= curMean) {
-      curMean = (curMean * curSize + ys[i]) / (curSize + 1);
+      curMean = newMean;
       curSize++;
     } else {
+      // Blok kapat, geriye dönük birleştirme
       blockMeans.push(curMean);
       blockSizes.push(curSize);
       curMean = ys[i];
       curSize = 1;
+      // Backward merge: monotonluk ihlali varsa önceki blok(lar)la birleştir
+      while (blockMeans.length > 0 && blockMeans[blockMeans.length - 1] > curMean) {
+        const prevMean = blockMeans.pop()!;
+        const prevSize = blockSizes.pop()!;
+        curMean = (curMean * curSize + prevMean * prevSize) / (curSize + prevSize);
+        curSize = curSize + prevSize;
+      }
     }
   }
   blockMeans.push(curMean);
@@ -308,11 +319,11 @@ export async function autoCalibrateFromDB(): Promise<{
   _calibrationRunning = true;
   try {
     const logs = await db.predictionLog.findMany({
-	    where: { goalScored: { not: null } },
-	    select: { rawScore: true, calibratedP: true, goalScored: true },
-	    orderBy: { createdAt: "desc" },
-	    take: 10000,
-	  });
+      where: { goalScored: { not: null } },
+      select: { rawScore: true, calibratedP: true, goalScored: true, createdAt: true },
+      orderBy: { createdAt: "asc" }, // Eskiden yeniye — train=eski, val=yeni
+      take: 10000,
+    });
 	
 	  if (logs.length < 50) return null;
 	

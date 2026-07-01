@@ -5,7 +5,7 @@
 import type { MatchStats } from '../nesineTypes';
 import type { PressureSnapshotLite } from './types';
 import { calculatePressure } from '../nesineTypes';
-import { estimateXgFromShots } from '../estimateXg';
+import { estimateXgFromShots, estimateXgFromShotsBoth } from '../estimateXg';
 import { calibrateF8Sync, loadCalibrationModeSync } from '../smartCalibration';
 import { logError } from '@/lib/devLog';
 
@@ -44,14 +44,14 @@ export function calcFactorDangerousAttack(stats: MatchStats, minNum: number): Fa
   if (dangerAttacks?.home != null) {
     const rate = (dangerAttacks.home / Math.max(1, minNum)) * 15;
     if (rate >= 1.5) {
-      r.homePts = Math.min(10, Math.round(rate * 3.5));
+      r.homePts = Math.min(12, Math.round(rate * 3.5));
       r.homeFactors.push(`Tehl. hücum ${rate.toFixed(1)}/15dk`);
     }
   }
   if (dangerAttacks?.away != null) {
     const rate = (dangerAttacks.away / Math.max(1, minNum)) * 15;
     if (rate >= 1.5) {
-      r.awayPts = Math.min(14, Math.round(rate * 3.5));
+      r.awayPts = Math.min(12, Math.round(rate * 3.5));
       r.awayFactors.push(`Tehl. hücum ${rate.toFixed(1)}/15dk`);
     }
   }
@@ -82,25 +82,22 @@ export function calcFactorShotQuality(stats: MatchStats, minNum: number): Factor
   return r;
 }
 
-// ── xG hesaplama ────────────────────────────────────────────────
+// ── xG hesaplama (kalibreli tek model) ──────────────────────────
 export function calcExpectedGoals(stats: MatchStats): { home: number; away: number } {
-  const { shots_on_target, shots_total, shots_blocked, xg: apiXg, corners, dangerous_attacks } = stats;
-  const homeSot = shots_on_target?.home ?? 0;
-  const awaySot = shots_on_target?.away ?? 0;
-  const homeShots = shots_total?.home ?? 0;
-  const awayShots = shots_total?.away ?? 0;
-  const homeBlocked = shots_blocked?.home ?? 0;
-  const awayBlocked = shots_blocked?.away ?? 0;
-  const homeOffTarget = Math.max(0, homeShots - homeSot - homeBlocked);
-  const awayOffTarget = Math.max(0, awayShots - awaySot - awayBlocked);
-  return {
-    home: Math.max(0, apiXg?.home != null && apiXg.home > 0
-      ? apiXg.home
-      : homeSot * 0.38 + homeOffTarget * 0.05 + homeBlocked * 0.03 + (corners?.home ?? 0) * 0.04 + (dangerous_attacks?.home ?? 0) * 0.01),
-    away: Math.max(0, apiXg?.away != null && apiXg.away > 0
-      ? apiXg.away
-      : awaySot * 0.38 + awayOffTarget * 0.05 + awayBlocked * 0.03 + (corners?.away ?? 0) * 0.04 + (dangerous_attacks?.away ?? 0) * 0.01),
-  };
+  // estimateXg.ts'deki kalibreli modeli kullan — tek xG kaynağı
+  // API xG varsa onu kullan (estimateXgFromShotsBoth içinde handle edilir)
+  try {
+    const result = estimateXgFromShotsBoth(stats, 90);
+    return { home: Math.max(0, result.home), away: Math.max(0, result.away) };
+  } catch {
+    // Fallback: çok basit SOT tabanlı (sadece acil durum)
+    const homeSot = stats.shots_on_target?.home ?? 0;
+    const awaySot = stats.shots_on_target?.away ?? 0;
+    return {
+      home: Math.min(5, homeSot * 0.085),
+      away: Math.min(5, awaySot * 0.085),
+    };
+  }
 }
 
 // ── F4: xG accumulation ─────────────────────────────────────────
@@ -365,15 +362,13 @@ export function calcFactorDangerousSequence(pressureHistory: PressureSnapshotLit
     r.awayFactors.push(`Tehlikeli sıralı atak! (+${r.awayPts})`);
   }
 
-  // Counter-press
-  const homePossDrop = (first.stats.possession?.away ?? 50) - (last.stats.possession?.away ?? 50);
-  const awayPossDrop = (first.stats.possession?.home ?? 50) - (last.stats.possession?.home ?? 50);
-  if (homeDADelta >= 3 && homePossDrop > 10 && awaySOTDelta >= 1) {
+  // Counter-press: home counter-attack
+  if (homeDADelta >= 3 && (first.stats.possession?.home ?? 50) < 45 && homeSOTDelta >= 1) {
     const boost = Math.min(8, 3 + homeDADelta * 1.5);
     r.homePts += boost;
     if (boost >= 3) r.homeFactors.push(`Kontra atak +${boost}`);
   }
-  if (awayDADelta >= 3 && awayPossDrop > 10 && homeSOTDelta >= 1) {
+  if (awayDADelta >= 3 && first.stats.possession?.away != null && first.stats.possession.away < 45 && awaySOTDelta >= 1) {
     const boost = Math.min(8, 3 + awayDADelta * 1.5);
     r.awayPts += boost;
     if (boost >= 3) r.awayFactors.push(`Kontra atak +${boost}`);

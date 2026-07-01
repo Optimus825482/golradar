@@ -2,15 +2,15 @@ import { describe, expect, test } from 'bun:test';
 import { computeEnsembleWeights, type WeightTunerInput } from '../ml/weightTuner';
 
 describe('ensemble integration: Brier tier-based weights feed ensemble', () => {
-  test('inplay Brier 0.0859 (excellent) gets >= 0.20 share', () => {
+  test('inplay Brier 0.0859 (excellent) gets >= 0.12 share (9-model ensemble)', () => {
     // Real production data: inplay champion Brier = 0.0859
-    // After ensemble normalization, inplay weight should be at least
-    // 0.20 (current static cap is 0.20, we want 0.25-0.30).
+    // With 9-model ensemble normalization, excellent inplay Brier
+    // gets proportional share above default 0.20 tier.
     const w = computeEnsembleWeights({
       inplayBrier: 0.0859,
       mlBrier: 0.1691,
     });
-    expect(w.inplay).toBeGreaterThanOrEqual(0.20);
+    expect(w.inplay).toBeGreaterThanOrEqual(0.12);
   });
 
   test('teamStrength Brier 0.2564 (fair) gets reduced share vs default', () => {
@@ -29,14 +29,14 @@ describe('ensemble integration: Brier tier-based weights feed ensemble', () => {
     expect(w.ml).toBe(0);
   });
 
-  test('all 6 weights sum to 1.0 across realistic Brier matrix', () => {
+  test('all 9 weights sum to 1.0 across realistic Brier matrix', () => {
     // Production-realistic inputs: all champions ranked.
     const w = computeEnsembleWeights({
       inplayBrier: 0.0859,
       mlBrier: 0.1691,
       teamStrengthBrier: 0.2564,
     });
-    const sum = w.ruleBased + w.poisson + w.elo + w.ml + w.teamStrength + w.inplay;
+    const sum = w.ruleBased + w.poisson + w.elo + w.ml + w.teamStrength + w.inplay + w.gap + w.pi + w.glicko2;
     expect(sum).toBeCloseTo(1.0, 4);
   });
 

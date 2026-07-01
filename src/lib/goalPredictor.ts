@@ -222,11 +222,12 @@ function trainGBDT(
   const rng = mulberry32(cfg.seed ?? 42);
   const numFeatures = features[0].length;
 
-  // Initial prediction = mean of labels
-  const initPrediction = labels.reduce((a, b) => a + b, 0) / n;
+  // Initial prediction in log-odds space (logit of mean labels)
+  const labelMean = Math.max(1e-6, Math.min(1 - 1e-6, labels.reduce((a, b) => a + b, 0) / n));
+  const initPrediction = Math.log(labelMean / (1 - labelMean));
 
-  // Initialize residuals
-  let residuals = labels.map(y => y - initPrediction);
+  // Initialize residuals in log-odds space
+  let residuals = labels.map(y => y - labelMean);
 
   const trees: TreeNode[] = [];
   const featureImportance = new Array(numFeatures).fill(0);
@@ -482,12 +483,12 @@ function generateSyntheticTrainingData(
                        minute <= 60 ? 1.00 : minute <= 75 ? 1.12 : 1.30;
     const pressureIntensity = Math.abs(homePressure - 50) / 50;
 
-    // Base goal probability per 10-minute window: ~8-15%
-    const baseGoalP = (2.5 / 9) * (10 / 90); // ~3% per minute → ~30% per 10 min
-    const adjustedP = baseGoalP * timeFactor * (1 + xgRate * 0.8) * (1 + pressureIntensity * 0.3);
+    // Base goal probability per 10-minute window: ~14% (gerçek gol oranı)
+    const baseGoalP = 0.14 * (10 / 90);
+    const adjustedP = baseGoalP * timeFactor * (1 + xgRate * 0.5) * (1 + pressureIntensity * 0.2);
 
-    // Label: 1 if goal in next 10 min (probabilistic)
-    const label = rng() < Math.min(0.7, adjustedP * 10) ? 1 : 0;
+    // Label: 1 if goal in next 10 min (probabilistic, cap 0.25)
+    const label = rng() < Math.min(0.25, adjustedP * 10) ? 1 : 0;
 
     // Build feature vector
     const features = new Array(FEATURE_NAMES.length).fill(0);

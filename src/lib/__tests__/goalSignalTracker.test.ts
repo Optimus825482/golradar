@@ -23,11 +23,11 @@ describe("goalSignalTracker: parseMinute", () => {
     expect(parseMinute("90+30")).toBe(120); // clamp to 120
   });
 
-  test("non-numeric strings default to 0", () => {
-    expect(parseMinute("HT")).toBe(0);
-    expect(parseMinute("FT")).toBe(0);
-    expect(parseMinute("")).toBe(0);
-    expect(parseMinute("abc")).toBe(0);
+  test("non-numeric strings default to 45 (midpoint)", () => {
+    expect(parseMinute("HT")).toBe(45);
+    expect(parseMinute("FT")).toBe(45);
+    expect(parseMinute("")).toBe(45);
+    expect(parseMinute("abc")).toBe(45);
   });
 
   test("mixed garbage extracts digits", () => {

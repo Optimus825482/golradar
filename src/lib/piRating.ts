@@ -131,9 +131,9 @@ export function predictPiFromRating(
     };
   }
 
-  const homeOffAvg = (home.Ha + away.Ad) / 2;
-  const awayOffAvg = (away.Aa + home.Hd) / 2;
-  const goalDiffExpected = homeOffAvg - awayOffAvg + HOME_ADVANTAGE;
+  const homeOffAvg = (home.Ha - away.Ad) / 2;
+  const awayOffAvg = (away.Aa - home.Hd) / 2;
+  const goalDiffExpected = homeOffAvg - awayOffAvg + HOME_ADVANTAGE / 2;
 
   // Poisson-basit yaklaşım (gol-farkı dağılımı):
   // P(H=W), P(D), P(A=W) oranlarını formülden türet.

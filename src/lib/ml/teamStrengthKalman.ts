@@ -132,9 +132,10 @@ function kalmanUpdate(
   const obsVariance = Math.max(0.01, expMean); // floor avoids div-by-zero
   const K = variance / (variance + obsVariance);
   // Residual: difference between observed and predicted λ (on response scale).
-  // Convert to log-scale by dividing by λ — this is the score-function
-  // residual for Poisson: d/dλ logL = (obs/λ) - 1.
-  const r = (observed - expMean) / expMean;
+  // Raw residual: (observed - expected). In log-space Kalman update:
+  // x_new = x + K * (obs - exp(x)) where K = P/(P+V) is the Kalman gain.
+  // Division by exp(x) is NOT needed here — the Kalman gain already handles scale.
+  const r = observed - expMean;
   const newMean = clamp(mean + K * r, config.clampMin, config.clampMax);
   const newVariance = (1 - K) * variance;
   return { mean: newMean, variance: newVariance };

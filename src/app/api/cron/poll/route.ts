@@ -14,7 +14,9 @@
 // Auth: requires `X-Cron-Secret` header matching `process.env.CRON_SECRET`.
 // Coolify cron service sends this header on each call.
 
+import crypto from 'crypto';
 import { NextResponse } from "next/server";
+import { ACTIVE_STATUSES } from "@/lib/nesine";
 import type { MatchStats } from "@/lib/nesine";
 import {
   calculateGoalProbability,
@@ -76,8 +78,13 @@ function isAuthorized(request: Request): boolean {
     // CRON_SECRET not set: allow only in development
     return process.env.NODE_ENV !== "production";
   }
-  const header = request.headers.get("x-cron-secret");
-  return header === secret;
+  const header = request.headers.get("x-cron-secret") ?? "";
+  if (header.length !== secret.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(header), Buffer.from(secret));
+  } catch {
+    return false;
+  }
 }
 
 // ── Goal detection ───────────────────────────────────────────────
@@ -118,7 +125,7 @@ async function processMatch(
   heavyAnalytics: boolean;
 }> {
   const status = (raw.S as number) || 0;
-  const isLive = status === 4 || status === 5 || status === 6 || status === 7;
+  const isLive = ACTIVE_STATUSES.has(status as number);
   const isFinished = FINISHED_STATUSES.has(status);
   const isHalftime = status === 3 || status === 28;
 
@@ -563,6 +570,13 @@ export async function POST(request: Request) {
   // WebSocket → pipeline service → POST /api/cron/poll
   const source = request.headers.get('X-Pipeline-Source');
   if (source === 'websocket') {
+    // Pipeline token kontrolü
+    const pipelineToken = process.env.PIPELINE_TOKEN;
+    const providedToken = request.headers.get("x-pipeline-token");
+    if (pipelineToken && providedToken !== pipelineToken) {
+      return NextResponse.json({ error: "Invalid pipeline token" }, { status: 403 });
+    }
+
     try {
       const body = await request.json();
       const { matchCode, homeTeam, awayTeam, league, minute, homeGoals, awayGoals, status } = body;

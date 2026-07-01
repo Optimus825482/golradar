@@ -162,24 +162,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ dates });
     }
 
-    if (action === "finalize") {
-      const matchCode = asInt(searchParams.get("matchCode"));
-      if (!matchCode) {
-        return NextResponse.json({ error: "matchCode required" }, { status: 400 });
-      }
-      const homeScore = asInt(searchParams.get("homeScore"));
-      const awayScore = asInt(searchParams.get("awayScore"));
-      if (homeScore === null || awayScore === null) {
-        return NextResponse.json({ error: "homeScore and awayScore required" }, { status: 400 });
-      }
-      await finalizeMatchSignals(matchCode, homeScore, awayScore);
-      return NextResponse.json({ ok: true, matchCode });
-    }
-
     return NextResponse.json(
       {
         error:
-          "Unknown action. Use: stats, records, match, dates, finalize, reportGoal",
+          "Unknown action. Use: stats, records, match, dates, reportGoal",
       },
       { status: 400 },
     );
@@ -259,6 +245,26 @@ export async function POST(request: Request) {
         );
         return NextResponse.json({ ok: true });
       }
+
+      if (action === "finalize") {
+        // Admin-only: finalize match signals
+        const auth = await requireAdmin(request);
+        if (!auth.ok) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+        const b = body as Record<string, unknown>;
+        const matchCode = asInt(b.matchCode);
+        if (!matchCode) {
+          return NextResponse.json({ error: "matchCode required" }, { status: 400 });
+        }
+        const homeScore = asInt(b.homeScore);
+        const awayScore = asInt(b.awayScore);
+        if (homeScore === null || awayScore === null) {
+          return NextResponse.json({ error: "homeScore and awayScore required" }, { status: 400 });
+        }
+        await finalizeMatchSignals(matchCode, homeScore, awayScore);
+        return NextResponse.json({ ok: true, matchCode });
+      }
+
+      return NextResponse.json({ error: "unknown_action" }, { status: 400 });
     }
 
     // Signal recording from client-side poller: require same-origin

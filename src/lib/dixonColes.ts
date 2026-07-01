@@ -121,8 +121,10 @@ export function calculateExpectedGoals(
   avgGoalsHome: number = 1.35,  // League average home goals
   avgGoalsAway: number = 1.15,  // League average away goals
   gamma?: number,               // Optional — falls back to LEAGUE_GAMMA[0]
+  rho?: number,                 // Optional — Dixon-Coles correlation parameter
 ): PoissonParams {
   const effectiveGamma = gamma ?? LEAGUE_GAMMA[0];
+  const effectiveRho = rho ?? -0.13; // Dixon-Coles standard correlation
   // λ_home = α_home × β_away × γ × avg_home
   const lambdaHome = homeAttack * awayDefense * effectiveGamma * avgGoalsHome;
   // λ_away = α_away × β_home × avg_away
@@ -131,8 +133,8 @@ export function calculateExpectedGoals(
   return {
     lambdaHome: Math.max(0.01, lambdaHome),
     lambdaAway: Math.max(0.01, lambdaAway),
-    rho: 0,        // Grid search: 0 beats -0.13 (Brier 0.6949→0.6879)
-    gamma: 1.30,    // Grid search: 1.30 beats 1.10, best combo rho=0+gamma=1.30
+    rho: effectiveRho,
+    gamma: effectiveGamma,
   };
 }
 

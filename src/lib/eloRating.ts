@@ -183,7 +183,7 @@ export function predictFromElo(home: string, away: string): EloPrediction {
   const awayR = ratings.get(awayKey)?.rating ?? INITIAL_RATING;
   const eHome = expectedScore(homeR + HOME_ADVANTAGE, awayR);
   const eAway = 1 - eHome;
-  const eDraw = 0.25;
+  const eDraw = Math.max(0.05, 0.30 * Math.exp(-Math.abs(homeR - awayR) / 300));
   const adjustedHome = eHome * (1 - eDraw);
   const adjustedAway = eAway * (1 - eDraw);
   return {

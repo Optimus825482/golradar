@@ -328,11 +328,6 @@ export function calculateGoalProbability(
   } else if (finalScore >= 70) level = 'high';
   else if (finalScore >= 60) level = 'medium';
 
-  // ── Calibrated probability ────────────────────────────────────
-  let calibratedP: number;
-  try { calibratedP = calibrateScore(finalScore); }
-  catch { calibratedP = 0.5; }
-
   // ── FotMob Intelligence Integration ────────────────────────────
   if (fotmobData) {
     try {
@@ -406,6 +401,11 @@ export function calculateGoalProbability(
   let finalFinalHome = Math.round(ctx.hs);
   let finalFinalAway = Math.round(ctx.as);
   const finalFinalScore = blendedThreatScore(finalFinalHome, finalFinalAway);
+
+  // ── Calibrated probability (FotMob/Goaloo sonrası final score ile) ──
+  let calibratedP: number;
+  try { calibratedP = calibrateScore(finalFinalScore); }
+  catch { calibratedP = 0.5; }
 
   // ── 5-min signal gate ─────────────────────────────────────────
   const isMomentumRising = ctx.hf.length + ctx.af.length >= 3;

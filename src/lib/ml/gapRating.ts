@@ -291,8 +291,10 @@ export function predictGapMatch(
 
   // Wheatcroft: S_H = (Ha + Ad)/2 — beklenen istatistik
   // Burada imminent-goal prob'u λ_h + λ_a → exp() formundan.
-  const lambdaHome = Math.exp(home.Ha - away.Ad);
-  const lambdaAway = Math.exp(away.Aa - home.Hd);
+  // GAP_LAMBDA_SCALE: Rating clamp [-1.5, 1.5] → max diff 3 → λ max = exp(1) ≈ 2.72 (gerçekçi)
+  const GAP_LAMBDA_SCALE = 3;
+  const lambdaHome = Math.exp((home.Ha - away.Ad) / GAP_LAMBDA_SCALE);
+  const lambdaAway = Math.exp((away.Aa - home.Hd) / GAP_LAMBDA_SCALE);
   const HORIZON_FRAC = 10 / 90; // 10 dk horizon
   const gapP = Math.max(0, Math.min(1, 1 - Math.exp(-(lambdaHome + lambdaAway) * HORIZON_FRAC)));
 

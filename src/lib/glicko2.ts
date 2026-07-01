@@ -100,17 +100,24 @@ export function updateGlicko2(
   const phiH = home.RD / SCALE;
   const phiA = away.RD / SCALE;
 
-  // Home update
-  updateOneRating(muH, phiH, home.sigma, [
+  // Home update & cache write
+  const homeResult = updateOneRating(muH, phiH, home.sigma, [
     { score, muOpponent: muA, phiOpponent: phiA },
   ]);
-  // Away update (score mirrored)
-  updateOneRating(muA, phiA, away.sigma, [
+  home.r = homeResult.muPrime * SCALE + 1500;
+  home.RD = Math.max(MIN_RD, homeResult.phiPrime * SCALE);
+  home.sigma = homeResult.newSigma;
+  home.lastUpdate = Date.now();
+
+  // Away update (score mirrored) & cache write
+  const awayResult = updateOneRating(muA, phiA, away.sigma, [
     { score: 1 - score, muOpponent: muH + HOME_ADVANTAGE_MU / SCALE, phiOpponent: phiH },
   ]);
-
-  home.lastUpdate = Date.now();
+  away.r = awayResult.muPrime * SCALE + 1500;
+  away.RD = Math.max(MIN_RD, awayResult.phiPrime * SCALE);
+  away.sigma = awayResult.newSigma;
   away.lastUpdate = Date.now();
+
   g2Cache.set(homeKey, home);
   g2Cache.set(awayKey, away);
 }
@@ -121,12 +128,18 @@ interface GameRecord {
   phiOpponent: number;
 }
 
+interface UpdatedRating {
+  muPrime: number;
+  phiPrime: number;
+  newSigma: number;
+}
+
 function updateOneRating(
   mu: number,
   phi: number,
   sigma: number,
   games: GameRecord[],
-): void {
+): UpdatedRating {
   // 1. v (variance estimate)
   let v = 0;
   for (const g_ of games) {
@@ -155,11 +168,7 @@ function updateOneRating(
   const muPrime =
     mu + phiPrime * phiPrime * deltaNum;
 
-  // Update cache (in-place)
-  // mu ve phi'yi r ve RD'ye dönüştür
-  // (sadece internal update_one_rating pure-fonksiyon; cache mutasyon
-  // fonksiyon-dışında yapılır.)
-  void { mu, phi, newSigma, phiPrime };
+  return { muPrime, phiPrime, newSigma };
 }
 
 /**

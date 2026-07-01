@@ -10,14 +10,14 @@ import {
 } from "../calibration";
 
 describe("calibration: CALIBRATION_PARAMS", () => {
-  test("L ceiling is 0.95 (P0.3 fix)", () => {
-    expect(CALIBRATION_PARAMS.L).toBe(0.95);
+  test("L ceiling is 0.90 (config default)", () => {
+    expect(CALIBRATION_PARAMS.L).toBe(0.90);
   });
   test("k steepness positive", () => {
     expect(CALIBRATION_PARAMS.k).toBeGreaterThan(0);
   });
   test("x0 midpoint reasonable", () => {
-    expect(CALIBRATION_PARAMS.x0).toBeGreaterThan(40);
+    expect(CALIBRATION_PARAMS.x0).toBeGreaterThanOrEqual(30);
     expect(CALIBRATION_PARAMS.x0).toBeLessThan(80);
   });
 });

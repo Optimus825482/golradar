@@ -66,11 +66,27 @@ export async function onGoal(params: {
     logError('feedbackLoop', 'Failed to log goal event:', err);
   }
 
-  // 3. Online weight update: her golden sonra model accuracy'yi güncelle
+  // 3. Online weight update: her golden sonra gerçek model çıktılarını kullan
   try {
-    recordPrediction('radar', 0.7, 1);
-    recordPrediction('poisson', 0.6, 1);
-    recordPrediction('elo', 0.5, 1);
+    // Gerçek model çıktılarını PredictionLog'dan çek (son kayıt)
+    const { db: dbInner } = await import('./db');
+    const recentLog = await dbInner.predictionLog.findFirst({
+      where: { matchCode: params.matchCode },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (recentLog) {
+      if (recentLog.calibratedP != null) {
+        recordPrediction('rule', recentLog.calibratedP, 1);
+      }
+      const poissonMaxP = Math.max(recentLog.poissonHomeP ?? 0, recentLog.poissonAwayP ?? 0);
+      if (poissonMaxP > 0) {
+        recordPrediction('poisson', poissonMaxP, 1);
+      }
+      if (recentLog.homeElo != null && recentLog.awayElo != null) {
+        const eloDiff = Math.abs(recentLog.homeElo - recentLog.awayElo);
+        recordPrediction('elo', Math.min(0.85, 0.15 + eloDiff * 0.001), 1);
+      }
+    }
     actions.push('weights_updated');
   } catch { /* silent */ }
 

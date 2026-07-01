@@ -72,11 +72,10 @@ function applyFrank(
       if (kappa === 0) {
         w = 1;
       } else if (kappa < 0) {
-        // Positive correlation: equal-scoring cells boost. -kappa>0 olduğu için
-        // ratio=0 hücreleri nötr (×1), |h-a| büyüdükçe artar (× >1).
-        // Böylece beraberlik olasılığı artarken uç skorlar azalır.
+        // Positive correlation: equal-scoring cells boost, unequal cells suppressed.
+        // kappa<0 → exp(kappa * ratio) < 1 for ratio > 0 (unequal scores suppressed)
         const ratio = Math.abs(h - a) / (1 + Math.min(h, a));
-        w = Math.exp(-kappa * ratio); // kappa<0 ise -kappa>0, ratio büyüdükçe w büyür
+        w = Math.exp(kappa * ratio); // kappa<0: ratio>0 → w<1 (unequal suppressed)
       } else {
         // Negative correlation: stress if either team scoring (h veya a > 0).
         // min(h, a) ≥ 1 ise w < 1, böylece 0-0 dışındaki skorlar azalır.

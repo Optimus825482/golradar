@@ -153,11 +153,23 @@ export async function loadTeamStrengthChampion(): Promise<{
   version: string;
 } | null> {
   const meta = await getChampionPath('team-strength');
-  const model = loadTeamStrength();
   if (!meta) {
-    return { model, version: model.version };
+    return { model: loadTeamStrength(), version: loadTeamStrength().version };
   }
-  return { model, version: meta.version };
+  // Fitted model'i disk'ten yükle
+  try {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const fullPath = path.resolve(process.cwd(), meta.path);
+    const raw = await fs.readFile(fullPath, 'utf-8');
+    const serialized = JSON.parse(raw);
+    const { deserializeTeamStrength } = await import('./teamStrengthKalman');
+    const model = deserializeTeamStrength(serialized);
+    return { model, version: meta.version };
+  } catch {
+    // Disk okuma hatası → fallback
+    return { model: loadTeamStrength(), version: meta.version };
+  }
 }
 
 /**

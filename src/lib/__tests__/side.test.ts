@@ -10,10 +10,12 @@ const snap = (homePressure: number, awayPressure: number): PressureSnapshotLite 
 
 describe('determineSide (score-based)', () => {
   test('high home score → home', () => {
-    expect(determineSide(65, 30)).toBe('home');
+    // awayScore < 30 ile home dominant → home
+    expect(determineSide(65, 29)).toBe('home');
   });
   test('high away score → away', () => {
-    expect(determineSide(30, 65)).toBe('away');
+    // homeScore < 25 ile away dominant → away
+    expect(determineSide(24, 65)).toBe('away');
   });
   test('both high → both', () => {
     expect(determineSide(70, 70)).toBe('both');

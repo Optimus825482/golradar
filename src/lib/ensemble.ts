@@ -49,6 +49,7 @@ import { brierToConfidence, UNRANKED_MODEL_BRIER } from '@/config';
 import { FEATURE_NAMES } from './featureEngineering';
 import { predictStacking, type StackingInput } from './ml/stackingEnsemble';
 import { bayesianModelAverage, bmaToEnsembleWeights } from './ml/bayesianAveraging';
+import { parseMinute } from './goalSignalTracker';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -132,8 +133,8 @@ export async function predictEnsemble(
     weather,
   } = input;
 
-  // Parse minute
-  let minNum = parseInt(minute.replace(/[^0-9]/g, ""), 10);
+  // Parse minute — stoppage time "45+2" → 47 doğru handle edilir
+  let minNum = parseMinute(minute);
   if (!minNum || minNum === 0) minNum = 45;
   minNum = Math.max(1, Math.min(120, minNum));
 
@@ -515,26 +516,29 @@ export async function predictEnsemble(
   // Get Brier scores from champion models
   const brierMap: Record<string, number | null> = {};
   try {
-    const [rbBrier, poBrier, elBrier, mlBr, tsBrier, ipBrier, gapBrierDb] = await Promise.all([
-      getChampionBrier('gbdt').catch(() => null),
-      getChampionBrier('xgb').catch(() => null),
-      null, // Elo has no Brier
-      getChampionBrier('gbdt').catch(() => null),
+    const [
+      ruleBrier, poissonBrier, eloBrier, mlBrier,
+      tsBrier, ipBrier, gapBrier, piBrier, glicko2Brier
+    ] = await Promise.all([
+      getMeasuredBrier('rule').catch(() => null),
+      getMeasuredBrier('poisson').catch(() => null),
+      null, // Elo has no champion Brier
+      (async () => (await getChampionBrier('xgb')) ?? (await getChampionBrier('gbdt')))().catch(() => null),
       getChampionBrier('team-strength').catch(() => null),
       getChampionBrier('inplay').catch(() => null),
       getMeasuredBrier('gap').catch(() => null),
       getMeasuredBrier('pi').catch(() => null),
       getMeasuredBrier('glicko2').catch(() => null),
     ]);
-    brierMap['Rule-Based'] = rbBrier;
-    brierMap['Poisson'] = poBrier;
-    brierMap['Elo'] = null;
-    brierMap['ML'] = mlBr;
+    brierMap['Rule-Based'] = ruleBrier;
+    brierMap['Poisson'] = poissonBrier;
+    brierMap['Elo'] = eloBrier;
+    brierMap['ML'] = mlBrier;
     brierMap['TeamStrength'] = tsBrier;
     brierMap['InPlay5m'] = ipBrier;
-    brierMap['GAP'] = gapBrierDb;
-    brierMap['PiRating'] = await getMeasuredBrier('pi').catch(() => null);
-    brierMap['Glicko2'] = await getMeasuredBrier('glicko2').catch(() => null);
+    brierMap['GAP'] = gapBrier;
+    brierMap['PiRating'] = piBrier;
+    brierMap['Glicko2'] = glicko2Brier;
   } catch {}
 
   const bmaInputs = bmaModels.map(m => ({
@@ -570,7 +574,7 @@ export async function predictEnsemble(
   }
 
   // ── Model agreement (excluding zero predictions) ──
-  const allPredictions = [ruleBasedP, poissonP, eloP, mlP].filter((p) => p > 0.01);
+  const allPredictions = [ruleBasedP, poissonP, eloP, mlP, teamStrengthP, inPlayP, gapP, piRatingP, glicko2P].filter((p) => p > 0.01);
   const hasPredictions = allPredictions.length > 0;
   const avgP = hasPredictions
     ? allPredictions.reduce((a, b) => a + b, 0) / allPredictions.length
@@ -588,7 +592,7 @@ export async function predictEnsemble(
   // Yalnız ring buffer eğitim verisi yeterliyse ve model agreement yüksekse
   // aktif olur (cold-start guard + agreement gate).
   // Faz 2 — Stacking α-blend. Default α=0.5 (önerilen). env override edilebilir.
-  const stackingAlpha = parseFloat(process.env.STACKING_BLEND_ALPHA ?? '0.5');
+  const stackingAlpha = parseFloat(process.env.STACKING_BLEND_ALPHA ?? '0.0');
   const STACKING_MIN_SAMPLES = 200; // trainStackingMetaModel n<100 reddeder; burada 200 ile conservative
   const stackingSampleCount = getStackingSamplesCount();
   const stackingEligible =
@@ -666,6 +670,8 @@ export async function predictEnsemble(
     { name: "TeamStrength", weight: weights.teamStrength * teamStrengthP },
     { name: "InPlay5m", weight: weights.inplay * inPlayP },
     { name: "GAP", weight: weights.gap * gapP },
+    { name: "PiRating", weight: piRatingP },
+    { name: "Glicko2", weight: glicko2P },
   ];
   const dominantModel = modelWeights.reduce((a, b) =>
     a.weight > b.weight ? a : b,

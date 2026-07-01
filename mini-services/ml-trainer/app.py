@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -32,7 +33,7 @@ try:
     _HAS_LGBM = True
 except ImportError:
     _HAS_LGBM = False
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from sklearn.metrics import (
     accuracy_score,
@@ -119,6 +120,20 @@ class PromoteRequest(BaseModel):
 
 # ── App ───────────────────────────────────────────────────────────
 app = FastAPI(title="golradar2-ml-trainer", version="0.1.0")
+
+# ── Auth middleware ──────────────────────────────────────────────────
+TRAINER_KEY = os.environ.get("TRAINER_KEY", "")
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    if request.url.path == "/healthz":
+        return await call_next(request)
+    if TRAINER_KEY:
+        provided = request.headers.get("x-trainer-key", "")
+        if provided != TRAINER_KEY:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=401, content={"ok": False, "error": "Unauthorized"})
+    return await call_next(request)
 
 
 @app.get("/healthz")
@@ -384,12 +399,30 @@ def get_job(job_id: str) -> JobHandle:
 
 @app.post("/netscores-proxy")
 def netscores_proxy(req: NetscoresProxyRequest) -> Dict[str, Any]:
-    """Fetch a URL via curl_cffi to bypass Cloudflare.
+    """Fetch a URL via curl_cffi — restricted to allowed domains.
 
     curl_cffi impersonates a real browser TLS fingerprint. Used when
     direct Node.js fetch hits a CF challenge and the Alpine main
     container has no Python runtime.
     """
+    import ipaddress as _ipaddr
+    from urllib.parse import urlparse
+
+    ALLOWED_DOMAINS = {"netscores.com", "www.netscores.com"}
+    parsed = urlparse(req.url)
+
+    # Domain kontrol
+    if parsed.hostname not in ALLOWED_DOMAINS:
+        return {"ok": False, "error": "Domain not allowed"}
+
+    # Private IP blok
+    try:
+        ip = _ipaddr.ip_address(parsed.hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            return {"ok": False, "error": "Private IP blocked"}
+    except ValueError:
+        pass  # hostname, IP değil — domain kontrol yeterli
+
     try:
         from curl_cffi import requests
 
@@ -407,12 +440,12 @@ def netscores_proxy(req: NetscoresProxyRequest) -> Dict[str, Any]:
             },
         )
         if result.status_code != 200:
-            return {"ok": False, "status": result.status_code, "error": f"HTTP {result.status_code}"}
+            return {"ok": False, "status": result.status_code}
         return {"ok": True, "data": result.json()}
     except ImportError:
         return {"ok": False, "error": "curl_cffi not installed on trainer"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    except Exception:
+        return {"ok": False, "error": "Fetch failed"}
 
 
 @app.post("/promote")
@@ -424,6 +457,12 @@ def promote(req: PromoteRequest) -> Dict[str, Any]:
     the artifact file exists and writes a tiny `.ready` marker so
     the TS scheduler can pick it up.
     """
+    # Sanitize name ve version — sadece alfanumerik + dash + dot
+    if not re.match(r'^[a-z0-9-]+$', req.name):
+        return {"ok": False, "error": "Invalid name (only lowercase alphanumeric + dash)"}
+    if not re.match(r'^[0-9]+(\.[0-9]+)*$', req.version):
+        return {"ok": False, "error": "Invalid version (only numeric with dots)"}
+
     artifact = MODELS_DIR / f"{req.name}-v{req.version}.json"
     if not artifact.exists():
         raise HTTPException(

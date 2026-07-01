@@ -205,14 +205,19 @@ export async function loadXgbModel(path: string): Promise<XgbLoadResult> {
     throw new Error(`XGBoost model missing 'learner' root: ${path}`);
   }
 
-  // Objective base_score — newer xgboost writes it as a string in
-  // "logistic" mode (default 0.5). Older versions may write as a
-  // raw number. Fall back to 0.5 if absent.
+  // Objective base_score — newer xgboost writes it in probability space
+  // (default "0.5"). We convert to log-odds here because the tree
+  // leaf weights are in margin (log-odds) space and predictRaw sums
+  // baseScore + tree contributions before sigmoid.
   const baseScoreStr: string | undefined = learner?.objective?.base_score;
-  let baseScore = 0.5;
+  let baseScore = 0; // log-odds: 0 = probability 0.5
   if (baseScoreStr !== undefined) {
     const parsed = parseFloat(baseScoreStr);
-    if (!Number.isNaN(parsed)) baseScore = parsed;
+    if (!Number.isNaN(parsed)) {
+      // Clamp to avoid log(0) or log(negative)
+      const clamped = Math.max(1e-6, Math.min(1 - 1e-6, parsed));
+      baseScore = Math.log(clamped / (1 - clamped));
+    }
   }
 
   // The gradient_booster wraps the model; for gblinear models the

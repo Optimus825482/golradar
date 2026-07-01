@@ -12,6 +12,7 @@ curl_cffi>=0.7
 optuna==4.2.*  # Hyperparameter optimization (optional, fallback to defaults)
 statsbombpy==1.16.*  # xT grid builder için StatsBomb verisi
 pytorch-tabnet==4.1.*  # TabTransformer alternative (P2)
+lifelines==0.27.*  # Weibull AFT for goal timing (P2)
 # Test dependencies (split so prod containers can skip these)
 pytest==8.3.*
 pytest-asyncio==0.24.*

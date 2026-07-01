@@ -46,25 +46,67 @@ export async function getRefereeStats(
 ): Promise<RefereeStatsData | null> {
   if (!refereeName || refereeName.trim().length === 0) return null;
   const normalized = refereeName.trim();
+
+  // In-memory LRU cache. SSE / 5s poll → every match re-fetches
+  // extractFeatures → referee query per match per poll would
+  // hammer the DB. Cache hot referees for 5 minutes — the data
+  // is scraped from Transfermarkt and changes slowly.
+  const cached = _refereeCache.get(normalized);
+  if (cached && cached.expires > Date.now()) {
+    return cached.value;
+  }
+
   try {
     const row = await db.refereeStats.findUnique({
       where: { refereeName: normalized },
     });
-    if (!row) return null;
-    return {
-      refereeName: row.refereeName,
-      matchesCount: row.matchesCount,
-      avgYellowCards: row.avgYellowCards,
-      avgRedCards: row.avgRedCards,
-      avgFouls: row.avgFouls,
-      avgPenalties: row.avgPenalties,
-      penaltyRate: row.penaltyRate,
-      cardRate: row.cardRate,
-    };
+    const value: RefereeStatsData | null = row
+      ? {
+          refereeName: row.refereeName,
+          matchesCount: row.matchesCount,
+          avgYellowCards: row.avgYellowCards,
+          avgRedCards: row.avgRedCards,
+          avgFouls: row.avgFouls,
+          avgPenalties: row.avgPenalties,
+          penaltyRate: row.penaltyRate,
+          cardRate: row.cardRate,
+        }
+      : null;
+    _setRefereeCache(normalized, value);
+    return value;
   } catch (e) {
     logError('refereeStats', e);
     return null;
   }
+}
+
+// ── In-memory TTL cache ─────────────────────────────────────────────
+// Bounded by referee count (top-flight leagues have ~50 active refs).
+// 5-min TTL — Transfermarkt data updates slowly. upsertRefereeStats
+// invalidates the entry on write.
+const _CACHE_MAX = 256;
+interface RefereeCacheEntry {
+  value: RefereeStatsData | null;
+  expires: number;
+}
+const _refereeCache: Map<string, RefereeCacheEntry> = new Map();
+function _setRefereeCache(key: string, value: RefereeStatsData | null) {
+  _refereeCache.set(key, { value, expires: Date.now() + 5 * 60_000 });
+  if (_refereeCache.size > _CACHE_MAX) {
+    // Drop oldest 32 entries when full — insertion order is fine
+    // here because TTL is short (5 min) and turnover is high.
+    const it = _refereeCache.keys();
+    for (let i = 0; i < 32; i++) {
+      const k = it.next().value;
+      if (k === undefined) break;
+      _refereeCache.delete(k);
+    }
+  }
+}
+
+/** Test helper — wipe the in-memory cache. Not for production use. */
+export function _resetRefereeCacheForTests(): void {
+  _refereeCache.clear();
 }
 
 /**
@@ -118,6 +160,8 @@ export async function upsertRefereeStats(
 ): Promise<boolean> {
   if (!scraped.ok || !scraped.refereeName) return false;
   try {
+    // Invalidate cache entry so the next read picks up the fresh row.
+    _refereeCache.delete(scraped.refereeName);
     await db.refereeStats.upsert({
       where: { refereeName: scraped.refereeName },
       create: {

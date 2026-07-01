@@ -75,3 +75,12 @@ describe('refereeStatsToFeatures', () => {
     expect(refereeStatsToFeatures(mkStats(50)).ref_foul_rate).toBe(1);
   });
 });
+
+describe('refereeStats TTL cache helpers', () => {
+  test('_resetRefereeCacheForTests is exported and callable', async () => {
+    const mod = await import('../refereeStats');
+    expect(typeof mod._resetRefereeCacheForTests).toBe('function');
+    // Should not throw
+    mod._resetRefereeCacheForTests();
+  });
+});

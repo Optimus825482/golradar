@@ -174,7 +174,7 @@ export async function exportTrainingData(
       // Bulk enrichment verilerini eğitimden çıkar (boş stat'lı eski kayıtlar)
       modelVariant: { not: 'goaloo-bulk' },
     },
-    orderBy: [{ matchCode: "asc" }, { createdAt: "asc" }],
+    orderBy: [{ matchCode: "desc" }, { createdAt: "desc" }],
     take: maxRows > 0 ? maxRows : 100_000,
   });
 

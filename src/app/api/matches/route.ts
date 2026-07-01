@@ -351,6 +351,11 @@ export async function GET(request: Request) {
                 homeGoals: s.homeGoals,
                 awayGoals: s.awayGoals,
               })) : undefined,
+              // E5: referee name from FotMob infobox → RefereeStats DB
+              // lookup. With a 5-min in-memory cache (refereeStats.ts)
+              // this is one query per unique active referee per 5 min,
+              // regardless of how many matches they officiate.
+              refereeName: fotmobData?.infoBox?.referee ?? null,
               skipXtGrid: true,
             });
             const fa = featuresToArray(features);

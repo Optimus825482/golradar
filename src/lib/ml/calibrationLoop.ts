@@ -48,7 +48,7 @@ export interface CalibrationDriftReport {
 export function evaluateCalibrationDrift(
   input: CalibrationDriftInput,
 ): CalibrationDriftReport {
-  const thresholdPct = input.thresholdPct ?? 0.10;
+  const thresholdPct = input.thresholdPct ?? 0.03;
   const windowDays = input.windowDays ?? 7;
   const series = input.series;
 
@@ -71,7 +71,7 @@ export function evaluateCalibrationDrift(
       : null;
 
   const elevated =
-    driftPct !== null && driftPct > thresholdPct * 100;
+    driftPct !== null && driftPct > Math.max(7, thresholdPct * 100);
 
   const direction: CalibrationDriftReport['direction'] =
     driftPct == null

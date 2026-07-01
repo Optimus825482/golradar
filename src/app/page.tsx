@@ -488,27 +488,11 @@ export default function OptimusGolRadariPage() {
     }
   }, [matches.length, finishedMatches.length, fetchFinishedMatches, finishedLoading, tier])
 
-  // Sync prevGoalsRef with current matches state. Without this, prevGoals
-  // is empty forever and the goal-detection loop below never sees a "prev"
-  // entry — meaning no goal is ever detected.
-  useEffect(() => {
-    for (const m of matches) {
-      const cur = prevGoalsRef.current[m.code]
-      if (cur) {
-        cur.home = m.homeGoals
-        cur.away = m.awayGoals
-        cur.status = m.status
-      } else {
-        prevGoalsRef.current[m.code] = {
-          home: m.homeGoals,
-          away: m.awayGoals,
-          status: m.status,
-        }
-      }
-    }
-  }, [matches, prevGoalsRef])
-
-  // Goal Detection: report goals to signal tracker + UI notifications
+  // ── Goal Detection ─────────────────────────────────────────────
+  // Compares current scores with prevGoalsRef to detect goals.
+  // After processing, updates prevGoalsRef so the next poll sees
+  // the delta correctly. The sync effect was removed because it ran
+  // BEFORE this effect, making prev == current → no diff detected.
   useEffect(() => {
     const now = Date.now()
 
@@ -560,7 +544,7 @@ export default function OptimusGolRadariPage() {
                 body: `${scorer} ${m.homeGoals}-${m.awayGoals} ${opponent} · ${m.league}`,
                 icon: '/logo-192.png',
                 tag: `goal-${m.code}`,
-                silent: true, // ses zaten Web Audio ile oynuyor
+                silent: true,
               });
             } catch {}
           }
@@ -575,6 +559,26 @@ export default function OptimusGolRadariPage() {
       if (FINISHED_STATUSES.has(m.status) && !FINISHED_STATUSES.has(prev.status)) {
         fetch(`/api/goal-signals?action=finalize&matchCode=${m.code}&homeScore=${m.homeGoals}&awayScore=${m.awayGoals}`)
           .catch((e) => { logError('page', e); })
+      }
+    }
+
+    // ── Update prevGoalsRef for next poll ─────────────────────
+    // Must happen AFTER detection so the next poll sees a proper delta.
+    // Without this, the Sync effect (previously at line 491) was writing
+    // CURRENT scores to prev BEFORE detection, making prev == current
+    // and hiding every goal.
+    for (const m of matches) {
+      const cur = prevGoalsRef.current[m.code]
+      if (cur) {
+        cur.home = m.homeGoals
+        cur.away = m.awayGoals
+        cur.status = m.status
+      } else {
+        prevGoalsRef.current[m.code] = {
+          home: m.homeGoals,
+          away: m.awayGoals,
+          status: m.status,
+        }
       }
     }
 

@@ -1,9 +1,9 @@
 // Optimus Gol Radarı - Service Worker
 // Cache-first for static assets, network-first for API calls
 
-const CACHE_NAME = 'optimus-gol-radar-v7';
-const STATIC_CACHE = 'optimus-static-v7';
-const API_CACHE = 'optimus-api-v6';
+const CACHE_NAME = 'optimus-gol-radar-v8';
+const STATIC_CACHE = 'optimus-static-v8';
+const API_CACHE = 'optimus-api-v7';
 
 const STATIC_ASSETS = [
   '/',
@@ -57,6 +57,27 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Admin pages + Next.js server-rendered routes: network-only.
+  // Auth-gated / personalized content (e.g. /admin/pnl) MUST NOT be
+  // cached — serving stale HTML after a logout would leak the next
+  // user's session. Same goes for all HTML responses.
+  if (
+    url.pathname.startsWith('/admin/') ||
+    url.pathname.startsWith('/api/admin/') ||
+    (request.mode === 'navigate' && request.method === 'GET')
+  ) {
+    // Network-only, but resolve gracefully on failure (e.g. offline)
+    // so the user sees Next.js's own error page instead of an
+    // unhandled promise rejection.
+    event.respondWith(
+      fetch(request).catch(() => new Response(
+        '<!doctype html><html><body><h1>Offline</h1><p>Bu sayfa çevrimdışı kullanılamaz.</p></body></html>',
+        { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+      )),
+    );
+    return;
+  }
+
   // API calls: network-first with 10s timeout, then cache (GET only)
   if (url.pathname.startsWith('/api/')) {
     // POST requests: network-only, never cache
@@ -101,7 +122,7 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         });
-      })
+      }).catch(() => new Response('', { status: 503 }))
     );
   }
 });

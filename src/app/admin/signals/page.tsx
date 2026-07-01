@@ -14,7 +14,7 @@ interface SignalRecord {
   signalSide: string;
   signalScore: number;
   calibratedP: number;
-  level: string;
+  signalLevel: string;
   goalHappened: boolean | null;
   goalMinute: number | null;
   minutesAfterSignal: number | null;
@@ -80,7 +80,7 @@ export default function AdminSignalsPage() {
       list = list.filter(s => s.league.toLowerCase().includes(filterLeague.toLowerCase()));
     }
     if (filterLevel) {
-      list = list.filter(s => s.level === filterLevel);
+      list = list.filter(s => s.signalLevel === filterLevel);
     }
     if (filterResult) {
       if (filterResult === 'goal') list = list.filter(s => s.goalHappened === true);
@@ -92,7 +92,7 @@ export default function AdminSignalsPage() {
 
   // Benzersiz lig ve level listeleri
   const leagues = useMemo(() => [...new Set(signals.map(s => s.league))].sort(), [signals]);
-  const levels = useMemo(() => [...new Set(signals.map(s => s.level))].sort(), [signals]);
+  const levels = useMemo(() => [...new Set(signals.map(s => s.signalLevel))].sort(), [signals]);
 
   // Stats
   const total = filtered.length;
@@ -288,7 +288,7 @@ export default function AdminSignalsPage() {
                     const isGoal = s.goalHappened === true;
                     const isNoGoal = s.goalHappened === false;
                     const isPending = s.goalHappened == null;
-                    const lc = levelColor(s.level);
+                    const lc = levelColor(s.signalLevel);
                     const homeLogo = getLogo(s.homeTeam);
                     const awayLogo = getLogo(s.awayTeam);
 
@@ -351,9 +351,9 @@ export default function AdminSignalsPage() {
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${lc.bg} ${lc.text} ${lc.border} border`}>
-                            {s.level === 'critical' ? 'KRITIK' :
-                             s.level === 'high' ? 'YUKSEK' :
-                             s.level === 'medium' ? 'ORTA' : 'DUSUK'}
+                            {s.signalLevel === 'critical' ? 'KRITIK' :
+                             s.signalLevel === 'high' ? 'YUKSEK' :
+                             s.signalLevel === 'medium' ? 'ORTA' : 'DUSUK'}
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-right">

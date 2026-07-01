@@ -8,7 +8,7 @@ interface SignalRecord {
   id: string; matchCode: number; homeTeam: string; awayTeam: string;
   league: string; date: string; signalMinute: number;
   signalSide: string; signalScore: number; calibratedP: number;
-  level: string; goalHappened: boolean | null;
+  signalLevel: string; goalHappened: boolean | null;
   goalMinute: number | null; minutesAfterSignal: number | null;
   homeScore: number; awayScore: number;
   currentHomeGoals: number; currentAwayGoals: number;
@@ -68,7 +68,7 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
   const filtered = useMemo(() => {
     let list = [...signals];
     list.sort((a, b) => b.signalTimestamp - a.signalTimestamp);
-    if (filterLevel) list = list.filter(s => s.level === filterLevel);
+    if (filterLevel) list = list.filter(s => s.signalLevel === filterLevel);
     if (filterResult) {
       if (filterResult === 'goal') list = list.filter(s => s.goalHappened === true);
       else if (filterResult === 'nogoal') list = list.filter(s => s.goalHappened === false);
@@ -77,7 +77,7 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
     return list;
   }, [signals, filterLevel, filterResult]);
 
-  const levels = useMemo(() => [...new Set(signals.map(s => s.level))].sort(), [signals]);
+  const levels = useMemo(() => [...new Set(signals.map(s => s.signalLevel))].sort(), [signals]);
 
   const shift = (offset: number) => {
     const d = new Date(selectedDate);
@@ -196,7 +196,7 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
                     const isGoal = s.goalHappened === true;
                     const isNoGoal = s.goalHappened === false;
                     const isPending = s.goalHappened == null;
-                    const lc = levelColor(s.level);
+                    const lc = levelColor(s.signalLevel);
 
                     const handleClick = () => {
                       const live = matches.find(m => m.code === s.matchCode);
@@ -246,7 +246,7 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
                         </td>
                         <td className="px-2 py-2 text-center">
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${lc.bg} ${lc.text} ${lc.border} border`}>
-                            {s.level === 'critical' ? 'KRITIK' : s.level === 'high' ? 'YUKSEK' : s.level === 'medium' ? 'ORTA' : 'DUSUK'}
+                            {s.signalLevel === 'critical' ? 'KRITIK' : s.signalLevel === 'high' ? 'YUKSEK' : s.signalLevel === 'medium' ? 'ORTA' : 'DUSUK'}
                           </span>
                         </td>
                         <td className="px-2 py-2 text-right">

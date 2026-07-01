@@ -106,6 +106,8 @@ export interface MatchFeatures {
   // ── B1: Freeze-frame defensive features (Singh 2025 — AUC 0.878) ──
   shot_angle_home: number;           // Avg shot angle for home shots, normalized [0,1]
   shot_angle_away: number;           // Avg shot angle for away shots, normalized [0,1]
+  shot_distance_home: number;        // Avg shot distance for home shots, normalized [0,1]
+  shot_distance_away: number;        // Avg shot distance for away shots, normalized [0,1]
   defenders_in_cone_home: number;    // Proxy for defenders in shooting cone, normalized [0,1]
   defenders_in_cone_away: number;    // Proxy for defenders in shooting cone, normalized [0,1]
 
@@ -348,12 +350,18 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
   let shotAvgAngle = 0.15; // neutral default (15° opening = typical mid-range)
   let shotAvgDistance = 0.5;
   let shotDefendersAvg = 0.5;
-  // ── B1: Freeze-frame defensive features (Singh 2025 — AUC 0.878) ──
+  // ── B1: Per-side freeze-frame defensive features (Singh 2025 — AUC 0.878) ──
   let shotAngleHome = 0.5;
   let shotAngleAway = 0.5;
+  let shotDistanceHome = 0.5;
+  let shotDistanceAway = 0.5;
   let defendersInConeHome = 0.5;
   let defendersInConeAway = 0.5;
   if (shotmap && shotmap.length > 0) {
+    // Use the shared shotGeometry module for consistent unit conversion.
+    // Defer import (server-only) — featureEngineering is hot-path so we
+    // dynamic-import to keep heavy code off the client bundle.
+    const { aggregateShotGeometry, computeShotGeometry } = await import('./shotGeometry');
     const angles: number[] = [];
     const distances: number[] = [];
     const blockers: number[] = [];
@@ -366,8 +374,9 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
       : [];
     for (const s of shotmap) {
       if (typeof s.x !== 'number' || typeof s.y !== 'number') continue;
-      angles.push(shotAngleFromGoal(s.x));
-      distances.push(shotDistanceFromGoal(s.x, s.y));
+      const geo = computeShotGeometry(s.x, s.y, s.expectedGoals ?? 0);
+      angles.push(geo.angle);
+      distances.push(geo.distance);
       // isBlocked proxy for defenders on shot line
       blockers.push(s.isBlocked ? 0.8 : 0.3);
     }
@@ -382,26 +391,22 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     }
 
     // ── B1: Per-side freeze-frame defensive features ──
+    const homeGeo = aggregateShotGeometry(
+      homeShots.map(s => ({ x: s.x, y: s.y, expectedGoals: s.expectedGoals ?? 0 })),
+    );
+    const awayGeo = aggregateShotGeometry(
+      awayShots.map(s => ({ x: s.x, y: s.y, expectedGoals: s.expectedGoals ?? 0 })),
+    );
     if (homeShots.length > 0) {
-      const homeAngles = homeShots
-        .filter(s => typeof s.x === 'number')
-        .map(s => shotAngleFromGoal(s.x));
-      if (homeAngles.length > 0) {
-        const avgHomeAngle = homeAngles.reduce((a, b) => a + b, 0) / homeAngles.length;
-        shotAngleHome = normLinear(avgHomeAngle, 0, Math.PI / 3);
-      }
+      shotAngleHome = normLinear(homeGeo.avgAngle, 0, Math.PI / 3);
+      shotDistanceHome = normLinear(homeGeo.avgDistance, 5, 35);
       // Defenders in cone proxy: high xG shots = fewer defenders
       const highXgShots = homeShots.filter(s => (s.expectedGoals ?? 0) > 0.15).length;
       defendersInConeHome = normLinear(1 - Math.min(1, highXgShots / 5), 0, 1);
     }
     if (awayShots.length > 0) {
-      const awayAngles = awayShots
-        .filter(s => typeof s.x === 'number')
-        .map(s => shotAngleFromGoal(s.x));
-      if (awayAngles.length > 0) {
-        const avgAwayAngle = awayAngles.reduce((a, b) => a + b, 0) / awayAngles.length;
-        shotAngleAway = normLinear(avgAwayAngle, 0, Math.PI / 3);
-      }
+      shotAngleAway = normLinear(awayGeo.avgAngle, 0, Math.PI / 3);
+      shotDistanceAway = normLinear(awayGeo.avgDistance, 5, 35);
       const highXgShots = awayShots.filter(s => (s.expectedGoals ?? 0) > 0.15).length;
       defendersInConeAway = normLinear(1 - Math.min(1, highXgShots / 5), 0, 1);
     }
@@ -704,6 +709,8 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     // B1: Freeze-frame defensive features
     shot_angle_home: shotAngleHome,
     shot_angle_away: shotAngleAway,
+    shot_distance_home: shotDistanceHome,
+    shot_distance_away: shotDistanceAway,
     defenders_in_cone_home: defendersInConeHome,
     defenders_in_cone_away: defendersInConeAway,
 
@@ -816,6 +823,7 @@ export const FEATURE_NAMES: (keyof MatchFeatures)[] = [
   'shot_avg_angle_norm', 'shot_avg_distance_norm', 'shot_defenders_avg',
   // B1: Freeze-frame defensive features
   'shot_angle_home', 'shot_angle_away',
+  'shot_distance_home', 'shot_distance_away',
   'defenders_in_cone_home', 'defenders_in_cone_away',
   // P1.3: PPDA proxy
   'ppda_home', 'ppda_away',

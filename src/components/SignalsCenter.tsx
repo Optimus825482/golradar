@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Clock, ExternalLink } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Clock, ExternalLink, Search, X } from "lucide-react";
 import type { Match } from "@/components/match/types";
 
 interface SignalRecord {
@@ -13,6 +13,7 @@ interface SignalRecord {
   homeScore: number; awayScore: number;
   currentHomeGoals: number; currentAwayGoals: number;
   finalHomeScore: number | null; finalAwayScore: number | null;
+  signalTimestamp: number;
 }
 
 interface SignalsCenterProps {
@@ -35,6 +36,8 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
   const [signals, setSignals] = useState<SignalRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [logos, setLogos] = useState<Record<string, string>>({});
+  const [filterLevel, setFilterLevel] = useState('');
+  const [filterResult, setFilterResult] = useState('');
 
   const load = useCallback(async (date: string) => {
     setLoading(true);
@@ -61,6 +64,21 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
 
   useEffect(() => { load(selectedDate); }, [selectedDate, load]);
 
+  // Sort newest first + filter
+  const filtered = useMemo(() => {
+    let list = [...signals];
+    list.sort((a, b) => b.signalTimestamp - a.signalTimestamp);
+    if (filterLevel) list = list.filter(s => s.level === filterLevel);
+    if (filterResult) {
+      if (filterResult === 'goal') list = list.filter(s => s.goalHappened === true);
+      else if (filterResult === 'nogoal') list = list.filter(s => s.goalHappened === false);
+      else if (filterResult === 'pending') list = list.filter(s => s.goalHappened == null);
+    }
+    return list;
+  }, [signals, filterLevel, filterResult]);
+
+  const levels = useMemo(() => [...new Set(signals.map(s => s.level))].sort(), [signals]);
+
   const shift = (offset: number) => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + offset);
@@ -69,10 +87,10 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
 
   const getLogo = (team: string): string | null => logos[team.toLowerCase()] ?? null;
 
-  const total = signals.length;
-  const withGoal = signals.filter(s => s.goalHappened === true).length;
-  const withoutGoal = signals.filter(s => s.goalHappened === false).length;
-  const pending = signals.filter(s => s.goalHappened == null).length;
+  const total = filtered.length;
+  const withGoal = filtered.filter(s => s.goalHappened === true).length;
+  const withoutGoal = filtered.filter(s => s.goalHappened === false).length;
+  const pending = filtered.filter(s => s.goalHappened == null).length;
   const resolved = withGoal + withoutGoal;
   const successRate = resolved > 0 ? withGoal / resolved : 0;
 
@@ -91,6 +109,34 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
           <button onClick={() => shift(1)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><ChevronRight className="size-4" /></button>
         </div>
       </div>
+
+      {/* Filters */}
+      {signals.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 flex flex-wrap items-center gap-2">
+          <Search className="size-3.5 text-gray-400" />
+          <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            <option value="">Tum seviyeler</option>
+            {levels.map(l => (
+              <option key={l} value={l}>{l === 'critical' ? 'KRITIK' : l === 'high' ? 'YUKSEK' : l === 'medium' ? 'ORTA' : 'DUSUK'}</option>
+            ))}
+          </select>
+          <select value={filterResult} onChange={e => setFilterResult(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            <option value="">Tum sonuclar</option>
+            <option value="goal">Gol</option>
+            <option value="nogoal">Basarisiz</option>
+            <option value="pending">Bekleyen</option>
+          </select>
+          {(filterLevel || filterResult) && (
+            <button onClick={() => { setFilterLevel(''); setFilterResult(''); }}
+              className="text-xs text-gray-500 hover:text-red-500 flex items-center gap-1 px-2 py-1">
+              <X className="size-3" /> Temizle
+            </button>
+          )}
+          <span className="text-[10px] text-gray-400 ml-auto">{filtered.length}/{signals.length}</span>
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (
@@ -137,7 +183,8 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
                     <th className="text-left px-2.5 py-2 font-semibold">Mac</th>
                     <th className="text-center px-2 py-2 font-semibold">Dk</th>
                     <th className="text-center px-2 py-2 font-semibold">Yon</th>
-                    <th className="text-right px-2 py-2 font-semibold">Skor</th>
+                    <th className="text-right px-2 py-2 font-semibold">Radar</th>
+                    <th className="text-center px-2 py-2 font-semibold">Skor</th>
                     <th className="text-center px-2 py-2 font-semibold">Seviye</th>
                     <th className="text-right px-2 py-2 font-semibold">P</th>
                     <th className="text-right px-2 py-2 font-semibold">Sonuc</th>
@@ -145,7 +192,7 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
                   </tr>
                 </thead>
                 <tbody>
-                  {signals.map(s => {
+                  {filtered.map(s => {
                     const isGoal = s.goalHappened === true;
                     const isNoGoal = s.goalHappened === false;
                     const isPending = s.goalHappened == null;
@@ -154,7 +201,6 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
                     const handleClick = () => {
                       const live = matches.find(m => m.code === s.matchCode);
                       if (live) { onSelectMatch(live); return; }
-                      // Create a minimal match object from signal data
                       onSelectMatch({
                         code: s.matchCode, bid: 0, league: s.league, leagueId: 0,
                         home: s.homeTeam, away: s.awayTeam, homeTr: s.homeTeam, awayTr: s.awayTeam,
@@ -195,6 +241,9 @@ export default function SignalsCenter({ matches, onSelectMatch }: SignalsCenterP
                           }`}>{s.signalSide === 'home' ? 'EV' : s.signalSide === 'away' ? 'DEP' : s.signalSide}</span>
                         </td>
                         <td className="px-2 py-2 text-right font-mono font-bold text-gray-800">{s.signalScore}</td>
+                        <td className="px-2 py-2 text-center font-mono text-sm font-bold text-gray-700">
+                          {s.currentHomeGoals} - {s.currentAwayGoals}
+                        </td>
                         <td className="px-2 py-2 text-center">
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${lc.bg} ${lc.text} ${lc.border} border`}>
                             {s.level === 'critical' ? 'KRITIK' : s.level === 'high' ? 'YUKSEK' : s.level === 'medium' ? 'ORTA' : 'DUSUK'}

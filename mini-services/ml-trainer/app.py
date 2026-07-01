@@ -332,7 +332,7 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                     learning_rate=hp.get('learning_rate', 0.03),
                     objective='binary:logistic', eval_metric='logloss',
                     early_stopping_rounds=30, random_state=req.random_state,
-                    n_jobs=-1, use_label_encoder=False,
+                    n_jobs=-1,
                 )
                 cv_sw = np.where(y_tr_cv == 1, (1 - pos_rate) / max(pos_rate, 0.01), 1.0)
                 cv_model.fit(X_tr_cv, y_tr_cv, sample_weight=cv_sw, eval_set=[(X_te_cv, y_te_cv)], verbose=0)

@@ -18,6 +18,7 @@ import {
   FINISHED_STATUSES,
 } from '@/lib/nesine'
 import { determineSideByStats } from '@/lib/goalRadar/side'
+import { parseMinute } from '@/lib/goalSignalTracker'
 import type {
   FotMobMatchDetails,
 } from '@/lib/fotmob'
@@ -690,9 +691,15 @@ export default function OptimusGolRadariPage() {
       }
       return { mode: 'league' as const, groups }
     } else {
+      // "Zamana göre" sıralama = maçın canlı dakikasına göre artan.
+      // Eski kod `a.time.localeCompare(b.time)` ile maç başlama saatini
+      // (string) karşılaştırıyordu; bu "16" < "9" gibi yanlış
+      // sonuçlar üretiyordu. parseMinute("103'") → 103, böylece
+      // 11' < 12' < 16' < ... < 103' doğru sıralanır.
       const sorted = [...filteredMatches].sort((a, b) => {
-        const timeCompare = a.time.localeCompare(b.time)
-        if (timeCompare !== 0) return timeCompare
+        const aMin = parseMinute(a.minute)
+        const bMin = parseMinute(b.minute)
+        if (aMin !== bMin) return aMin - bMin
         return a.league.localeCompare(b.league, 'tr')
       })
       return { mode: 'time' as const, flat: sorted }

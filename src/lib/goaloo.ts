@@ -760,7 +760,7 @@ export async function fetchGoalooMatchEvents(matchId: number): Promise<GoalooMat
         id: e.id,
         minute,
         type,
-        team: 'home', // Need match context to determine - will be enriched by caller
+        team: 'home', /* FIXME: Goaloo raw events have no team ID */
         player,
         detail: content.replace(/&nbsp;/g, ' ').replace(/<[^>]+>/g, ''),
         timestamp: e.time,

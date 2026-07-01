@@ -23,7 +23,7 @@ import { calibrateScore } from './calibration';
 import { logError } from '@/lib/devLog';
 import { SIGNAL_5MIN_THRESHOLD, ENSEMBLE_SCORE_CAP, RADAR_THRESHOLD } from '@/config';
 import { determineSide } from './goalRadar/side';
-import { computeTrendBoost } from './ml/trendLSTM';
+import { computeTrendBoost } from './ml/trendHeuristic';
 import { detectGoalCooldown, applyGoalCooldown } from './goalRadar/cooldown';
 import { computeMomentumBoost } from './goalRadar/momentum';
 import type { PressureSnapshotLite, GoalProbability } from './goalRadar/types';
@@ -368,10 +368,10 @@ export function calculateGoalProbability(
     }
 
     // ── FotMob shot-level xG ──────────────────────────────────────
+    let fXgH = 0, fXgA = 0;
     try {
       const shotmap = fotmobData.shotmap;
       if (shotmap && Array.isArray(shotmap) && shotmap.length > 0) {
-        let fXgH = 0, fXgA = 0;
         for (const shot of shotmap) {
           if (shot.expectedGoals != null) {
             if (shot.teamId === fotmobData.homeTeam?.id) fXgH += shot.expectedGoals;
@@ -380,6 +380,14 @@ export function calculateGoalProbability(
         }
         if (fXgH > xg.home) { const bp = Math.min(5, Math.round((fXgH - xg.home) * 7)); if (bp >= 2) { ctx.hs += bp; ctx.hf.push(`FotMob xG +${fXgH.toFixed(2)}`); } }
         if (fXgA > xg.away) { const bp = Math.min(5, Math.round((fXgA - xg.away) * 7)); if (bp >= 2) { ctx.as += bp; ctx.af.push(`FotMob xG +${fXgA.toFixed(2)}`); } }
+      }
+      // FotMob xG boost'tan sonra 5-dk gate'ini güncelle
+      if (fXgH > xg.home || fXgA > xg.away) {
+        const newXgHome = Math.max(xg.home, fXgH);
+        const newXgAway = Math.max(xg.away, fXgA);
+        try {
+          goalProbability5min = Math.min(0.95, 1 - Math.exp(-Math.max(0, (newXgHome + newXgAway) * 5)));
+        } catch { /* fallback */ }
       }
     } catch { /* FotMob xG optional */ }
   }

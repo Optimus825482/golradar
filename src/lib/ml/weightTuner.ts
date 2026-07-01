@@ -244,33 +244,34 @@ export function recordPrediction(model: string, predicted: number, actual: numbe
 
 /**
  * Son N kayda göre per-model online weight adjustment factor hesapla.
- * Accuracy-based: doğru tahmin oranı yüksek model → bonus weight.
+ * Brier-based: düşük Brier score = iyi kalibrasyon → bonus weight.
  * Returns: { "modelName": adjustmentFactor } — 1.0 = nötr, >1 = bonus, <1 = ceza
  */
 export function computeOnlineAdjustments(): Record<string, number> {
-  const perModel: Record<string, { correct: number; total: number }> = {};
+  const perModel: Record<string, { sumBrier: number; total: number }> = {};
 
   for (const r of recentRecords) {
-    if (!perModel[r.model]) perModel[r.model] = { correct: 0, total: 0 };
+    if (!perModel[r.model]) perModel[r.model] = { sumBrier: 0, total: 0 };
     perModel[r.model].total++;
-    // correct if: (predicted > 0.5 && actual === 1) || (predicted <= 0.5 && actual === 0)
-    const isCorrect = (r.predicted > 0.5) === (r.actual === 1);
-    if (isCorrect) perModel[r.model].correct++;
+    // Brier score: (predicted - actual)^2 — düşük iyi
+    perModel[r.model].sumBrier += Math.pow(r.predicted - r.actual, 2);
   }
 
   const adjustments: Record<string, number> = {};
-  let maxAccuracy = 0;
+  let minBrier = Infinity;
 
   for (const [model, stats] of Object.entries(perModel)) {
-    const acc = stats.total > 0 ? stats.correct / stats.total : 0.5;
-    if (acc > maxAccuracy) maxAccuracy = acc;
-    adjustments[model] = acc;
+    if (stats.total < 3) { adjustments[model] = 1.0; continue; }
+    const avgBrier = stats.sumBrier / stats.total;
+    adjustments[model] = avgBrier;
+    if (avgBrier < minBrier) minBrier = avgBrier;
   }
 
-  // Normalize: en iyi model 1.2x, en kötü 0.8x
-  if (maxAccuracy > 0) {
+  // Göreceli normalize: en iyi model (minBrier) 1.2x, en kötü 0.8x
+  if (minBrier < Infinity) {
     for (const model of Object.keys(adjustments)) {
-      adjustments[model] = 0.8 + 0.4 * (adjustments[model] / maxAccuracy);
+      const ratio = minBrier / Math.max(adjustments[model], 0.001);
+      adjustments[model] = 0.8 + 0.4 * ratio;
     }
   }
 

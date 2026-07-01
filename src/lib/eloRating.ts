@@ -96,9 +96,9 @@ function expectedScore(ratingA: number, ratingB: number): number {
 function kFactor(rating: EloRating, goalDiff: number): number {
   let k = K_BASE;
   if (rating.matchesPlayed < PROVISIONAL_THRESHOLD) { k = K_BASE * 1.5; }
-  if (goalDiff >= 2) k *= 1 + (goalDiff - 1) * 0.15;
-  if (goalDiff >= 4) k *= 1.15;
   if (goalDiff >= 6) k *= 1.2;
+  else if (goalDiff >= 4) k *= 1.15;
+  else if (goalDiff >= 2) k *= 1 + (goalDiff - 1) * 0.15;
   return Math.min(k, K_BASE * 3);
 }
 

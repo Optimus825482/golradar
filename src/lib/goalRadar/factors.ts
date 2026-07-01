@@ -260,7 +260,7 @@ export function calcFactorCompositeThreat(
   let awayAtkRate5min = (stats.dangerous_attacks?.away ?? 0) / elapsed15;
 
   if (pressureHistory && pressureHistory.length >= 6) {
-    const window5min = pressureHistory.slice(-60);
+    const window5min = pressureHistory.slice(-10); // 5 dk @ 30s poll
     if (window5min.length >= 3) {
       const firstDA_h = window5min[0].stats.dangerous_attacks?.home ?? 0;
       const lastDA_h = window5min[window5min.length - 1].stats.dangerous_attacks?.home ?? 0;

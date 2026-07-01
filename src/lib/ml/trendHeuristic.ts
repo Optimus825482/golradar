@@ -1,10 +1,10 @@
-// ── Lightweight Trend LSTM (TypeScript) ──────────────────────
-// Basit bir RNN: son N dakikanın pressure trend'ini analiz eder.
+// ── Trend Heuristic (lightweight pressure trend detection) ──────
+// Basit bir heuristic: son N dakikanın pressure trend'ini analiz eder.
 // Giriş: [pressure_home, pressure_away] dizisi (son 10 dk)
 // Çıkış: goal probability boost (0-1)
 //
-// Bu tam bir LSTM değil, sliding window + weighted combination.
-// Gerçek LSTM için Python gerekir.
+// NOT: Bu "LSTM" değildir — sliding window + weighted combination.
+// Adı intentional olarak trendHeuristic; LSTM implementasyonu Python gerekir.
 
 export interface TrendInput {
   /** Son N dakikanın pressure değerleri: [home, away] */

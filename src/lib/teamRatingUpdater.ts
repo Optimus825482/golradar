@@ -8,6 +8,7 @@
 
 import { db } from '@/lib/db';
 import { updatePiRating, resetPiState } from '@/lib/piRating';
+import { updateGlicko2 } from '@/lib/glicko2';
 import { logInfo, logError } from '@/lib/devLog';
 import { fitBatch } from '@/lib/ml/teamStrengthKalman';
 import type { TeamStrengthModel } from '@/lib/ml/teamStrengthKalman';
@@ -38,9 +39,11 @@ export async function runFullTeamRatingUpdate(): Promise<{ teams: number }> {
     return { teams: 0 };
   }
 
-  // Pi-Rating sequential replay (sadece yeni maclar)
+  // Pi-Rating + Glicko-2 sequential replay (sadece yeni maclar)
   for (const r of newMatches) {
     updatePiRating(r.homeTeam, r.awayTeam, r.homeGoals, r.awayGoals);
+    const glickoScore = r.homeGoals > r.awayGoals ? 1 : r.homeGoals < r.awayGoals ? 0 : 0.5;
+    updateGlicko2(r.homeTeam, r.awayTeam, glickoScore);
   }
 
   // TeamRating'i guncelle (etkilenen takimlar icin)

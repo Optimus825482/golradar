@@ -1125,7 +1125,7 @@ headers: {
 
 ---
 
-## FAZ 4: ORTA/DÜŞÜK ÖNCELİK DÜZELTMELERİ **(KISMİ — 5/20 uygulandı)**
+## FAZ 4: ORTA/DÜŞÜK ÖNCELİK DÜZELTMELERİ **(KISMİ — 12/20 uygulandı, 8 backlog)**
 
 ### Fix 4.1 **[✓ UYGULANDI]**: Goal Radar F16 kontra-atak mantığı düzelt
 
@@ -1137,7 +1137,7 @@ headers: {
 // YENİ: if (homeDADelta >= 3 && firstHomePoss < 45 && homeSOTDelta >= 1) {
 ```
 
-### Fix 4.2: Goal Radar F12 pencere/bölme hatası
+### Fix 4.2 **[✓ UYGULANDI]**: Goal Radar F12 pencere/bölme hatası
 
 **Dosya:** `src/lib/goalRadar/factors.ts:266`
 ```typescript
@@ -1145,7 +1145,7 @@ headers: {
 // YENİ: const window5min = pressureHistory.slice(-10); // 5 dk @ 30s poll
 ```
 
-### Fix 4.3: Goal Radar FotMob xG'dan sonra goalProbability5min güncelle
+### Fix 4.3 **[✓ UYGULANDI]**: Goal Radar FotMob xG'dan sonra goalProbability5min güncelle
 
 **Dosya:** `src/lib/goalRadar.ts:386 sonrası`
 ```typescript
@@ -1159,7 +1159,7 @@ if (fXgH > xg.home || fXgA > xg.away) {
 }
 ```
 
-### Fix 4.4: Elo K-faktör compounding düzelt
+### Fix 4.4 **[✓ UYGULANDI]**: Elo K-faktör compounding düzelt
 
 **Dosya:** `src/lib/eloRating.ts:99-101`
 ```typescript
@@ -1170,7 +1170,7 @@ else if (goalDiff >= 4) k *= 1.15;
 else if (goalDiff >= 2) k *= 1 + (goalDiff - 1) * 0.15;
 ```
 
-### Fix 4.5: Glicko-2'yi teamRatingUpdater'a bağla
+### Fix 4.5 **[✓ UYGULANDI]**: Glicko-2'yi teamRatingUpdater'a bağla
 
 **Dosya:** `src/lib/teamRatingUpdater.ts:42-44`
 ```typescript
@@ -1214,7 +1214,7 @@ model TeamGlicko2Rating {
 // YENİ: const stackingAlpha = parseFloat(process.env.STACKING_BLEND_ALPHA ?? '0.0');
 ```
 
-### Fix 4.8: Weight tuner online metric: accuracy → Brier
+### Fix 4.8 **[✓ UYGULANDI]**: Weight tuner online metric: accuracy → Brier
 
 **Dosya:** `src/lib/ml/weightTuner.ts:257`
 ```typescript
@@ -1313,7 +1313,7 @@ CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "9100"]
 3. `src/lib/simulationMetrics.ts` — hiç import edilmiyor (sil)
 4. `mini-services/nesine-live/` — docker-compose'da yok (sil)
 
-### Fix 4.16: "LSTM" adını düzelt
+### Fix 4.16 **[✓ UYGULANDI]**: "LSTM" adını düzelt
 
 **Dosya:** `src/lib/ml/trendLSTM.ts`
 ```typescript
@@ -1322,7 +1322,7 @@ CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "9100"]
 // "LSTM" referanslarını "Trend Heuristic" olarak değiştir
 ```
 
-### Fix 4.17: Goaloo team:'home' hardcoded düzelt
+### Fix 4.17 **[✓ UYGULANDI]**: Goaloo team:'home' hardcoded düzelt
 
 **Dosya:** `src/lib/goaloo.ts:763`
 ```typescript

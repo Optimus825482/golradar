@@ -210,6 +210,10 @@ export default function MonitoringPage() {
         <div>
           <h1 className="text-lg font-bold text-gray-900">📊 Model Başarı Monitoring</h1>
           <p className="text-sm text-gray-500">Brier, AUC, drift, ağırlık dağılımı ve champion durumu</p>
+          <p className="text-[10px] text-gray-400 mt-1">
+            Bu sayfa tum PredictionLog kayitlarini kapsar (sinyal uretilmeyen tahminler dahil).
+            Sinyal bazli basari orani icin <a href="/admin/signals" className="underline text-indigo-500">Sinyaller</a> sayfasina bakin.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {[7, 30, 90, 180].map((d) => (
@@ -226,7 +230,7 @@ export default function MonitoringPage() {
           trend={avgBrier7 != null && avgBrier7 > 0.20 ? "up" : avgBrier7 != null && avgBrier7 <= 0.20 ? "down" : undefined} loading={loading} />
         <KpiCard title="Drift" value={driftBadge.label} icon={TrendingUp} loading={loading} />
         <KpiCard title="Toplam Tahmin" value={loading ? "—" : latest?.totalPredictions?.toLocaleString() ?? "—"}
-          subtitle={latest && (latest.totalPredictions ?? 0) > 0 ? `%${(((latest.totalGoals ?? 0) / (latest.totalPredictions ?? 1)) * 100).toFixed(1)} gol oranı` : undefined} icon={BarChart3} loading={loading} />
+          subtitle={latest && (latest.totalPredictions ?? 0) > 0 ? `%${(((latest.totalGoals ?? 0) / (latest.totalPredictions ?? 1)) * 100).toFixed(1)} gol oranı (tüm tahminler)` : undefined} icon={BarChart3} loading={loading} />
       </div>
 
       {/* Champion Model Cards */}

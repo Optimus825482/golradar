@@ -107,14 +107,17 @@ export const GET = adminRoute(async (request: Request) => {
   );
 });
 
-// ── POST: Run backfill (chunk'li) ─────────────────────────────────
+// ── POST: Run backfill (paralel worker'li) ───────────────────────
 export const POST = adminRoute(async (request: Request) => {
   let force = false;
+  let workers = 1;
   try {
     const body = (await request.json().catch(() => ({}))) as {
       force?: boolean;
+      workers?: number;
     };
     force = body.force === true;
+    workers = Math.max(1, Math.min(12, body.workers ?? 1));
   } catch {
     /* no body — fine */
   }
@@ -155,19 +158,18 @@ export const POST = adminRoute(async (request: Request) => {
   const summaries: MatchLabelSummary[] = [];
   let totalLabeled = 0;
   let totalPositives = 0;
+  let completedLock = 0;
 
-  for (let i = 0; i < matchCodes.length; i++) {
-    const matchCode = matchCodes[i];
-
-    // ── Goal minute resolution ──────────────────────────────────
-    // Primary: MatchEvent (eventType='goal').
-    // Secondary: MatchSnapshot (homeGoals/awayGoals delta between
-    // consecutive snapshots). This catches matches where the
-    // MatchEvent scraper didn't run but the main polling pipeline
-    // (which fills MatchSnapshot) captured goal transitions.
+  // ── Single match processor ─────────────────────────────────────
+  async function processOne(matchCode: number): Promise<{
+    matchCode: number;
+    labeled: number;
+    positives: number;
+    goalMinutes: number[];
+    unlabeledRows: number;
+  }> {
     const goalMinutes = await resolveGoalMinutes(matchCode);
 
-    // If force=true, also clear the existing labels so they get rewritten.
     if (force) {
       await db.predictionLog.updateMany({
         where: { matchCode },
@@ -180,8 +182,7 @@ export const POST = adminRoute(async (request: Request) => {
       select: { id: true, minute: true },
     });
     if (rows.length === 0) {
-      progress.completedMatches = i + 1;
-      continue;
+      return { matchCode, labeled: 0, positives: 0, goalMinutes, unlabeledRows: 0 };
     }
 
     let labeled = 0;
@@ -210,30 +211,49 @@ export const POST = adminRoute(async (request: Request) => {
       }
       labeled++;
     }
-    totalLabeled += labeled;
-    totalPositives += positives;
-    summaries.push({
-      matchCode,
-      firstGoalMinute: goalMinutes[0] ?? null,
-      goalMinutes,
-      unlabeledRows: rows.length,
-      labeledRows: labeled,
-      positives,
-    });
+    return { matchCode, labeled, positives, goalMinutes, unlabeledRows: rows.length };
+  }
 
-    // Update progress after every 20 matches (reduce DB write load)
-    if (i % 20 === 0 || i === matchCodes.length - 1) {
-      progress.completedMatches = i + 1;
-      progress.totalLabeled = totalLabeled;
-      progress.totalPositives = totalPositives;
-      progress.positiveRate =
-        totalLabeled > 0
-          ? Math.round((totalPositives / totalLabeled) * 10000) / 100
-          : 0;
+  // ── Worker pool ────────────────────────────────────────────────
+  // Her worker sıradaki matchCode'u alır, işler, progress günceller.
+  // workers=N aynı anda N tane işlem koşturur.
+  async function worker(): Promise<void> {
+    while (true) {
+      const idx = completedLock; // atomic index al
+      // eslint-disable-next-line require-atomic-updates
+      if (idx >= matchCodes.length) break;
+      completedLock = idx + 1;
+      const matchCode = matchCodes[idx];
+
+      const result = await processOne(matchCode);
+      summaries.push({
+        matchCode,
+        firstGoalMinute: result.goalMinutes[0] ?? null,
+        goalMinutes: result.goalMinutes,
+        unlabeledRows: result.unlabeledRows,
+        labeledRows: result.labeled,
+        positives: result.positives,
+      });
+      totalLabeled += result.labeled;
+      totalPositives += result.positives;
+
+      if (idx % Math.max(1, Math.floor(matchCodes.length / 100)) === 0 || idx === matchCodes.length - 1) {
+        progress.completedMatches = idx + 1;
+        progress.totalLabeled = totalLabeled;
+        progress.totalPositives = totalPositives;
+        progress.positiveRate =
+          totalLabeled > 0
+            ? Math.round((totalPositives / totalLabeled) * 10000) / 100
+            : 0;
+      }
     }
   }
 
+  // Start N workers, wait for all to finish
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+
   progress.running = false;
+  progress.completedMatches = matchCodes.length;
   progress.totalLabeled = totalLabeled;
   progress.totalPositives = totalPositives;
   progress.positiveRate =
@@ -243,7 +263,7 @@ export const POST = adminRoute(async (request: Request) => {
 
   logInfo(
     "backfill-labels",
-    `Repaired ${totalLabeled} rows (${totalPositives} positive) across ${matchCodes.length} matches (force=${force})`,
+    `Repaired ${totalLabeled} rows (${totalPositives} positive) across ${matchCodes.length} matches (force=${force}, workers=${workers})`,
   );
 
   return NextResponse.json({
@@ -254,6 +274,7 @@ export const POST = adminRoute(async (request: Request) => {
       totalPositives,
       positiveRate: progress.positiveRate,
       durationMs: Date.now() - progress.startedAt,
+      workers,
       summaries,
     },
   });

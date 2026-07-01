@@ -144,6 +144,11 @@ export interface MatchFeatures {
   closing_btts_implied: number;      // Implied prob from closing BTTS odds [0,1]
   closing_margin: number;            // Bookmaker margin (vig) — 0-1 normalized
   model_vs_market_divergence: number;// |ensembleP - marketP| for over25 [0,1]
+
+  // ── E5: Referee statistics (Transfermarkt scrape) ──
+  ref_card_rate: number;             // Cards per match, normalized [0,1]
+  ref_penalty_rate: number;          // Penalties per match, normalized [0,1]
+  ref_foul_rate: number;             // Fouls per match, normalized [0,1]
 }
 
 // ── Feature extraction function ────────────────────────────────────
@@ -204,6 +209,8 @@ export interface FeatureExtractionInput {
   } | null;
   /** C3: Current model over25 probability for divergence feature. */
   ensembleP?: number | null;
+  /** E5: Referee name for card/penalty rate features. */
+  refereeName?: string | null;
 }
 
 // Normalization helpers
@@ -230,7 +237,7 @@ function shotDistanceFromGoal(xPct: number, yPct: number): number {
 export async function extractFeatures(input: FeatureExtractionInput): Promise<MatchFeatures> {
   const { stats, minute, homeGoals, awayGoals, pressureHistory, weather, homeTeam, awayTeam,
     shotmap, homeLastMatchTs, awayLastMatchTs, fotmobHomeTeamId, fotmobAwayTeamId,
-    closingOdds, ensembleP } = input;
+    closingOdds, ensembleP, refereeName } = input;
 
   // Parse minute (handle stoppage time correctly: "45+2'" -> 47)
   let minNum = (() => {
@@ -635,6 +642,25 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     modelVsMarketDivergence = normLinear(Math.abs(ensP - marketOver25), 0, 0.5);
   }
 
+  // ── E5: Referee statistics (Transfermarkt scrape) ──
+  // Lazy import to keep the hot path clean when no referee name is
+  // available. getRefereeFeatures is failure-tolerant and falls
+  // back to neutral defaults.
+  let refCardRate = 0.5;
+  let refPenaltyRate = 0.1;
+  let refFoulRate = 0.5;
+  if (refereeName) {
+    try {
+      const { getRefereeFeatures } = await import('./refereeStats');
+      const ref = await getRefereeFeatures(refereeName);
+      refCardRate = ref.ref_card_rate;
+      refPenaltyRate = ref.ref_penalty_rate;
+      refFoulRate = ref.ref_foul_rate;
+    } catch (e) {
+      logError('featureEngineering', e);
+    }
+  }
+
   return {
     // Pressure & dominance
     pressure_home: pressureHome,
@@ -753,6 +779,11 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     closing_btts_implied: closingBttsImplied,
     closing_margin: closingMargin,
     model_vs_market_divergence: modelVsMarketDivergence,
+
+    // E5: Referee statistics
+    ref_card_rate: refCardRate,
+    ref_penalty_rate: refPenaltyRate,
+    ref_foul_rate: refFoulRate,
   };
 }
 
@@ -847,6 +878,8 @@ export const FEATURE_NAMES: (keyof MatchFeatures)[] = [
   // C3: Closing Line Value features
   'closing_over25_implied', 'closing_btts_implied', 'closing_margin',
   'model_vs_market_divergence',
+  // E5: Referee statistics
+  'ref_card_rate', 'ref_penalty_rate', 'ref_foul_rate',
 ];
 
 // ── Concurrency limiter ───────────────────────────────────────────

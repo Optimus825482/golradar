@@ -549,3 +549,24 @@ model TeamGlicko2Rating {
 
   @@map("TeamGlicko2Rating")
 }
+
+// ── Referee Statistics (Transfermarkt scrape) ────────────────────
+// Per-referee aggregates: card rate, penalty rate, fouls per match.
+// Scraped from Transfermarkt referee profile pages. Used as control
+// features in the ML pipeline — high cardRate correlates with more
+// set-pieces (and therefore more goal opportunities), high
+// penaltyRate correlates with higher goal expectation.
+model RefereeStats {
+  id              String   @id @default(cuid())
+  refereeName     String   @unique
+  matchesCount    Int      @default(0)
+  avgYellowCards  Float    @default(0)
+  avgRedCards     Float    @default(0)
+  avgFouls        Float    @default(0)
+  avgPenalties    Float    @default(0)
+  penaltyRate     Float    @default(0)  // penalties per match
+  cardRate        Float    @default(0)  // total cards per match
+  lastUpdated     DateTime @updatedAt
+
+  @@index([refereeName])
+}

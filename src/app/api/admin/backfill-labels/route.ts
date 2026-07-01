@@ -36,6 +36,43 @@ interface MatchLabelSummary {
   positives: number;
 }
 
+// ── Goal minute resolution: MatchEvent + MatchSnapshot ────────────
+async function resolveGoalMinutes(matchCode: number): Promise<number[]> {
+  const goalSet = new Set<number>();
+
+  // Primary: MatchEvent
+  const goalEvents = await db.matchEvent.findMany({
+    where: { matchCode, eventType: "goal" },
+    orderBy: { minute: "asc" },
+    select: { minute: true },
+  });
+  for (const ev of goalEvents) {
+    if (Number.isFinite(ev.minute)) goalSet.add(ev.minute);
+  }
+
+  // Secondary: MatchSnapshot — detect homeGoals/awayGoals increases
+  // between consecutive snapshots. Each increase = a goal at that minute.
+  const snapshots = await db.matchSnapshot.findMany({
+    where: { matchCode },
+    orderBy: [{ minute: "asc" }, { createdAt: "asc" }],
+    select: { minute: true, homeGoals: true, awayGoals: true },
+  });
+  if (snapshots.length > 0) {
+    let prevHome = 0, prevAway = 0;
+    for (const snap of snapshots) {
+      if (snap.minute === null || !Number.isFinite(snap.minute)) continue;
+      const home = snap.homeGoals ?? 0;
+      const away = snap.awayGoals ?? 0;
+      if (home > prevHome) goalSet.add(snap.minute);
+      if (away > prevAway) goalSet.add(snap.minute);
+      prevHome = home;
+      prevAway = away;
+    }
+  }
+
+  return [...goalSet].sort((a, b) => a - b);
+}
+
 // ── In-process progress tracker (singleton) ──────────────────────
 // GET endpoint'i buradaki son durumu okuyup progress gösterebilir.
 interface BackfillProgress {
@@ -122,16 +159,13 @@ export const POST = adminRoute(async (request: Request) => {
   for (let i = 0; i < matchCodes.length; i++) {
     const matchCode = matchCodes[i];
 
-    // Resolve ALL goal minutes for the match, sorted ascending.
-    const goalEvents = await db.matchEvent.findMany({
-      where: { matchCode, eventType: "goal" },
-      orderBy: { minute: "asc" },
-      select: { minute: true },
-    });
-    const goalMinutes = goalEvents
-      .map((e) => e.minute)
-      .filter((m): m is number => Number.isFinite(m));
-    const firstGoalMinute = goalMinutes[0] ?? null;
+    // ── Goal minute resolution ──────────────────────────────────
+    // Primary: MatchEvent (eventType='goal').
+    // Secondary: MatchSnapshot (homeGoals/awayGoals delta between
+    // consecutive snapshots). This catches matches where the
+    // MatchEvent scraper didn't run but the main polling pipeline
+    // (which fills MatchSnapshot) captured goal transitions.
+    const goalMinutes = await resolveGoalMinutes(matchCode);
 
     // If force=true, also clear the existing labels so they get rewritten.
     if (force) {
@@ -180,7 +214,7 @@ export const POST = adminRoute(async (request: Request) => {
     totalPositives += positives;
     summaries.push({
       matchCode,
-      firstGoalMinute,
+      firstGoalMinute: goalMinutes[0] ?? null,
       goalMinutes,
       unlabeledRows: rows.length,
       labeledRows: labeled,

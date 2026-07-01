@@ -656,22 +656,47 @@ async function backfillPredictionLogLabels(
 ): Promise<void> {
   const noGoal = homeScore === 0 && awayScore === 0;
 
-  // Resolve ALL goal minutes from MatchEvent (eventType='goal').
-  // Sort ascending so the first matching goal gives us minutesToGoal.
+  // Resolve ALL goal minutes from MatchEvent (eventType='goal')
+  // PLUS MatchSnapshot (homeGoals/awayGoals delta). The snapshot
+  // delta is more reliable because the main polling pipeline always
+  // fills it, while MatchEvent depends on a separate scraper.
   let goalMinutes: number[] = [];
   if (!noGoal) {
+    const goalSet = new Set<number>();
+
+    // Primary: MatchEvent
     const goalEvents = await db.matchEvent.findMany({
       where: { matchCode, eventType: 'goal' },
       orderBy: { minute: 'asc' },
       select: { minute: true },
     });
-    goalMinutes = goalEvents
-      .map((e) => e.minute)
-      .filter((m): m is number => Number.isFinite(m));
+    for (const ev of goalEvents) {
+      if (Number.isFinite(ev.minute)) goalSet.add(ev.minute);
+    }
+
+    // Secondary: MatchSnapshot — detect homeGoals/awayGoals increases
+    const snapshots = await db.matchSnapshot.findMany({
+      where: { matchCode },
+      orderBy: [{ minute: 'asc' }, { createdAt: 'asc' }],
+      select: { minute: true, homeGoals: true, awayGoals: true },
+    });
+    if (snapshots.length > 0) {
+      let prevHome = 0, prevAway = 0;
+      for (const snap of snapshots) {
+        if (snap.minute == null || !Number.isFinite(snap.minute)) continue;
+        const home = snap.homeGoals ?? 0;
+        const away = snap.awayGoals ?? 0;
+        if (home > prevHome) goalSet.add(snap.minute);
+        if (away > prevAway) goalSet.add(snap.minute);
+        prevHome = home;
+        prevAway = away;
+      }
+    }
+
+    goalMinutes = [...goalSet].sort((a, b) => a - b);
     if (goalMinutes.length === 0) {
       // Fallback: no event data — assume one goal near end of match
       // so the horizon check can still fire for late predictions.
-      // Better than 90-minute-blind labelling; still best-effort.
       goalMinutes = [Math.max(80, 90)];
     }
   }

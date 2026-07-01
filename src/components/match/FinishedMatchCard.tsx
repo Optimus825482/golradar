@@ -16,6 +16,7 @@ export function FinishedMatchCard({ match, onClick, isSelected, isFavorite, onTo
   const homeWon = match.homeGoals > match.awayGoals
   const awayWon = match.awayGoals > match.homeGoals
   const isDraw = match.homeGoals === match.awayGoals
+  const hasGoals = match.homeGoals > 0 || match.awayGoals > 0
 
   return (
     <div
@@ -37,10 +38,21 @@ export function FinishedMatchCard({ match, onClick, isSelected, isFavorite, onTo
             <div className="flex items-center gap-1 max-w-[35%]">
               <span className={`text-[13px] truncate font-medium ${homeWon ? 'font-bold text-emerald-700' : 'text-gray-600'}`}>{match.home}</span>
             </div>
-            <span className={`text-[14px] font-mono font-black px-2 min-w-[50px] text-center ${
+            <span className={`text-[14px] font-mono font-black px-2 min-w-[50px] text-center relative ${
               isDraw ? 'text-gray-600' : 'text-gray-900'
             }`}>
               {match.homeGoals} - {match.awayGoals}
+              {hasGoals && (
+                <span
+                  className="absolute -top-2 -right-2"
+                  data-testid="finished-goal-badge"
+                  title="Bu maçta gol atıldı"
+                >
+                  <span className="inline-flex items-center justify-center bg-green-500/85 text-white text-[8px] font-black px-1 py-0.5 rounded-full border border-green-300">
+                    GOL
+                  </span>
+                </span>
+              )}
             </span>
             <div className="flex items-center gap-1 max-w-[35%] justify-end">
               <span className={`text-[13px] truncate text-right font-medium ${awayWon ? 'font-bold text-emerald-700' : 'text-gray-600'}`}>{match.away}</span>

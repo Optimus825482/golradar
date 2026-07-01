@@ -126,6 +126,17 @@ function poolAdjacentViolators(xIn: number[], yIn: number[]): { x: number[]; y: 
       outY.push(calibrated[i]);
     }
   }
+  // Centered isotonic regression (Oron & Flournoy 2022)
+  // Standard PAVA produces piece-wise constant blocks. Centering
+  // assigns each block's mean to the block's midpoint x-value
+  // rather than the first x-value, reducing bin-based ECE bias.
+  for (let i = 0; i < outY.length; i++) {
+    // Find the x-range this block covers
+    const xStart = outX[i];
+    const xEnd = i < outX.length - 1 ? outX[i + 1] : xStart + 1;
+    // Shift x to block midpoint (centered)
+    outX[i] = (xStart + xEnd) / 2;
+  }
   return { x: outX, y: outY };
 }
 

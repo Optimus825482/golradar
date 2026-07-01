@@ -152,6 +152,23 @@ _START_TIME = time.time()
 
 
 # ── Training worker ───────────────────────────────────────────────
+def _make_focal_loss_objective(alpha: float = 0.25, gamma: float = 2.0):
+    """XGBoost custom objective implementing focal loss (Lin et al. 2017).
+
+    Focal loss down-weights easy negatives (high-confidence non-goals) so
+    the model focuses on hard, potentially-misclassified goals. Compatible
+    with XGBoost's ``objective`` parameter when wrapped as a callable
+    returning (grad, hess).
+    """
+    def focal_loss(preds, dtrain):
+        labels = dtrain.get_label()
+        preds = 1.0 / (1.0 + np.exp(-preds))
+        grad = alpha * (labels - preds) * (1 - preds) ** gamma * np.abs(preds - labels) ** gamma
+        hess = alpha * (1 - preds) ** gamma * (preds * (1 - preds) * (gamma * np.abs(preds - labels) + 1))
+        return grad, hess
+    return focal_loss
+
+
 def _run_training_job(job: JobState, req: TrainRequest) -> None:
     """Run the actual training in a background thread."""
     job.status = "running"
@@ -222,7 +239,12 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                     m = lgb.LGBMClassifier(n_estimators=200, **params, objective='binary', random_state=req.random_state, n_jobs=-1)
                     m.fit(Xtr, ytr, eval_set=[(Xte, yte)], callbacks=[lgb.early_stopping(stopping_rounds=30)])
                 else:
-                    m = xgb.XGBClassifier(n_estimators=200, **params, objective='binary:logistic', eval_metric='logloss', early_stopping_rounds=30, random_state=req.random_state, n_jobs=-1)
+                    # USE_FOCAL_LOSS env gate (P2). When set, XGBoost trains
+                    # against a focal-loss custom objective instead of plain
+                    # logistic regression — useful when goal rate is <5% and
+                    # the standard logloss under-trains on the rare class.
+                    focal_obj = _make_focal_loss_objective() if os.environ.get('USE_FOCAL_LOSS', 'false').lower() == 'true' else 'binary:logistic'
+                    m = xgb.XGBClassifier(n_estimators=200, **params, objective=focal_obj, eval_metric='logloss', early_stopping_rounds=30, random_state=req.random_state, n_jobs=-1)
                     m.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=0)
                 pred = m.predict_proba(Xte)[:, 1]
                 return float(brier_score_loss(yte, pred))
@@ -263,7 +285,7 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                 reg_lambda=hp.get('reg_lambda', req.reg_lambda),
                 reg_alpha=hp.get('reg_alpha', req.reg_alpha),
                 min_child_weight=hp.get('min_child_weight', req.min_child_weight),
-                objective="binary:logistic",
+                objective=_make_focal_loss_objective() if os.environ.get('USE_FOCAL_LOSS', 'false').lower() == 'true' else "binary:logistic",
                 eval_metric=["logloss", "error", "auc"],
                 early_stopping_rounds=req.early_stopping_rounds,
                 random_state=req.random_state,

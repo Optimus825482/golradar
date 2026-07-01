@@ -1238,3 +1238,206 @@ Bash syntax:     OK
 Python syntax:   app.py / xt_build.py / aft_model.py all parse OK
 Branches:        main + fix/goal-signal-algorithm both ahead=0, behind=0
 ```
+
+---
+
+## FAZ F: Production Hardening — Real-time Architecture & Trainer Rescue (2026-07-01)
+
+Production log analysis from `radar.erkanerdem.online` revealed multiple
+systemic issues that were not in the original plan. All fixes were
+discovered by reading container logs, reproducing in local tests,
+and deploying iteratively throughout the day.
+
+### Task F1: SSE + In-Memory Cache Architecture
+
+**Problem:** `/api/matches` polling at FULL tier (15s) generated
+~4000 req/min with 100 users. Each request did 5-10 external HTTP
+calls + 3-4 DB queries + N ML inferences. Backend returned 503
+under moderate load.
+
+**Solution (6 files, ~600 lines):**
+
+```
+┌─────────────────┐    cache    ┌──────────────────┐
+│ 1000+ clients   │ ───99.9%──▶ │ matchesCache     │
+│ (SSE EventSource)│◀─push─────│  (5s TTL)        │
+└─────────────────┘             └──────────────────┘
+                                       ▲
+                               publish │
+                               ┌───────┴────────┐
+                               │ matchEvents    │
+                               │ (pub/sub bus)  │
+                               └───────┬────────┘
+                              subscribe │
+                        ┌───────────────┴──────────────┐
+                        │ /api/cron/poll-matches       │
+                        │ (single writer, 5s interval) │
+                        └──────────────────────────────┘
+```
+
+| Module | File | Role |
+|--------|------|------|
+| matchesCache | `src/lib/server/matchesCache.ts` | 5s TTL in-memory cache |
+| matchEvents | `src/lib/server/matchEvents.ts` | Pub/sub event bus |
+| SSE endpoint | `src/app/api/matches/stream/route.ts` | Server-Sent Events |
+| Writer | `src/app/api/cron/poll-matches/route.ts` | Single writer + concurrency lock |
+| Client hook | `src/hooks/useMatchStream.ts` | EventSource consumer |
+| Route cache | `src/app/api/matches/route.ts` | Cache lookup + fallback |
+
+**Test:** `src/__tests__/sse-cache-bus.test.ts` (14 tests)
+
+**Commits:** `46b09bd`, `41253f6`, `8b8cdf5`, `b25701a`, `b20a749`, `0dacba8`
+
+---
+
+### Task F2: Scheduler Writer Integration
+
+**Problem:** `/api/cron/poll-matches` was deployed but never called.
+The cache was only populated by the fallback path (first user request
+each 5s window), and SSE subscribers received no push events.
+
+**Fix:** MLScheduler (`trainingScheduler.ts`) starts a 5s `setInterval`
+on boot that POSTs to `/api/cron/poll-matches` via loopback.
+Auto-stops on scheduler shutdown. Uses `AbortSignal.timeout(8s)`.
+
+**Commit:** `b72efad`
+
+---
+
+### Task F3: Horizon-Aware goalScored Backfill (MatchSnapshot)
+
+**Problem (root cause of AUC=0.500):**
+```typescript
+const goalHappened = rMin <= firstGoalMinute;
+```
+This formula (in 3 files) marked EVERY prediction up to the first goal
+minute as positive → ~80.7% positive rate → trainer collapsed to
+constant prediction.
+
+**Fix:** Changed to horizon-aware:
+```typescript
+const firstEligible = goalMinutes.find(
+  (gm) => gm > rMin && gm - rMin <= HORIZON_FOR_LABEL
+);
+```
+
+**MatchEvent matchCode mismatch:** MatchEvent table had matchCodes
+in the ~2.6M range (Serie A data) while PredictionLog/MatchSnapshot
+used ~3.0M range (live matches). Added `resolveGoalMinutes()` that
+derives goals from BOTH MatchEvent AND MatchSnapshot (detecting
+homeGoals/awayGoals deltas between consecutive snapshots).
+
+**Files:** `src/app/api/admin/backfill-labels/route.ts`, `src/lib/goalSignalTracker.ts`
+
+**Commit:** `a19e3c2`, `1bcb180`
+
+---
+
+### Task F4: Parallel Batch Backfill (12 workers)
+
+**Problem:** Backfill processed 84K matchCodes sequentially at ~1
+match/second. Estimated completion: >24 hours.
+
+**Fix:**
+- Workers configurable via `{"workers": N}` body param (1-12)
+- Per-row DB updates batched into `updateMany` (17 queries → 2-4)
+- Progress tracker with GET status endpoint
+- DESC sort (newest matchCodes first, where MatchSnapshot data lives)
+
+**Result:** 84K matchCodes, 2M rows, 100K positives labeled in ~1 minute.
+
+**Commit:** `d1c6c4a`, `e91b37a`, `88e1fbd`, `01ae53c`
+
+---
+
+### Task F5: Trainer Recovery (AUC 0.500 → 0.794)
+
+**Problem:** Backfill fixed the labels to ~5% positive rate, but:
+- `exportTrainingData` sorted ASC (lowest matchCodes first →
+  no-goal region) → all datasets had 0 positives → `"Only one label
+  class"` error → trainer couldn't run
+- `loadModel()` ↔ `initializeModel()` mutual recursion → `Maximum
+  call stack size exceeded` on `/api/predict?action=train`
+
+**Fix:**
+- Export sort DESC (newest first, where goals exist)
+- Removed `return initializeModel()` from `loadModel()` → returns null
+
+**Model training results (after backfill):**
+
+| Model | AUC Before | AUC After | Brier Before | Brier After |
+|-------|-----------|----------|-------------|------------|
+| xgb | 0.500 | **0.794** 🎯 | 0.156 | 0.193 |
+| gbdt | 0.500 | **0.794** 🎯 | 0.026 | 0.193 |
+| inplay | 0.500 | **0.794** 🎯 | 0.026 | 0.193 |
+| lightgbm | 0.915 | 0.793 | 0.111 | 0.194 |
+| team-strength | 0.256 | 0.260 | 0.256 | 0.260 |
+
+**Commits:** `00433e4`, `66a68f7`
+
+---
+
+### Task F6: Full Model Retrain + Promotion Cycle
+
+**Problem:** All champion models (gbdt, inplay, xgb) were trained on
+the old 80%+ label data. Team-strength Kalman was 3 months stale.
+
+**Action:** Retrained ALL 5 model types with corrected labels,
+registered new artifacts, promoted to champion.
+
+```
+Step 1: Export fresh data (5/10/15 min horizons)
+Step 2: Train xgb → AUC 0.794 ✅
+Step 3: Train gbdt → AUC 0.794 ✅
+Step 4: Train lightgbm → AUC 0.793 ✅
+Step 5: Train inplay → AUC 0.794 ✅
+Step 6: Team-strength fit → 85K matches, 5K teams ✅
+Step 7: Promote all to champion
+```
+
+**Commits:** multiple throughout `d94a2f1`..`b72efad`
+
+---
+
+## Full Status Dashboard (post Faz F)
+
+### Test Results
+```
+Python pytest:   5 pass (test_class_imbalance)
+Bun test:       246 pass, 0 fail (24 files, 593 expect)
+TypeScript:     0 errors
+Bash syntax:    OK
+Python syntax:  app.py / xt_build.py / aft_model.py OK
+```
+
+### Git History (all commits from this session)
+```
+b72efad feat(scheduler): add poll-matches writer (5s) to MLScheduler
+749115c fix(promote): add lightgbm to VALID_NAMES
+00433e4 fix(export): order matchCodes DESC — newest first, aligns with backfill
+66a68f7 fix: break infinite recursion loadModel() ↔ initializeModel()
+e91b37a fix(backfill): batch DB updates — 17 per-row queries → 2 updateMany
+01ae53c fix(backfill): DESC sort matchCodes — newest first, they have MatchSnapshot data
+88e1fbd fix(backfill): add matchesWithGoals to progress for debugging
+1bcb180 fix(backfill): derive goal minutes from MatchSnapshot when MatchEvent is empty
+8c86446 feat(backfill-labels): add GET status endpoint with in-memory progress tracking
+d1c6c4a feat(backfill): parallel workers (1-12), MatchSnapshot goal derivation
+0dacba8 test(server): 14 regression tests for matchesCache + matchEvents + writer
+b20a749 feat(hooks/useMatchList): SSE primary, polling fallback at 3× interval
+b25701a feat(api/matches): cache lookup + event publish on fallback write
+8b8cdf5 feat(hooks): useMatchStream — SSE consumer for /api/matches/stream
+41253f6 feat(api): single-writer cron + SSE /api/matches/stream endpoint
+46b09bd feat(server): in-memory matchesCache + matchEvents pub/sub
+```
+
+### Branches
+```
+main:                    ahead=0, behind=0
+fix/goal-signal-algorithm: ahead=0, behind=0
+```
+
+### Ongoing Items (next session)
+1. Monitor next MLScheduler daily run (03:00 local) — expect Brier <0.15 after calibration
+2. Clean up stale shadow artifacts via admin UI
+3. Verify Frontend SSE EventSource renders live data
+4. Optional: Reduce heartbeat from 25s to 15s if proxy timeouts occur

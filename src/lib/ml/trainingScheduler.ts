@@ -28,8 +28,10 @@ const DEFAULT_DAYS_BACK = 90;
 const MAX_ROWS_PER_EXPORT = 50_000;
 
 	interface SchedulerState {
-	  exportTimer: ReturnType<typeof setInterval> | null;
-	  lastExportDate: string; // YYYY-MM-DD, used as a once-per-day guard
+		  exportTimer: ReturnType<typeof setInterval> | null;
+		  /** Her 5sn'de /api/cron/poll-matches'i çağıran writer. */
+		  pollTimer: ReturnType<typeof setInterval> | null;
+		  lastExportDate: string; // YYYY-MM-DD, used as a once-per-day guard
 	  lastInPlayExportDate: string; // YYYY-MM-DD, used as a once-per-window guard
 	  lastShadowEvalDate: string; // YYYY-MM-DD, used as a once-per-day guard
 	  lastCalibrationDate: string; // YYYY-MM-DD, min 24h between runs (günlük)
@@ -45,6 +47,7 @@ function getState(): SchedulerState {
   if (!globalForScheduler.mlTrainingScheduler) {
     globalForScheduler.mlTrainingScheduler = {
       exportTimer: null,
+      pollTimer: null,
       lastExportDate: '',
       lastInPlayExportDate: '',
       lastShadowEvalDate: '',
@@ -286,6 +289,24 @@ export function startTrainingScheduler(): SchedulerState {
     setInterval(checkAndRunDaily, EXPORT_CHECK_INTERVAL_MS),
   );
 
+  // ── Single-writer match cache poller (5s) ──────────────────────
+  // Her 5 saniyede bir /api/cron/poll-matches'i çağırarak
+  // in-memory cache'i tazeler ve SSE subscriber'lara push eder.
+  // Bu sayede 1000 kullanıcının her biri ayrı ayrı /api/matches
+  // çağırmaz — hepsi cache'ten beslenir.
+  const POLL_INTERVAL_MS = 5_000;
+  state.pollTimer = setUnref(
+    setInterval(() => {
+      fetch(`http://localhost:${process.env.PORT || 3012}/api/cron/poll-matches`, {
+        method: 'POST',
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8_000),
+      }).catch((err) => {
+        logError('MLScheduler', 'poll-matches writer failed:', err);
+      });
+    }, POLL_INTERVAL_MS),
+  );
+
   // First-run check: if it's already past the daily window and
   // nothing ran today, run immediately so a fresh boot doesn't
   // wait 15 min for the first export.
@@ -301,6 +322,8 @@ export function stopTrainingScheduler(): void {
   const state = getState();
   if (state.exportTimer) clearInterval(state.exportTimer);
   state.exportTimer = null;
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  state.pollTimer = null;
 }
 
 export function getTrainingSchedulerStatus(): {

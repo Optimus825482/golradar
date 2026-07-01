@@ -113,6 +113,19 @@ export interface MatchFeatures {
   ppda_home: number;                 // dangerous_attacks / (attacks+1) normalized
   ppda_away: number;
 
+  // ── P1.5: Field Tilt proxy (Anderson & Sally 2013) ──
+  // DA / total attacks: how much play is in the opponent's half.
+  // Higher = team applying sustained territorial pressure.
+  field_tilt_home: number;           // DA_home / attacks_home normalized [0,1]
+  field_tilt_away: number;
+  field_tilt_dominance: number;      // share of total DA taken by home (0-1, 0.5 = balanced)
+
+  // ── P1.5: Press effectiveness (defensive actions / opponent attacks) ──
+  press_effectiveness_home: number;  // (saves + offsides) / away_attacks
+  press_effectiveness_away: number;
+  gk_distance_proxy_home: number;    // GK distance — proxy from shotmap high-xG shot share
+  gk_distance_proxy_away: number;
+
   // ── P1.6: Context features ──
   fixture_congestion_home: number;   // Days since last match, normalized [0,1] (0=fresh)
   fixture_congestion_away: number;
@@ -404,6 +417,49 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
   const ppdaHome = Math.max(0, Math.min(1, ppdaH / 0.40));
   const ppdaAway = Math.max(0, Math.min(1, ppdaA / 0.40));
 
+  // ── P1.5: Field Tilt proxy (Anderson & Sally 2013) ──
+  // DA / total_attacks for each side; high = lots of play in
+  // opponent's final third → sustained territorial pressure.
+  const totalDa = daH + daA;
+  const totalAttacks = attacksH + attacksA;
+  let fieldTiltHome = 0.5;
+  let fieldTiltAway = 0.5;
+  let fieldTiltDominance = 0.5;
+  if (totalAttacks > 0) {
+    fieldTiltHome = normLinear(daH / Math.max(1, attacksH), 0, 1);
+    fieldTiltAway = normLinear(daA / Math.max(1, attacksA), 0, 1);
+    fieldTiltDominance = totalDa > 0
+      ? normLinear(daH / Math.max(1, totalDa) - 0.5, -0.3, 0.3)
+      : 0.5;
+  }
+
+  // ── P1.5: Press effectiveness ──
+  // Proxy: defensive output divided by opponent attack volume.
+  // (saves + offsides) / opp_attacks → how often defence ended an attack.
+  const savesH = getStat('saves', 'home');
+  const savesA = getStat('saves', 'away');
+  const offsidesH = getStat('offsides', 'home');
+  const offsidesA = getStat('offsides', 'away');
+  const pressEffectHome = Math.max(0, Math.min(1, (savesH + offsidesH) / Math.max(1, attacksA)));
+  const pressEffectAway = Math.max(0, Math.min(1, (savesA + offsidesA) / Math.max(1, attacksH)));
+
+  // ── P1.5 / E1: GK distance proxy from high-xG shots ──
+  // High xG (>0.30) implies goalkeeper was poorly positioned (Singh 2025).
+  // Already in shotmap aggregation; consolidated here.
+  let gkDistProxyHome = 0.3;
+  let gkDistProxyAway = 0.3;
+  if (shotmap && shotmap.length > 0) {
+    const teamH = shotmap.filter(s => fotmobHomeTeamId != null && s.teamId === fotmobHomeTeamId);
+    const teamA = shotmap.filter(s => fotmobAwayTeamId != null && s.teamId === fotmobAwayTeamId);
+    const avgHighXg = (arr: typeof teamH) => {
+      if (arr.length === 0) return 0.3;
+      const sum = arr.reduce((s, sh) => s + Math.min(1, (sh.expectedGoals ?? 0) / 0.5), 0);
+      return sum / arr.length;
+    };
+    gkDistProxyHome = avgHighXg(teamH);
+    gkDistProxyAway = avgHighXg(teamA);
+  }
+
   // ── P1.6: Fixture congestion + rest advantage ──
   const nowTs = Date.now();
   const homeRestDays = homeLastMatchTs ? Math.max(0, (nowTs - homeLastMatchTs) / 86_400_000) : 7;
@@ -655,6 +711,17 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     ppda_home: ppdaHome,
     ppda_away: ppdaAway,
 
+    // P1.5: Field Tilt proxy
+    field_tilt_home: fieldTiltHome,
+    field_tilt_away: fieldTiltAway,
+    field_tilt_dominance: fieldTiltDominance,
+
+    // P1.5: Press effectiveness + GK distance proxy
+    press_effectiveness_home: pressEffectHome,
+    press_effectiveness_away: pressEffectAway,
+    gk_distance_proxy_home: gkDistProxyHome,
+    gk_distance_proxy_away: gkDistProxyAway,
+
     // P1.6: Context features
     fixture_congestion_home: fixtureCongestionHome,
     fixture_congestion_away: fixtureCongestionAway,
@@ -752,6 +819,10 @@ export const FEATURE_NAMES: (keyof MatchFeatures)[] = [
   'defenders_in_cone_home', 'defenders_in_cone_away',
   // P1.3: PPDA proxy
   'ppda_home', 'ppda_away',
+  // P1.5: Field Tilt + Press effectiveness + GK distance proxy
+  'field_tilt_home', 'field_tilt_away', 'field_tilt_dominance',
+  'press_effectiveness_home', 'press_effectiveness_away',
+  'gk_distance_proxy_home', 'gk_distance_proxy_away',
   // P1.6: Context
   'fixture_congestion_home', 'fixture_congestion_away', 'rest_advantage',
   // W4: Team-strength Kalman

@@ -81,6 +81,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: "ab-test", href: "/admin/ab-test", label: "A/B Test", icon: TestTube, description: "Eski vs Yeni sinyal sistemi" },
       { key: "algorithm", href: "/admin/algorithm", label: "Algoritma", icon: Puzzle, description: "Sinyal motoru akış diyagramı" },
       { key: "profit", href: "/admin/profit", label: "Kâr Simülasyonu", icon: DollarSign, description: "Sinyal kârlılığı, ROI, Sharpe" },
+      { key: "pnl", href: "/admin/pnl", label: "P&L Tracking", icon: DollarSign, description: "Per-signal P&L, tier breakdown, Kelly stake" },
     ],
   },
     {

@@ -103,6 +103,12 @@ export interface MatchFeatures {
   shot_avg_distance_norm: number;    // Mean shot distance normalized [0,1]
   shot_defenders_avg: number;        // Avg defenders on shot line, normalized [0,1]
 
+  // ── B1: Freeze-frame defensive features (Singh 2025 — AUC 0.878) ──
+  shot_angle_home: number;           // Avg shot angle for home shots, normalized [0,1]
+  shot_angle_away: number;           // Avg shot angle for away shots, normalized [0,1]
+  defenders_in_cone_home: number;    // Proxy for defenders in shooting cone, normalized [0,1]
+  defenders_in_cone_away: number;    // Proxy for defenders in shooting cone, normalized [0,1]
+
   // ── P1.3: PPDA proxy (pressing intensity) ──
   ppda_home: number;                 // dangerous_attacks / (attacks+1) normalized
   ppda_away: number;
@@ -192,7 +198,7 @@ function shotDistanceFromGoal(xPct: number, yPct: number): number {
 
 export async function extractFeatures(input: FeatureExtractionInput): Promise<MatchFeatures> {
   const { stats, minute, homeGoals, awayGoals, pressureHistory, weather, homeTeam, awayTeam,
-    shotmap, homeLastMatchTs, awayLastMatchTs } = input;
+    shotmap, homeLastMatchTs, awayLastMatchTs, fotmobHomeTeamId, fotmobAwayTeamId } = input;
 
   // Parse minute (handle stoppage time correctly: "45+2'" -> 47)
   let minNum = (() => {
@@ -313,10 +319,22 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
   let shotAvgAngle = 0.15; // neutral default (15° opening = typical mid-range)
   let shotAvgDistance = 0.5;
   let shotDefendersAvg = 0.5;
+  // ── B1: Freeze-frame defensive features (Singh 2025 — AUC 0.878) ──
+  let shotAngleHome = 0.5;
+  let shotAngleAway = 0.5;
+  let defendersInConeHome = 0.5;
+  let defendersInConeAway = 0.5;
   if (shotmap && shotmap.length > 0) {
     const angles: number[] = [];
     const distances: number[] = [];
     const blockers: number[] = [];
+    // Split shots by team for per-side freeze-frame features
+    const homeShots = fotmobHomeTeamId != null
+      ? shotmap.filter(s => s.teamId === fotmobHomeTeamId)
+      : [];
+    const awayShots = fotmobAwayTeamId != null
+      ? shotmap.filter(s => s.teamId === fotmobAwayTeamId)
+      : [];
     for (const s of shotmap) {
       if (typeof s.x !== 'number' || typeof s.y !== 'number') continue;
       angles.push(shotAngleFromGoal(s.x));
@@ -332,6 +350,31 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
       shotAvgAngle = Math.max(0, Math.min(1, meanAngle / (Math.PI / 2)));
       shotAvgDistance = Math.max(0, Math.min(1, meanDist / 50));
       shotDefendersAvg = meanBlock;
+    }
+
+    // ── B1: Per-side freeze-frame defensive features ──
+    if (homeShots.length > 0) {
+      const homeAngles = homeShots
+        .filter(s => typeof s.x === 'number')
+        .map(s => shotAngleFromGoal(s.x));
+      if (homeAngles.length > 0) {
+        const avgHomeAngle = homeAngles.reduce((a, b) => a + b, 0) / homeAngles.length;
+        shotAngleHome = normLinear(avgHomeAngle, 0, Math.PI / 3);
+      }
+      // Defenders in cone proxy: high xG shots = fewer defenders
+      const highXgShots = homeShots.filter(s => (s.expectedGoals ?? 0) > 0.15).length;
+      defendersInConeHome = normLinear(1 - Math.min(1, highXgShots / 5), 0, 1);
+    }
+    if (awayShots.length > 0) {
+      const awayAngles = awayShots
+        .filter(s => typeof s.x === 'number')
+        .map(s => shotAngleFromGoal(s.x));
+      if (awayAngles.length > 0) {
+        const avgAwayAngle = awayAngles.reduce((a, b) => a + b, 0) / awayAngles.length;
+        shotAngleAway = normLinear(avgAwayAngle, 0, Math.PI / 3);
+      }
+      const highXgShots = awayShots.filter(s => (s.expectedGoals ?? 0) > 0.15).length;
+      defendersInConeAway = normLinear(1 - Math.min(1, highXgShots / 5), 0, 1);
     }
   }
 
@@ -573,6 +616,12 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     shot_avg_distance_norm: shotAvgDistance,
     shot_defenders_avg: shotDefendersAvg,
 
+    // B1: Freeze-frame defensive features
+    shot_angle_home: shotAngleHome,
+    shot_angle_away: shotAngleAway,
+    defenders_in_cone_home: defendersInConeHome,
+    defenders_in_cone_away: defendersInConeAway,
+
     // P1.3: PPDA proxy
     ppda_home: ppdaHome,
     ppda_away: ppdaAway,
@@ -664,6 +713,9 @@ export const FEATURE_NAMES: (keyof MatchFeatures)[] = [
   'last_5min_xg_delta_away', 'consecutive_shots_on_target_home',
   // P1.1: Shot geometry
   'shot_avg_angle_norm', 'shot_avg_distance_norm', 'shot_defenders_avg',
+  // B1: Freeze-frame defensive features
+  'shot_angle_home', 'shot_angle_away',
+  'defenders_in_cone_home', 'defenders_in_cone_away',
   // P1.3: PPDA proxy
   'ppda_home', 'ppda_away',
   // P1.6: Context

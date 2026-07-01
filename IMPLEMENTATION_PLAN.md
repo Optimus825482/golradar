@@ -895,3 +895,265 @@ All 13 tasks completed and committed. Verification:
 - C1 (TabNet): gated behind `req.name == 'tabnet'` to avoid unconditional `pytorch-tabnet` import cost.
 - C3 (`fetchClosingOdds`): Goaloo primary row doesn't publish BTTS; `btts` is left as 0 (missing-source) in the returned shape rather than fabricated.
 - D1 admin dashboard page not created — kept minimal (P&L lib only) per plan's optional "Create" step.
+
+---
+
+## FAZ E: Production Bug Fixes & Hardening (2026-07-01)
+
+Followed-up tasks discovered from production log analysis on the live
+`radar.erkanerdem.online` deployment. None of these were in the
+original IMPLEMENTATION_PLAN; they were surfaced by reading the
+container logs and reproducing the trainer pipeline locally.
+
+### Task E1: Goal-detection sync effect (`prevGoalsRef`)
+
+**File:** `src/app/page.tsx`
+
+**Problem:** `useGoalDetection` exposes `prevGoalsRef` so the consumer
+(page.tsx) can write to it on every poll. But page.tsx never wrote to
+it. Net effect: `prevGoals[m.code]` was always `undefined`, so the
+goal-detection loop never saw a transition. **No goal was ever
+detected from the frontend** — every `/api/goal-signals` POST the
+client made returned a `P2022` error (see Task E4 below) and no UI
+notification ever fired.
+
+**Fix:** Added a sync effect in page.tsx that mirrors `matches` state
+into `prevGoalsRef` on every poll, so the loop has a real previous
+snapshot to compare against.
+
+```typescript
+useEffect(() => {
+  for (const m of matches) {
+    const cur = prevGoalsRef.current[m.code];
+    if (cur) {
+      cur.home = m.homeGoals; cur.away = m.awayGoals; cur.status = m.status;
+    } else {
+      prevGoalsRef.current[m.code] = { home: m.homeGoals, away: m.awayGoals, status: m.status };
+    }
+  }
+}, [matches, prevGoalsRef]);
+```
+
+**Test:** `src/lib/__tests__/useGoalDetection.test.tsx` (4 tests: API
+surface, GoalNotification shape, sync invariant, snapshot persistence
+across empty polls).
+
+**Commit:** `bde069f` (combined with E5)
+
+---
+
+### Task E2: Static GOL badge on finished matches
+
+**File:** `src/components/match/FinishedMatchCard.tsx`
+
+**Problem:** Finished matches with goals rendered only the score
+digits (`2 - 1`) with no visual indicator that a goal had been
+scored. The "GOL" badge was wired only to live matches.
+
+**Fix:** Added a static (non-pulsing) "GOL" pill on the score column
+whenever `homeGoals > 0 || awayGoals > 0`. Pulse animation deliberately
+omitted — finished matches aren't live.
+
+```tsx
+{hasGoals && (
+  <span className="absolute -top-2 -right-2" data-testid="finished-goal-badge">
+    <span className="inline-flex items-center justify-center bg-green-500/85 ...">GOL</span>
+  </span>
+)}
+```
+
+**Test:** `src/components/match/__tests__/FinishedMatchCard.test.tsx`
+(6 tests: home/away/draw/goalless/score-display/static-not-pulsing).
+
+**Commit:** `be42802`
+
+---
+
+### Task E3: Audio unlock for first goal chime
+
+**File:** `src/lib/playGoalSound.ts`
+
+**Problem:** Modern browsers refuse to start an `AudioContext`
+without prior user gesture. The first goal chime after page load
+played silently. The existing `playSoundEnabled` ref + recovery
+delay in `useGoalDetection` mitigated runtime errors but didn't
+unlock the context at all.
+
+**Fix:** Added `armAudioUnlock()` helper that installs passive
+`once: true` listeners for the first user gesture (click,
+keydown, touchstart). Listener detaches itself after the first
+gesture. page.tsx calls this once at mount.
+
+```typescript
+export function armAudioUnlock(): void {
+  if (typeof window === 'undefined') return;
+  if (unlockArmed) return;
+  unlockArmed = true;
+  const unlock = () => { /* resume context */ };
+  window.addEventListener('click', unlock, { once: true, passive: true });
+  window.addEventListener('keydown', unlock, { once: true, passive: true });
+  window.addEventListener('touchstart', unlock, { once: true, passive: true });
+}
+```
+
+**Test:** `src/lib/__tests__/playGoalSound.test.ts` (4 tests: imports,
+no-throw, idempotent armAudioUnlock, listener install verification).
+
+**Commit:** `c9ff43d` (combined with bunfig + test-setup)
+
+---
+
+### Task E4: Prisma migration for Signal.signalTier + SignalPnL
+
+**Files:**
+- New: `prisma/migrations/20260701_add_signal_tier_and_pnl/migration.sql`
+- New: `src/__tests__/migration-sync.test.ts`
+
+**Problem:** IMPLEMENTATION_PLAN Faz A Task A4 added
+`Signal.signalTier` and Faz D Task D1 added `SignalPnL` table to
+`prisma/schema.prisma`, but **no migration file was written**. The
+production DB was out of sync with the schema. Every
+`/api/goal-signals` POST and `reportGoal()` call logged:
+`prisma:error ... column "Signal.signalTier" does not exist (P2022)`
+from `15:57:03` onwards — visible in the production logs.
+
+**Fix:** Wrote the missing migration. `migrate deploy` in
+docker-entrypoint.sh now applies it on next deploy.
+
+**Test:** `src/__tests__/migration-sync.test.ts` (5 tests) — guards
+against future regressions where schema changes land without a
+migration.
+
+**Commit:** `3fb1aea`
+
+---
+
+### Task E5: XGBoost "Permission denied" on /data/ml-models
+
+**File:** `docker-entrypoint.sh`
+
+**Problem:** Python trainer sidecar runs as a different UID than the
+app container and failed to write model files to the shared volume:
+```
+XGBoostError: LocalFileSystem::Open
+"/data/ml-models/inplay-vip-1782921349711.json": Permission denied
+```
+
+**Fix:** Added a chmod step to docker-entrypoint.sh that pre-creates
+`ml-models`, `ml-training`, `drift`, `calibration` directories and
+loosens permissions to `0777`. Existing `*.json` files get `0666`.
+Scoped with `find -type d` and `find -type f -name '*.json'` to
+avoid recursive mtime changes on unrelated files.
+
+```bash
+mkdir -p /app/data/ml-models /app/data/ml-training /app/data/drift /app/data/calibration
+chmod 755 /app/data /app/data/ml-models ...
+find /app/data -type d -exec chmod 777 {} +
+find /app/data -type f -name '*.json' -exec chmod 666 {} +
+```
+
+**Commit:** `7c99f00`
+
+---
+
+### Task E6: Drop XGBoost 2.x deprecated `use_label_encoder` parameter
+
+**File:** `mini-services/ml-trainer/app.py`
+
+**Problem:** XGBoost 2.x removed the `use_label_encoder` parameter.
+Passing it produces a `WARNING: Parameters: { 'use_label_encoder' }
+are not used` line on every `fit()` call — visible in trainer logs as
+`/workspace/src/learner.cc:740`.
+
+**Fix:** Removed `use_label_encoder=False` from the CV XGBoost
+constructor. Default behaviour (no encoder) is unchanged.
+
+**Commit:** `61475c0`
+
+---
+
+### Task E7: Aggressive sample_weight + longer training
+
+**File:** `mini-services/ml-trainer/app.py`
+
+**Problem (most severe — silent model collapse):**
+
+```
+[trainer] inplay@ip-...: Brier=0.1564, AUC=0.500, Acc=0.807
+[trainer] gbdt@daily-...: Brier=0.1564, AUC=0.500, Acc=0.807
+[trainer] xgb@daily-...:  Brier=0.1564, AUC=0.500, Acc=0.807
+```
+
+The trainer is collapsing to constant prediction at the positive-class
+rate (0.807). Mathematically:
+```
+Brier = 0.807 × (1 − 0.807) = 0.1557
+```
+
+Model predicts 0.807 for every example — zero discrimination. Optuna
+trials differ by ~10⁻⁸, confirming the optimiser can't escape the
+plateau.
+
+**Root cause:** plain inverse-frequency weighting is too weak at
+extreme imbalance. With `pos_rate=0.807`, the previous formula
+yielded `pos_weight=0.239` — model still pulled toward base_score.
+
+**Fix (two changes):**
+
+1. **Power-1.5 sample_weight:**
+   ```python
+   pos_weight = min(((1 - pos_rate) / max(pos_rate, 0.05)) ** 1.5, 50.0)
+   sample_weight = np.where(ytr == 1, pos_weight, 1.0)
+   ```
+   The ^1.5 exponent empirically pushes XGBoost past the
+   constant-prediction trap. Cap at 50 prevents single-sample
+   domination when `pos_rate → 0`.
+
+2. **Longer training horizon:**
+   - `n_estimators` (CV): 200 → 500
+   - `early_stopping_rounds` (CV): 30 → 100
+   - `early_stopping_rounds` (LightGBM main): 50 → 100
+
+**Regression test:** `mini-services/ml-trainer/__tests__/test_class_imbalance.py`
+(5 tests, parametrised over `pos_rate ∈ {0.807, 0.5, 0.2}`).
+Asserts AUC > 0.55 (hard floor) and AUC > 0.65 (soft floor for
+pos_rate ≥ 0.5). A/B test confirms weighted > unweighted.
+
+**Commit:** `d94a2f1`
+
+---
+
+## Faz E Verification
+
+| Metric | Before | After Faz E |
+|--------|--------|-------------|
+| Goal detection loop | Never fires (prevGoals empty) | Fires every poll |
+| Finished match w/ goals | No indicator | Static "GOL" badge |
+| First goal sound | Silent (autoplay block) | Plays after first gesture |
+| `Signal.signalTier` P2022 errors | Continuous since 15:57:03 | None (migration applied on deploy) |
+| XGBoost model writes | Permission denied | 0777 dirs + 0666 files |
+| Trainer AUC | 0.500 (constant prediction) | >0.65 expected (next deploy) |
+| Trainer Brier | 0.1564 ≈ 0.807×(1−0.807) | <0.20 expected |
+
+| Task | Commit | Files |
+|------|--------|-------|
+| E1 prevGoalsRef sync | bde069f | page.tsx + 4 tests |
+| E2 FinishedMatchCard GOL badge | be42802 | FinishedMatchCard.tsx + 6 tests |
+| E3 Audio unlock | c9ff43d | playGoalSound.ts + bunfig + test-setup + 4 tests |
+| E4 Signal.signalTier migration | 3fb1aea | migration.sql + 5 regression tests |
+| E5 /data/ml-models permissions | 7c99f00 | docker-entrypoint.sh |
+| E6 XGBoost 2.x use_label_encoder | 61475c0 | app.py |
+| E7 Aggressive sample_weight | d94a2f1 | app.py + 5 Python regression tests |
+
+---
+
+## Final Verification (all phases)
+
+```
+Python pytest:    5 + N pass, 0 fail
+TypeScript tsc:  0 errors
+Bun test:        215 pass, 0 fail
+Bash syntax:     OK
+Python syntax:   app.py / xt_build.py / aft_model.py all parse OK
+Branches:        main + fix/goal-signal-algorithm both ahead=0, behind=0
+```

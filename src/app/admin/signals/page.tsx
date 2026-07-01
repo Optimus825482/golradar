@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, ExternalLink, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { ChevronLeft, ChevronRight, ExternalLink, AlertCircle, CheckCircle2, Clock, Search, X } from 'lucide-react';
 
 interface SignalRecord {
   id: string;
@@ -20,6 +20,10 @@ interface SignalRecord {
   minutesAfterSignal: number | null;
   homeScore: number;
   awayScore: number;
+  currentHomeGoals: number;
+  currentAwayGoals: number;
+  signalTimestamp: number;
+  signalTier?: string | null;
 }
 
 export default function AdminSignalsPage() {
@@ -29,6 +33,11 @@ export default function AdminSignalsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [logos, setLogos] = useState<Record<string, string>>({});
+
+  // Filters
+  const [filterLeague, setFilterLeague] = useState('');
+  const [filterLevel, setFilterLevel] = useState('');
+  const [filterResult, setFilterResult] = useState('');
 
   const load = useCallback(async (date: string) => {
     setLoading(true);
@@ -40,7 +49,7 @@ export default function AdminSignalsPage() {
       const records = data.records ?? [];
       setSignals(records);
 
-      // Fetch logos for all teams in this date
+      // Fetch logos for all teams
       if (records.length > 0) {
         const teamSet = new Set<string>();
         for (const r of records) {
@@ -60,11 +69,36 @@ export default function AdminSignalsPage() {
 
   useEffect(() => { load(selectedDate); }, [selectedDate, load]);
 
-  // Stats for selected date
-  const total = signals.length;
-  const withGoal = signals.filter(s => s.goalHappened === true).length;
-  const withoutGoal = signals.filter(s => s.goalHappened === false).length;
-  const pending = signals.filter(s => s.goalHappened == null).length;
+  // Sort: en yeni sinyal en ustte (signalTimestamp DESC)
+  // Filter: lig, level, sonuc
+  const filtered = useMemo(() => {
+    let list = [...signals];
+    // Sort newest first
+    list.sort((a, b) => b.signalTimestamp - a.signalTimestamp);
+
+    if (filterLeague) {
+      list = list.filter(s => s.league.toLowerCase().includes(filterLeague.toLowerCase()));
+    }
+    if (filterLevel) {
+      list = list.filter(s => s.level === filterLevel);
+    }
+    if (filterResult) {
+      if (filterResult === 'goal') list = list.filter(s => s.goalHappened === true);
+      else if (filterResult === 'nogoal') list = list.filter(s => s.goalHappened === false);
+      else if (filterResult === 'pending') list = list.filter(s => s.goalHappened == null);
+    }
+    return list;
+  }, [signals, filterLeague, filterLevel, filterResult]);
+
+  // Benzersiz lig ve level listeleri
+  const leagues = useMemo(() => [...new Set(signals.map(s => s.league))].sort(), [signals]);
+  const levels = useMemo(() => [...new Set(signals.map(s => s.level))].sort(), [signals]);
+
+  // Stats
+  const total = filtered.length;
+  const withGoal = filtered.filter(s => s.goalHappened === true).length;
+  const withoutGoal = filtered.filter(s => s.goalHappened === false).length;
+  const pending = filtered.filter(s => s.goalHappened == null).length;
   const resolved = withGoal + withoutGoal;
   const successRate = resolved > 0 ? withGoal / resolved : 0;
 
@@ -87,12 +121,18 @@ export default function AdminSignalsPage() {
     }
   };
 
+  const resetFilters = () => {
+    setFilterLeague('');
+    setFilterLevel('');
+    setFilterResult('');
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
       <div>
         <h1 className="text-xl font-black text-gray-800">📡 Sinyal Kayitlari</h1>
-        <p className="text-xs text-gray-500 mt-0.5">Tarih secin, sinyalleri inceleyin</p>
+        <p className="text-xs text-gray-500 mt-0.5">Tarih secin, filtreleyin, sinyalleri inceleyin</p>
       </div>
 
       {/* Date selector */}
@@ -118,6 +158,55 @@ export default function AdminSignalsPage() {
           </button>
         </div>
       </div>
+
+      {/* Filters */}
+      {signals.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 flex flex-wrap items-center gap-2">
+          <Search className="size-3.5 text-gray-400" />
+          
+          {/* League filter */}
+          <select
+            value={filterLevel}
+            onChange={e => setFilterLevel(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          >
+            <option value="">Tum seviyeler</option>
+            {levels.map(l => (
+              <option key={l} value={l}>{l === 'critical' ? 'KRITIK' : l === 'high' ? 'YUKSEK' : l === 'medium' ? 'ORTA' : 'DUSUK'}</option>
+            ))}
+          </select>
+
+          {/* Level filter */}
+          <select
+            value={filterResult}
+            onChange={e => setFilterResult(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          >
+            <option value="">Tum sonuclar</option>
+            <option value="goal">Gol</option>
+            <option value="nogoal">Basarisiz</option>
+            <option value="pending">Bekleyen</option>
+          </select>
+
+          {/* League search */}
+          <input
+            type="text"
+            value={filterLeague}
+            onChange={e => setFilterLeague(e.target.value)}
+            placeholder="Lig ara..."
+            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 w-32"
+          />
+
+          {/* Reset */}
+          {(filterLeague || filterLevel || filterResult) && (
+            <button onClick={resetFilters} className="text-xs text-gray-500 hover:text-red-500 flex items-center gap-1 px-2 py-1">
+              <X className="size-3" /> Temizle
+            </button>
+          )}
+
+          <span className="text-[10px] text-gray-400 ml-auto">{filtered.length} / {signals.length} sinyal</span>
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (
@@ -149,7 +238,7 @@ export default function AdminSignalsPage() {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                {selectedDate} &middot; {total} sinyal
+                {selectedDate} &middot; {filtered.length} sinyal {filtered.length !== signals.length ? `(fitrelenmis)` : ''}
                 <span className="text-gray-400 font-normal ml-2">
                   ({withGoal} gol, {withoutGoal} basarisiz, {pending} bekleyen)
                 </span>
@@ -165,13 +254,13 @@ export default function AdminSignalsPage() {
             </div>
             <div className="flex h-3 rounded-full overflow-hidden bg-gray-100">
               {withGoal > 0 && (
-                <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(withGoal / total) * 100}%` }} title={`${withGoal} gol`} />
+                <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(withGoal / filtered.length) * 100}%` }} title={`${withGoal} gol`} />
               )}
               {withoutGoal > 0 && (
-                <div className="h-full bg-red-400 transition-all" style={{ width: `${(withoutGoal / total) * 100}%` }} title={`${withoutGoal} basarisiz`} />
+                <div className="h-full bg-red-400 transition-all" style={{ width: `${(withoutGoal / filtered.length) * 100}%` }} title={`${withoutGoal} basarisiz`} />
               )}
               {pending > 0 && (
-                <div className="h-full bg-amber-400 transition-all" style={{ width: `${(pending / total) * 100}%` }} title={`${pending} bekleyen`} />
+                <div className="h-full bg-amber-400 transition-all" style={{ width: `${(pending / filtered.length) * 100}%` }} title={`${pending} bekleyen`} />
               )}
             </div>
           </div>
@@ -186,7 +275,8 @@ export default function AdminSignalsPage() {
                     <th className="text-left px-3 py-2.5 font-semibold">Lig</th>
                     <th className="text-center px-3 py-2.5 font-semibold">Dk</th>
                     <th className="text-center px-3 py-2.5 font-semibold">Yon</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Skor</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Radar</th>
+                    <th className="text-center px-3 py-2.5 font-semibold">Skor</th>
                     <th className="text-center px-3 py-2.5 font-semibold">Seviye</th>
                     <th className="text-right px-3 py-2.5 font-semibold">Olasilik</th>
                     <th className="text-right px-3 py-2.5 font-semibold">Sonuc</th>
@@ -194,7 +284,7 @@ export default function AdminSignalsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {signals.map(s => {
+                  {filtered.map(s => {
                     const isGoal = s.goalHappened === true;
                     const isNoGoal = s.goalHappened === false;
                     const isPending = s.goalHappened == null;
@@ -255,6 +345,11 @@ export default function AdminSignalsPage() {
                           <span className="text-[9px] text-gray-400 ml-1">/100</span>
                         </td>
                         <td className="px-3 py-2.5 text-center">
+                          <span className="font-mono font-bold text-sm text-gray-700">
+                            {s.currentHomeGoals} - {s.currentAwayGoals}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${lc.bg} ${lc.text} ${lc.border} border`}>
                             {s.level === 'critical' ? 'KRITIK' :
                              s.level === 'high' ? 'YUKSEK' :
@@ -308,7 +403,7 @@ export default function AdminSignalsPage() {
               </table>
             </div>
             <div className="flex items-center justify-between px-4 py-2.5 text-[10px] text-gray-400 border-t border-gray-100 bg-gray-50">
-              <span>Toplam {total} sinyal &middot; {withGoal} gol &middot; {withoutGoal} basarisiz &middot; {pending} bekleyen</span>
+              <span>Toplam {filtered.length} sinyal &middot; {withGoal} gol &middot; {withoutGoal} basarisiz &middot; {pending} bekleyen</span>
               <span className="flex items-center gap-1">
                 <ExternalLink className="size-3" /> Satira tiklayarak mac detayini acin
               </span>

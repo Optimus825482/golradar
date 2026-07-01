@@ -74,6 +74,7 @@ export function toGoalSignalRecord(row: Signal): GoalSignalRecord {
     finalAwayScore: row.finalAwayScore,
 
     escalated: row.escalated ?? false,
+    signalTier: row.signalTier,
   };
   return base as GoalSignalRecord & { id: string };
 }

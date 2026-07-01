@@ -198,30 +198,55 @@ export const POST = adminRoute(async (request: Request) => {
 
     let labeled = 0;
     let positives = 0;
+    const goalIds: string[] = [];
+    const noGoalIds: string[] = [];
+    const goalData: Array<{ id: string; delta: number }> = [];
+
     for (const row of rows) {
       const rMin = row.minute ?? 0;
       const firstEligible = goalMinutes.find(
         (gm) => gm > rMin && gm - rMin <= HORIZON_FOR_LABEL,
       );
       if (firstEligible === undefined) {
-        await db.predictionLog.update({
-          where: { id: row.id },
-          data: { goalScored: false, minutesToGoal: null, goalTimestamp: null },
-        });
+        noGoalIds.push(row.id);
       } else {
-        const delta = firstEligible - rMin;
-        await db.predictionLog.update({
-          where: { id: row.id },
+        goalIds.push(row.id);
+        goalData.push({ id: row.id, delta: firstEligible - rMin });
+      }
+    }
+
+    // Batch update: goal rows
+    if (goalIds.length > 0) {
+      // minutesToGoal değeri her satırda farklı olduğu için tek tek update.
+      // Bunun yerine aynı delta'ya sahip olanları grupla.
+      const byDelta = new Map<number, string[]>();
+      for (const gd of goalData) {
+        const arr = byDelta.get(gd.delta) ?? [];
+        arr.push(gd.id);
+        byDelta.set(gd.delta, arr);
+      }
+      const now = Date.now();
+      for (const [delta, ids] of byDelta) {
+        await db.predictionLog.updateMany({
+          where: { id: { in: ids } },
           data: {
             goalScored: true,
             minutesToGoal: delta,
-            goalTimestamp: new Date(Date.now() - delta * 60_000),
+            goalTimestamp: new Date(now - delta * 60_000),
           },
         });
-        positives++;
       }
-      labeled++;
+      positives = goalIds.length;
     }
+
+    // Batch update: no-goal rows
+    if (noGoalIds.length > 0) {
+      await db.predictionLog.updateMany({
+        where: { id: { in: noGoalIds } },
+        data: { goalScored: false, minutesToGoal: null, goalTimestamp: null },
+      });
+    }
+    labeled = rows.length;
     return { matchCode, labeled, positives, goalMinutes, unlabeledRows: rows.length };
   }
 

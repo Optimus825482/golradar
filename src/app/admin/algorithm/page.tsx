@@ -22,10 +22,10 @@ flowchart TD
     Goaloo --> Odds[oddsMovement<br/>initial vs live]
     Odds --> Momentum[Momentum trend<br/>son 5dk ortalama]
     
-	    Momentum --> CalcGoal[calculateGoalProbability<br/>12 factor heuristic]
-	    CalcGoal --> Poisson[Poisson blend<br/>Dixon-Coles + inPlay]
+	    Momentum --> CalcGoal[calculateGoalProbability<br/>21 factor heuristic]
+		    CalcGoal --> Poisson[Poisson blend<br/>Dixon-Coles + inPlay]
 	    Poisson --> Elo[Elo adjustment<br/>Dynamic K=50]
-	    Elo --> Ensemble[Ensemble 6 model<br/>rule-poisson-elo-ml-ts-inplay]
+	    Elo --> Ensemble[Ensemble 9 model<br/>rule-poisson-elo-ml-ts-inplay-gap-pi-glicko2]
 	    Ensemble --> Calib[Calibration<br/>PAVA / Sigmoid]
 	    
 	    Pi["Pi-Rating ✅<br/>default ON"]
@@ -34,7 +34,7 @@ flowchart TD
 	    Stacking["Stacking α ✅<br/>default ON (α=0.5)"]
 	    Gap["Lite GAP ✅<br/>default ON"]
 	    
-	    Calib --> SignalCheck{score >= 60<br/>side != null?}
+		    Calib --> SignalCheck{score >= threshold<br/>side != null?}
 	    SignalCheck -->|Hayır| Next
 	    SignalCheck -->|Evet| Cooldown{Son 3dk<br/>cooldown?}
 	    Cooldown -->|Evet| Update[Update last values]
@@ -140,7 +140,7 @@ flowchart LR
     J1 --> K[Kalibrasyon DB'ye<br/>kaydedilir]
     J2 --> K
     J3 --> K
-    K --> L[WebSocket<br/>push update]
+	    K --> L[SSE push update]
     L --> M[Production<br/>prediction]
 
     style A fill:#3b82f6,stroke:#2563eb,color:#fff
@@ -152,23 +152,23 @@ flowchart LR
     style M fill:#ef4444,stroke:#dc2626,color:#fff
 `;
 
-const PRESENCE_FLOW_DIAGRAM = `
-flowchart LR
-    A[Browser mount<br/>usePresence] --> B[localStorage<br/>sessionId generate]
-    B --> C{Already<br/>mounted?}
-    C -->|Hayır| D[POST /api/presence<br/>action=ping]
-    C -->|Evet| D
-    D --> E[Server: presencePing<br/>Map.set sessionId, now]
-    E --> F[TTL Prune<br/>>120s sil]
-    F --> G[activeUserCount]
-    G --> H[resolveTier<br/>LITE/MID/FULL]
-    H --> I{activeUsers<br/><=0?}
-    I -->|Evet| J[LITE<br/>60s poll]
-    I -->|<=10| K[MID<br/>30s poll]
-    I -->|>10| L[FULL<br/>15s poll + heavy analytics]
-    J --> M[page.tsx<br/>fetchMatches interval]
-    K --> M
-    L --> M
+	const PRESENCE_FLOW_DIAGRAM = `
+	flowchart LR
+	    A[Browser mount<br/>usePresence] --> B[localStorage<br/>sessionId generate]
+	    B --> C{Already<br/>mounted?}
+	    C -->|Hayır| D[POST /api/presence<br/>action=ping]
+	    C -->|Evet| D
+	    D --> E[Server: presencePing<br/>Map.set sessionId, now]
+	    E --> F[TTL Prune<br/>>120s sil]
+	    F --> G[activeUserCount]
+	    G --> H[resolveTier<br/>LITE/MID/FULL]
+	    H --> I{activeUsers<br/><=0?}
+	    I -->|Evet| J[LITE<br/>60s poll + SSE]
+	    I -->|<=10| K[MID<br/>30s poll + SSE]
+	    I -->|>10| L[FULL<br/>5s writer + SSE push]
+	    J --> M[page.tsx<br/>useMatchStream (SSE)]
+	    K --> M
+	    L --> M
 
     style A fill:#6366f1,stroke:#4f46e5,color:#fff
     style D fill:#3b82f6,stroke:#2563eb,color:#fff
@@ -181,7 +181,7 @@ flowchart LR
 	  {
       key: 'signal',
       title: '🎯 Gol Sinyali Akışı (güncel)',
-      description: 'Browser poll → Nesine API (21 stat) → FotMob (shot-level xG) → Goaloo (oddsMovement + momentum) → 12 faktör → Dixon-Coles Poisson → Elo → Pi-Rating → Glicko-2 → Lite GAP → Ensemble 9-model Brier-tier blend → ZISM/Weibull Corrector (κ=-0.30) → Stacking α-blend (α=0.5) → PAVA/Sigmoid → Signal DB. Tüm yeni özellikler default AÇIK (env ile kapatılabilir).',
+      description: 'Browser poll → Nesine API (21 stat) → FotMob (shot-level xG) → Goaloo (oddsMovement + momentum) → 21 faktör → Dixon-Coles Poisson → Elo → Pi-Rating → Glicko-2 → Lite GAP → Ensemble 9-model Brier-tier blend → ZISM/Weibull Corrector (κ=-0.30) → Stacking α-blend (α=0.5) → PAVA/Sigmoid calibration → Signal DB + SSE stream. Tüm yeni özellikler default AÇIK (env ile kapatılabilir).',
       source: SIGNAL_FLOW_DIAGRAM,
 	  },
 	];
@@ -275,7 +275,7 @@ export default function AdminAlgorithmPage() {
 		            num="3"
 		            title="Sinyal Üretimi"
 		            color="emerald"
-		            items={['12 faktör heuristic → raw score', 'Dixon-Coles Poisson + Elo', 'Pi-Rating + Glicko-2 + Lite GAP', 'Ensemble 9-model Brier-tier blend', 'ZISM/Weibull Corrector (κ -0.30)', 'Stacking Meta-Model α=0.5', 'PAVA/Sigmoid calibration', 'Threshold 60 + side ratio 0.62']}
+		            items={['21 faktör heuristic → raw score', 'Dixon-Coles Poisson + Elo', 'Pi-Rating + Glicko-2 + Lite GAP', 'Ensemble 9-model Brier-tier blend', 'ZISM/Weibull Corrector (κ -0.30)', 'Stacking Meta-Model α=0.5', 'PAVA/Sigmoid calibration', 'Multi-tier signal (elite/confirmed/watch/radar)']}
 		          />
 	          <PipelineStep
 	            num="4"

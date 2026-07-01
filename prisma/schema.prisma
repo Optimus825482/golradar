@@ -278,6 +278,27 @@ model Signal {
   @@index([calibratedP])
 }
 
+// ── P3: Per-Signal P&L Tracking ────────────────────────────────
+// One row per Signal. outcome: 0=no goal, 1=goal. pnl uses Kelly
+// staking (fraction=0.25). signalTier mirrors Signal.signalTier for
+// group-by analytics (elite/confirmed/watch/radar).
+model SignalPnL {
+  id            String   @id @default(cuid())
+  signalId      String
+  calibratedP   Float
+  closingOdds   Float?
+  outcome       Int      // 0 = no goal, 1 = goal
+  pnl           Float?
+  kellyStake    Float?
+  signalTier    String?
+
+  createdAt     DateTime @default(now())
+
+  @@index([signalId])
+  @@index([createdAt])
+  @@index([signalTier])
+}
+
 // ── Gol Radarı: FotMob Match Cache ───────────────────────────────
 // Cached FotMob match details (weather, squad, H2H, form) for the
 // goalRadar FotMob intelligence layer. TTL default 5 min; refresh

@@ -135,7 +135,9 @@ export const POST = adminRoute(async (request: Request) => {
     select: { matchCode: true },
     distinct: ["matchCode"],
   });
-  const matchCodes = unlabeled.map((r) => r.matchCode).sort((a, b) => a - b);
+  // DESC sort: en yeni matchCode'lar önce işlensin. Eskilerde MatchSnapshot
+  // verisi olmayabilir (Snapshot sadece yakın zamandaki maçlar için var).
+  const matchCodes = unlabeled.map((r) => r.matchCode).sort((a, b) => b - a);
   if (matchCodes.length === 0) {
     return NextResponse.json({
       success: true,

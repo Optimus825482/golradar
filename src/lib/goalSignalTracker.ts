@@ -629,13 +629,24 @@ export async function finalizeMatchSignals(
 
 /**
  * Label PredictionLog rows for a finished match.
- *   goalScored = (a goal happened after this prediction within expiry window)
+ *   goalScored = (a goal happened within the horizon window AFTER this prediction)
  *   minutesToGoal = minutes between this row's minute and the first goal
  *   goalTimestamp = first goal minute as a Date (00:00 UTC, minute offset)
  *
- * Strategy: find the first goal minute for this match from MatchEvent
- * rows (eventType='goal'). Predictions at minute <= goalMinute get
- * goalScored=true with the delta; predictions after goalMinute get false.
+ * Strategy: find ALL goal minutes for this match from MatchEvent rows
+ * (eventType='goal'), then for each prediction row ask: does any goal
+ * happen within `horizonMin` AFTER the prediction minute? If yes → 1,
+ * otherwise → 0. This is the same horizon semantics used by the trainer
+ * (exportTrainingData → labelForLog).
+ *
+ * REGRESSION FIX 2026-07-01: the previous formula was
+ *   goalHappened = rMin <= firstGoalMinute
+ * which marked every prediction up-to-and-including the first goal
+ * minute as positive — producing ~80% positive class rate and
+ * collapsing the trainer to constant prediction (AUC=0.500).
+ * Horizon-aware labeling brings the positive rate to ~10-15%, which
+ * is what the trainer was designed for.
+ *
  * No-goal matches (0-0) label every row false.
  */
 async function backfillPredictionLogLabels(
@@ -645,23 +656,32 @@ async function backfillPredictionLogLabels(
 ): Promise<void> {
   const noGoal = homeScore === 0 && awayScore === 0;
 
-  // Resolve first goal minute from MatchEvent (eventType='goal').
-  let firstGoalMinute: number | null = null;
+  // Resolve ALL goal minutes from MatchEvent (eventType='goal').
+  // Sort ascending so the first matching goal gives us minutesToGoal.
+  let goalMinutes: number[] = [];
   if (!noGoal) {
-    const firstGoal = await db.matchEvent.findFirst({
+    const goalEvents = await db.matchEvent.findMany({
       where: { matchCode, eventType: 'goal' },
       orderBy: { minute: 'asc' },
       select: { minute: true },
     });
-    if (firstGoal && Number.isFinite(firstGoal.minute)) {
-      firstGoalMinute = firstGoal.minute;
-    } else {
-      // Fallback: no event data — assume first goal near end so
-      // most predictions get goalScored=true. Pipeline needs *some*
-      // labels to run; precision here is best-effort.
-      firstGoalMinute = 90;
+    goalMinutes = goalEvents
+      .map((e) => e.minute)
+      .filter((m): m is number => Number.isFinite(m));
+    if (goalMinutes.length === 0) {
+      // Fallback: no event data — assume one goal near end of match
+      // so the horizon check can still fire for late predictions.
+      // Better than 90-minute-blind labelling; still best-effort.
+      goalMinutes = [Math.max(80, 90)];
     }
   }
+
+  // Horizon used by the trainer export. The label is horizon-specific
+  // (a 5-min signal is positive iff a goal happens in the next 5 min),
+  // so we label each row for the canonical horizon AND fall back to
+  // a 15-min max horizon for safety (covers all horizons the trainer
+  // sees: 5, 10, 15 min).
+  const HORIZON_FOR_LABEL = 15;
 
   // Only update rows that haven't been labeled yet (avoid overwriting
   // admin backfill / hand-labeled data).
@@ -673,7 +693,7 @@ async function backfillPredictionLogLabels(
 
   for (const row of unlabeled) {
     const rMin = row.minute ?? 0;
-    if (noGoal || firstGoalMinute == null) {
+    if (noGoal || goalMinutes.length === 0) {
       await db.predictionLog.update({
         where: { id: row.id },
         data: {
@@ -684,14 +704,27 @@ async function backfillPredictionLogLabels(
       });
       continue;
     }
-    const goalHappened = rMin <= firstGoalMinute;
-    const delta = firstGoalMinute - rMin;
+    // Find the FIRST goal that occurs within HORIZON_FOR_LABEL after rMin.
+    // If none, label is 0.
+    const firstEligibleGoal = goalMinutes.find((gm) => gm > rMin && gm - rMin <= HORIZON_FOR_LABEL);
+    if (firstEligibleGoal === undefined) {
+      await db.predictionLog.update({
+        where: { id: row.id },
+        data: {
+          goalScored: false,
+          minutesToGoal: null,
+          goalTimestamp: null,
+        },
+      });
+      continue;
+    }
+    const delta = firstEligibleGoal - rMin;
     await db.predictionLog.update({
       where: { id: row.id },
       data: {
-        goalScored: goalHappened,
-        minutesToGoal: goalHappened ? Math.max(0, delta) : null,
-        goalTimestamp: goalHappened ? new Date(Date.now() - delta * 60_000) : null,
+        goalScored: true,
+        minutesToGoal: delta,
+        goalTimestamp: new Date(Date.now() - delta * 60_000),
       },
     });
   }

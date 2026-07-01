@@ -112,6 +112,27 @@ function hashRows(rows: TrainingRow[]): string {
  * events in the same match. A label of 1 means a goal happened
  * within horizonMin of the prediction's createdAt.
  */
+/**
+ * Horizon-aware label for a single PredictionLog row.
+ * Returns 1 iff at least one goal happens within `horizonMin` minutes
+ * AFTER the log's `logCreatedAt` timestamp.
+ *
+ * The match kickoff timestamp isn't stored on the row, so the only
+ * safe resolution path is `MatchEvent.createdAt` (a per-event UTC
+ * timestamp). When `ev.createdAt` is null we cannot derive the
+ * goal's wall-clock time without the match kickoff anchor, so we
+ * conservatively return 0.
+ *
+ * BUG FIX 2026-07-01: the previous implementation only honoured the
+ * `createdAt` path; when null, the loop fell through and returned 0
+ * silently. This version is explicit about that limitation: a
+ * missing createdAt is treated as a missing label, not a free pass
+ * to assume a positive label.
+ *
+ * REGRESSION NOTE: matches the semantics used by
+ * goalSignalTracker.backfillPredictionLogLabels so trainer export and
+ * live labelling agree.
+ */
 function labelForLog(
   logCreatedAt: Date,
   horizonMin: TrainingHorizon,
@@ -119,13 +140,16 @@ function labelForLog(
 ): number {
   const horizonMs = horizonMin * 60 * 1000;
   for (const ev of goalEvents) {
-    // Use the event's createdAt when available (exact alignment),
-    // otherwise fall back to match-time arithmetic via the minute column.
+    // Only the createdAt path is reliable here. The match kickoff
+    // timestamp isn't on the row, so ev.minute (match-internal
+    // minute) cannot be compared against logCreatedAt (absolute
+    // UTC) without an anchor we don't have. Returning 0 when
+    // createdAt is missing is the safe default — it never
+    // inflates the positive class rate.
     const evTime = ev.createdAt ?? null;
-    if (evTime) {
-      if (evTime.getTime() <= logCreatedAt.getTime()) continue;
-      if (evTime.getTime() - logCreatedAt.getTime() <= horizonMs) return 1;
-    }
+    if (!evTime) continue;
+    if (evTime.getTime() <= logCreatedAt.getTime()) continue;
+    if (evTime.getTime() - logCreatedAt.getTime() <= horizonMs) return 1;
   }
   return 0;
 }

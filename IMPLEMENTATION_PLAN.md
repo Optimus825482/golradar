@@ -1144,6 +1144,87 @@ pos_rate ≥ 0.5). A/B test confirms weighted > unweighted.
 | E5 /data/ml-models permissions | 7c99f00 | docker-entrypoint.sh |
 | E6 XGBoost 2.x use_label_encoder | 61475c0 | app.py |
 | E7 Aggressive sample_weight | d94a2f1 | app.py + 5 Python regression tests |
+| E8 horizon-aware goalScored | a19e3c2 | goalSignalTracker + backfill-labels + exportTrainingData + 17 tests |
+
+---
+
+### Task E8: Horizon-aware goalScored labelling (data-source fix)
+
+**Files:**
+- `src/lib/goalSignalTracker.ts` (`backfillPredictionLogLabels`)
+- `src/lib/ml/exportTrainingData.ts` (`labelForLog`)
+- `src/app/api/admin/backfill-labels/route.ts` (admin re-label endpoint)
+- `src/lib/__tests__/horizonAwareLabel.test.ts` (17 regression tests)
+
+**Root cause (verified by replaying the trainer logs):**
+
+The label-generation formula in three places was
+```typescript
+const goalHappened = rMin <= firstGoalMinute;
+```
+
+This marked **every prediction up-to-and-including the first goal
+minute** as positive. With first goals typically around minute 25-35,
+this gave ~70-90% positive labels across the dataset — far from the
+real-world goal rate (~10-15%).
+
+The trainer with sample_weight fix (E7) couldn't escape this base
+rate because the labels were simply wrong. Mathematically:
+```
+positive_rate = 0.807 → Brier_min = 0.807 × (1 − 0.807) = 0.1557
+observed Brier ≈ 0.1564 → model is at the constant-prediction plateau
+```
+
+**Fix (three places):**
+
+```typescript
+// 1. backfillPredictionLogLabels — goalSignalTracker.ts
+// HORIZON_FOR_LABEL = 15 minutes
+const firstEligibleGoal = goalMinutes.find(
+  (gm) => gm > rMin && gm - rMin <= HORIZON_FOR_LABEL,
+);
+if (firstEligibleGoal === undefined) {
+  // No goal in the horizon window → label = 0
+} else {
+  // Goal within horizon → label = 1, minutesToGoal = delta
+}
+
+// 2. labelForLog — exportTrainingData.ts
+// Only the createdAt path is reliable. ev.minute is match-internal
+// (different units from logCreatedAt's wall-clock); without the
+// match kickoff timestamp, ev.minute can't be compared. We
+// conservatively return 0 when createdAt is null.
+
+// 3. /api/admin/backfill-labels — POST endpoint
+// Now accepts force=true to re-label ALL rows (not just null).
+// Use this on next deploy:
+//   curl -X POST .../api/admin/backfill-labels -d '{"force":true}'
+// Expected outcome: positiveRate field drops from ~80% to ~10-15%.
+```
+
+**Deployment procedure (next deploy):**
+
+1. Merge commit `a19e3c2` (already pushed to main + fix branches).
+2. After container restart, call:
+   ```
+   curl -X POST -H 'Cookie: admin_session=...' \
+        -d '{"force":true}' -H 'Content-Type: application/json' \
+        https://radar.erkanerdem.online/api/admin/backfill-labels
+   ```
+3. Response will show `positiveRate` for the regenerated dataset —
+   expect ~10-15% (not 80.7%).
+4. Next MLScheduler daily run (03:00 local) will train on the
+   corrected labels. AUC > 0.65 expected.
+
+**Regression test (`horizonAwareLabel.test.ts` — 17 tests):**
+
+- backfill logic: single goal, multi goal, out-of-horizon, no goals
+- labelForLog: createdAt path, null createdAt → 0, past goal → 0,
+  boundary inclusion
+- positive-rate sanity: realistic match yields 5-25% (not 80%+),
+  50 random matches all stay < 25%
+- regression guard: pre-fix formula gives 88% positives; horizon-aware
+  fix gives 35% (still some positives, not all zeros)
 
 ---
 
@@ -1152,7 +1233,7 @@ pos_rate ≥ 0.5). A/B test confirms weighted > unweighted.
 ```
 Python pytest:    5 + N pass, 0 fail
 TypeScript tsc:  0 errors
-Bun test:        215 pass, 0 fail
+Bun test:        232 pass, 0 fail
 Bash syntax:     OK
 Python syntax:   app.py / xt_build.py / aft_model.py all parse OK
 Branches:        main + fix/goal-signal-algorithm both ahead=0, behind=0

@@ -138,84 +138,92 @@ export async function predictEnsemble(
   if (!minNum || minNum === 0) minNum = 45;
   minNum = Math.max(1, Math.min(120, minNum));
 
-  // ── Model 1: Rule-based Goal Radar ──
-  // Faz 4 — tek kalibrasyon kanalı: ensemble ham score alır; route
-  // seviyesinde applyCalibration ile kalibre edilir. Burada sigmoid/PAVA
-  // uygulamıyoruz — çift katman riski kalkar.
-  const ruleBasedP =
-    ruleBasedScore != null ? Math.min(1, ruleBasedScore / 100) : 0;
-  const ruleBasedConf =
-    ruleBasedScore != null ? Math.min(1, ruleBasedScore / 70) : 0.1;
+  // ── Pre-fetch all Brier data in parallel (Faz 4.9) ─────────────
+  // Tek Promise.all ile tüm champion/measured Brier'ları önceden al.
+  const [
+    champBrierXgb, champBrierGbdt, champBrierInplay, champBrierTs,
+    measBrierRule, measBrierPoisson, measBrierElo,
+    measBrierGap, measBrierPi, measBrierGlicko2,
+  ] = await Promise.all([
+    getChampionBrier('xgb').catch(() => null),
+    getChampionBrier('gbdt').catch(() => null),
+    getChampionBrier('inplay').catch(() => null),
+    getChampionBrier('team-strength').catch(() => null),
+    getMeasuredBrier('rule').catch(() => null),
+    getMeasuredBrier('poisson').catch(() => null),
+    null, // Elo has no champion Brier
+    getMeasuredBrier('gap').catch(() => null),
+    getMeasuredBrier('pi').catch(() => null),
+    getMeasuredBrier('glicko2').catch(() => null),
+  ]);
+  const cachedBrier = {
+    ml: champBrierXgb ?? champBrierGbdt,
+    inplay: champBrierInplay,
+    teamStrength: champBrierTs,
+    rule: measBrierRule,
+    poisson: measBrierPoisson,
+    elo: null,
+    gap: measBrierGap,
+    pi: measBrierPi,
+    glicko2: measBrierGlicko2,
+  };
 
-  // ── Model 2: Dixon-Coles Poisson ──
-  let poissonP = 0;
-  let poissonOverUnder = 0;
-  let poissonBTTS = 0;
-  let poissonHomeWin = 0;
-  let poissonDraw = 0;
-  let poissonAwayWin = 0;
+  // ── Models 1-3: parallel (sync, independent) ──────────────────
+  const [ruleResult, poissonResult, eloResult] = await Promise.all([
+    Promise.resolve().then(() => {
+      // Model 1: Rule-based Goal Radar
+      const ruleBasedP = ruleBasedScore != null ? Math.min(1, ruleBasedScore / 100) : 0;
+      const ruleBasedConf = ruleBasedScore != null ? Math.min(1, ruleBasedScore / 70) : 0.1;
+      return { ruleBasedP, ruleBasedConf };
+    }),
+    Promise.resolve().then(() => {
+      // Model 2: Dixon-Coles Poisson
+      let poissonP = 0, poissonOverUnder = 0, poissonBTTS = 0;
+      let poissonHomeWin = 0, poissonDraw = 0, poissonAwayWin = 0;
+      try {
+        const xgHome = estimateXgFromShots(stats, 'home', minNum);
+        const xgAway = estimateXgFromShots(stats, 'away', minNum);
+        if (homeAttackStrength && awayDefenseStrength) {
+          const params = calculateExpectedGoals(homeAttackStrength, awayDefenseStrength, awayAttackStrength ?? 1.0, homeDefenseStrength ?? 1.0);
+          const probs = calculateMatchProbabilities(params);
+          poissonP = 1 - (probs.overUnder[0.5]?.under || 0);
+          poissonOverUnder = probs.overUnder[2.5]?.over ?? 0;
+          poissonBTTS = probs.btts.yes;
+          poissonHomeWin = probs.homeWin;
+          poissonDraw = probs.draw;
+          poissonAwayWin = probs.awayWin;
+        } else {
+          const inPlay = inPlayGoalProbability(xgHome, xgAway, minNum);
+          poissonP = inPlay.anyGoalP;
+          poissonOverUnder = Math.min(0.9, poissonP * 1.2);
+          poissonBTTS = Math.min(0.8, poissonP * 0.6);
+          poissonHomeWin = inPlay.homeGoalP;
+          poissonAwayWin = inPlay.awayGoalP;
+          poissonDraw = 0.26;
+        }
+      } catch { poissonP = 0; }
+      return { poissonP, poissonOverUnder, poissonBTTS, poissonHomeWin, poissonDraw, poissonAwayWin };
+    }),
+    Promise.resolve().then(() => {
+      // Model 3: Elo Rating
+      let eloP = 0, eloHomeWin = 0, eloDraw = 0, eloAwayWin = 0;
+      try {
+        if (homeTeam && awayTeam) {
+          const eloPrediction = predictFromElo(homeTeam, awayTeam);
+          const eloAdj = eloGoalAdjustment(homeTeam, awayTeam);
+          eloP = Math.max(0, Math.min(0.8, 0.15 + (Math.abs(eloAdj.homeAdjust) + Math.abs(eloAdj.awayAdjust)) * 0.03));
+          eloHomeWin = eloPrediction.homeWinP;
+          eloDraw = eloPrediction.drawP;
+          eloAwayWin = eloPrediction.awayWinP;
+        }
+      } catch { eloP = 0.15; }
+      return { eloP, eloHomeWin, eloDraw, eloAwayWin };
+    }),
+  ]);
 
-  try {
-    // Estimate xG for Poisson input using shared formula (avoids formula duplication)
-    const xgHome = estimateXgFromShots(stats, 'home', minNum);
-    const xgAway = estimateXgFromShots(stats, 'away', minNum);
-
-    if (homeAttackStrength && awayDefenseStrength) {
-      const params = calculateExpectedGoals(
-        homeAttackStrength,
-        awayDefenseStrength,
-        awayAttackStrength ?? 1.0,
-        homeDefenseStrength ?? 1.0,
-      );
-      const probs = calculateMatchProbabilities(params);
-      poissonP = 1 - (probs.overUnder[0.5]?.under || 0);
-      poissonOverUnder = probs.overUnder[2.5]?.over ?? 0;
-      poissonBTTS = probs.btts.yes;
-      poissonHomeWin = probs.homeWin;
-      poissonDraw = probs.draw;
-      poissonAwayWin = probs.awayWin;
-    } else {
-      // Use in-play Poisson from xG rates
-      const inPlay = inPlayGoalProbability(xgHome, xgAway, minNum);
-      poissonP = inPlay.anyGoalP;
-      poissonOverUnder = Math.min(0.9, poissonP * 1.2); // Approximate
-      poissonBTTS = Math.min(0.8, poissonP * 0.6); // Approximate
-      poissonHomeWin = inPlay.homeGoalP;
-      poissonAwayWin = inPlay.awayGoalP;
-      poissonDraw = 0.26; // Base draw rate
-    }
-  } catch {
-    poissonP = 0;
-  }
-
-  // ── Model 3: Elo Rating ──
-  let eloP = 0;
-  let eloHomeWin = 0;
-  let eloDraw = 0;
-  let eloAwayWin = 0;
-
-  try {
-    if (homeTeam && awayTeam) {
-      const eloPrediction = predictFromElo(homeTeam, awayTeam);
-      const eloAdj = eloGoalAdjustment(homeTeam, awayTeam);
-
-      // Convert Elo win probability to goal probability
-      // Higher Elo differential → higher chance of scoring
-      eloP = Math.max(
-        0,
-        Math.min(
-          0.8,
-          0.15 +
-            (Math.abs(eloAdj.homeAdjust) + Math.abs(eloAdj.awayAdjust)) * 0.03,
-        ),
-      );
-      eloHomeWin = eloPrediction.homeWinP;
-      eloDraw = eloPrediction.drawP;
-      eloAwayWin = eloPrediction.awayWinP;
-    }
-  } catch {
-    eloP = 0.15;
-  }
+  const { ruleBasedP, ruleBasedConf } = ruleResult;
+  const { poissonP, poissonOverUnder, poissonBTTS, poissonHomeWin, poissonDraw, poissonAwayWin } = poissonResult;
+  const { eloP, eloHomeWin, eloDraw, eloAwayWin } = eloResult;
 
   // ── Model 4: Champion ML (XGB/GBDT promoted artifact, or built-in GBDT) ──
   // Priority: xgb champion > gbdt champion > built-in GBDT
@@ -262,7 +270,7 @@ export async function predictEnsemble(
       mlP = Math.max(0, Math.min(1, predictXgb(mlModel, featureArray)));
       // Faz 6 — confidence champion Brier'dan türetilir. Brier mevcut değilse
       // (henüz backtest edilmemiş şampiyon) 0.7 fallback.
-      const mlChampionBrier = await getChampionBrier("xgb");
+      const mlChampionBrier = cachedBrier.ml;
       mlConfidence =
         mlChampionBrier != null
           ? brierToConfidence(mlChampionBrier)
@@ -320,7 +328,7 @@ export async function predictEnsemble(
           Math.min(1, predictXgb(ipChampion.model, featureArray)),
         );
         // Faz 6 — in-play confidence champion Brier'dan türetilir.
-        const inplayChampionBrier = await getChampionBrier("inplay");
+        const inplayChampionBrier = cachedBrier.inplay;
         inPlayConf =
           inplayChampionBrier != null
             ? brierToConfidence(inplayChampionBrier)
@@ -357,7 +365,7 @@ export async function predictEnsemble(
       teamStrengthP = Math.max(0, Math.min(0.6, lambdaImminent));
       teamStrengthConf =
         Math.min(tsPred.matches.home, tsPred.matches.away) >= 5 ? 0.7 : 0.3;
-      const teamStrengthChampionBrier = await getChampionBrier("team-strength");
+      const teamStrengthChampionBrier = cachedBrier.teamStrength;
       teamStrengthConf =
         teamStrengthChampionBrier != null
           ? brierToConfidence(teamStrengthChampionBrier)
@@ -458,23 +466,14 @@ export async function predictEnsemble(
   // ramp 20→30, cap 0.30 after) is now inside computeEnsembleWeights.
   const mlAvailable = mlP > 0;
   const hasHistory = !!(pressureHistory && pressureHistory.length >= 3);
-  // Read champion Briers dynamically — a freshly promoted model
-  // automatically gets a recalibrated ensemble weight on the next
-  // prediction. weightTuner treats null as the unranked baseline (0.20).
-  const mlBrier = mlAvailable
-    ? (await getChampionBrier('xgb')) ?? (await getChampionBrier('gbdt'))
-    : null;
-  const inplayBrier = inPlayP > 0 ? await getChampionBrier('inplay') : null;
-  const teamStrengthBrier = teamStrengthP > 0 ? await getChampionBrier('team-strength') : null;
+  // Use pre-fetched Brier data (Faz 4.9 — fetched at top in parallel)
+  const mlBrier = mlAvailable ? cachedBrier.ml : null;
+  const inplayBrier = inPlayP > 0 ? cachedBrier.inplay : null;
+  const teamStrengthBrier = teamStrengthP > 0 ? cachedBrier.teamStrength : null;
   // Faz 1 (A1) — Rule/Poisson/Elo bireysel Brier'ları SystemConfig'ten
-  // oku (measure-model-briers.ts tarafından dev-set üzerinde ölçülmüş).
-  // null ise (henüz ölçülmediyse) unranked baseline (0.20) yoluna düşer —
-  // eski davranışla aynı, dolayısıyla sinyal sayısı invariant.
-  const [ruleMeasured, poissonMeasured, eloMeasured] = await Promise.all([
-    getMeasuredBrier('rule'),
-    getMeasuredBrier('poisson'),
-    getMeasuredBrier('elo'),
-  ]);
+  const ruleMeasured = cachedBrier.rule;
+  const poissonMeasured = cachedBrier.poisson;
+  const eloMeasured = cachedBrier.elo;
   const weights = computeEnsembleWeights({
     inplayBrier,
     mlBrier,
@@ -513,33 +512,17 @@ export async function predictEnsemble(
     { name: 'Glicko2', probability: glicko2P, brierScore: null as number | null },
   ].filter(m => m.probability > 0);
 
-  // Get Brier scores from champion models
+  // Get Brier scores from pre-fetched cached data (Faz 4.9)
   const brierMap: Record<string, number | null> = {};
-  try {
-    const [
-      ruleBrier, poissonBrier, eloBrier, mlBrier,
-      tsBrier, ipBrier, gapBrier, piBrier, glicko2Brier
-    ] = await Promise.all([
-      getMeasuredBrier('rule').catch(() => null),
-      getMeasuredBrier('poisson').catch(() => null),
-      null, // Elo has no champion Brier
-      (async () => (await getChampionBrier('xgb')) ?? (await getChampionBrier('gbdt')))().catch(() => null),
-      getChampionBrier('team-strength').catch(() => null),
-      getChampionBrier('inplay').catch(() => null),
-      getMeasuredBrier('gap').catch(() => null),
-      getMeasuredBrier('pi').catch(() => null),
-      getMeasuredBrier('glicko2').catch(() => null),
-    ]);
-    brierMap['Rule-Based'] = ruleBrier;
-    brierMap['Poisson'] = poissonBrier;
-    brierMap['Elo'] = eloBrier;
-    brierMap['ML'] = mlBrier;
-    brierMap['TeamStrength'] = tsBrier;
-    brierMap['InPlay5m'] = ipBrier;
-    brierMap['GAP'] = gapBrier;
-    brierMap['PiRating'] = piBrier;
-    brierMap['Glicko2'] = glicko2Brier;
-  } catch {}
+  brierMap['Rule-Based'] = cachedBrier.rule;
+  brierMap['Poisson'] = cachedBrier.poisson;
+  brierMap['Elo'] = cachedBrier.elo;
+  brierMap['ML'] = cachedBrier.ml;
+  brierMap['TeamStrength'] = cachedBrier.teamStrength;
+  brierMap['InPlay5m'] = cachedBrier.inplay;
+  brierMap['GAP'] = cachedBrier.gap;
+  brierMap['PiRating'] = cachedBrier.pi;
+  brierMap['Glicko2'] = cachedBrier.glicko2;
 
   const bmaInputs = bmaModels.map(m => ({
     name: m.name,

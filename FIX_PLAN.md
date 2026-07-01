@@ -1125,7 +1125,7 @@ headers: {
 
 ---
 
-## FAZ 4: ORTA/DÜŞÜK ÖNCELİK DÜZELTMELERİ **(KISMİ — 19/20 uygulandı, 1 backlog)**
+## FAZ 4: ORTA/DÜŞÜK ÖNCELİK DÜZELTMELERİ **(✓ TAMAM — 20/20)**
 
 ### Fix 4.1 **[✓ UYGULANDI]**: Goal Radar F16 kontra-atak mantığı düzelt
 
@@ -1223,7 +1223,7 @@ model TeamGlicko2Rating {
 // Accuracy yerine Brier kullan
 ```
 
-### Fix 4.9: Ensemble modelleri Promise.all ile paralel
+### Fix 4.9 **[✓ UYGULANDI]**: Ensemble modelleri Promise.all ile paralel
 
 **Dosya:** `src/lib/ensemble.ts`
 **Sorun:** 9 model sıralı çağrılıyor.

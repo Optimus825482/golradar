@@ -35,6 +35,7 @@ import { useRealtime } from '@/hooks/useRealtime'
 import { tierConfig } from '@/lib/tier'
 import { useMatchList } from '@/hooks/useMatchList'
 import { useGoalDetection } from '@/hooks/useGoalDetection'
+import { armAudioUnlock } from '@/lib/playGoalSound'
 
 import { Badge } from '@/components/ui/badge'
 import type { Match, PressureSnapshot, GoalNotification, BottomTab } from '@/components/match/types'
@@ -147,6 +148,9 @@ export default function OptimusGolRadariPage() {
     }).format(new Date())
     setFinishedDate(istanbulDateStr)
     setFavoritesLoaded(true)
+    // Arm audio unlock so the FIRST goal-sound chime isn't blocked by
+    // browser autoplay policies. Detaches itself after the first gesture.
+    armAudioUnlock()
   }, [])
 
   const toggleFavorite = useCallback((matchCode: number, e?: React.MouseEvent) => {
@@ -483,6 +487,26 @@ export default function OptimusGolRadariPage() {
       fetchFinishedMatches()
     }
   }, [matches.length, finishedMatches.length, fetchFinishedMatches, finishedLoading, tier])
+
+  // Sync prevGoalsRef with current matches state. Without this, prevGoals
+  // is empty forever and the goal-detection loop below never sees a "prev"
+  // entry — meaning no goal is ever detected.
+  useEffect(() => {
+    for (const m of matches) {
+      const cur = prevGoalsRef.current[m.code]
+      if (cur) {
+        cur.home = m.homeGoals
+        cur.away = m.awayGoals
+        cur.status = m.status
+      } else {
+        prevGoalsRef.current[m.code] = {
+          home: m.homeGoals,
+          away: m.awayGoals,
+          status: m.status,
+        }
+      }
+    }
+  }, [matches, prevGoalsRef])
 
   // Goal Detection: report goals to signal tracker + UI notifications
   useEffect(() => {
@@ -912,7 +936,7 @@ export default function OptimusGolRadariPage() {
           goalProbabilities={goalProbabilities}
           selectedMatch={selectedMatch}
           favorites={favorites}
-          goalFlashMap={goalFlashMap as unknown as Record<number, number>}
+          goalFlashMap={goalFlashMap}
           onSelectMatch={handleSelectMatch}
           onToggleFavorite={toggleFavorite}
         />

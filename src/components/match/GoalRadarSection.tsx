@@ -5,12 +5,17 @@ import type { Match } from './types'
 import type { GoalProbability } from '@/lib/nesine'
 import { SIGNAL_THRESHOLD } from '@/config'
 
+interface GoalFlashEntry {
+  startedAt: number;
+  expiresAt: number;
+}
+
 interface GoalRadarSectionProps {
   matches: Match[]
   goalProbabilities: Map<number, GoalProbability>
   selectedMatch: Match | null
   favorites: Set<number>
-  goalFlashMap: Record<number, number>
+  goalFlashMap: Record<number, GoalFlashEntry>
   onSelectMatch: (match: Match) => void
   onToggleFavorite: (code: number, e?: React.MouseEvent) => void
 }

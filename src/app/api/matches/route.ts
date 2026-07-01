@@ -37,6 +37,8 @@ import {
 } from "@/lib/pressureHistory";
 import type { PressureSnapshot } from "@/lib/advancedAnalytics";
 import { logError } from '@/lib/devLog';
+import { getMatchesCache, setMatchesCache } from '@/lib/server/matchesCache';
+import { publishMatchEvent } from '@/lib/server/matchEvents';
 
 export const dynamic = "force-dynamic";
 
@@ -151,6 +153,24 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const version = searchParams.get("v") || "0";
+
+  // ── Cache lookup (post-2026-07-01 refactor) ─────────────────────
+  // The /api/cron/poll-matches writer refreshes this cache every 5s.
+  // If the writer is up, 100% of public traffic serves from cache —
+  // 0 external API calls, 0 DB queries for the match data. If the
+  // writer is down, we fall through to a direct fetch on a single
+  // in-flight request (no thundering-herd rebuild).
+  const cacheKey = `matches:v=${version}`;
+  const cached = getMatchesCache(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached.body, {
+      headers: {
+        "X-Cache": "HIT",
+        "X-Cache-Source": cached.source,
+        "X-Cache-Age-Ms": String(Date.now() - cached.writtenAt),
+      },
+    });
+  }
 
   // Best-effort async hydration of the in-memory FotMob ID cache.
   // Failure is silent — route continues with non-enriched goalRadar.
@@ -456,7 +476,7 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({
+  const body = {
     matches,
     byLeague,
     version: data.v || 0,
@@ -464,5 +484,20 @@ export async function GET(request: Request) {
     pressureData,
     goalRadarData,
     teamLogos,
+  };
+
+  // Cache the response so concurrent and subsequent requests
+  // serve the same payload without re-running the external pipeline.
+  // The cron writer will overwrite this within 5s; this "fallback"
+  // write only fires when the writer is down.
+  setMatchesCache(cacheKey, body, "fallback");
+  // Publish a snapshot event so any SSE subscribers can pick it up.
+  publishMatchEvent({ type: "snapshot", timestamp: Date.now(), data: body });
+
+  return NextResponse.json(body, {
+    headers: {
+      "X-Cache": "MISS",
+      "X-Cache-Source": "fallback",
+    },
   });
 }

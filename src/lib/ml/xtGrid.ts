@@ -32,13 +32,13 @@ const GRID_DIR = sXt
   : '';
 
 const DEFAULT_GRID: XtGrid = {
-  grid: new Array(16 * 10).fill(0.05),
+  grid: new Array(13 * 10).fill(0.05),
   movProbs: [],
-  shotProbs: new Array(16 * 10).fill(0.05),
+  shotProbs: new Array(13 * 10).fill(0.05),
   source: 'fallback-flat',
   trainedAt: new Date(0).toISOString(),
   version: '0.0.0-default',
-  cols: 16,
+  cols: 13,
   rows: 10,
 };
 

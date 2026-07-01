@@ -42,9 +42,9 @@ from scipy.sparse.linalg import spsolve
 
 # StatsBomb pitch (yards) → 12 col × 8 row grid. StatsBomb uses
 # 120 × 80 with x along the length, y along the width.
-# 16x10 = 160 zones — sweet spot for N~4M events
-# (MDPI 2025: MM<=120@90% quantile, 160 still well-supported)
-GRID_COLS = 16
+# 13x10 = 130 zones — van Arem 2025 optimal for N~44K events.
+# (MDPI 2025: MM<=120@90% quantile, 130 still well-supported)
+GRID_COLS = 13  # van Arem 2025: optimal for N~44K events
 GRID_ROWS = 10
 GRID_SIZE = GRID_COLS * GRID_ROWS
 PITCH_X = 120.0

@@ -170,6 +170,10 @@ function calculateMinute(match: any, now: Date): string {
     const start = getMdtTimestamp(mdtList, 1);
     if (start) {
       const elapsed = Math.floor((now.getTime() - start.getTime()) / 60000);
+      // Zombie match guard: 45dk + max 15dk uzatma = 60dk.
+      // Nesine bazen status=2'de takılıp kalan bitmiş maçları
+      // 45+137 gibi anlamsız sürelerle döndürür.
+      if (elapsed > 60) return "MS";
       if (elapsed > 45) return `45+${elapsed - 45}'`;
       if (elapsed < 1) return `1'`;
       return `${elapsed}'`;
@@ -182,6 +186,8 @@ function calculateMinute(match: any, now: Date): string {
     if (start) {
       const elapsed = Math.floor((now.getTime() - start.getTime()) / 60000);
       const dk = 46 + elapsed;
+      // Zombie guard: 90dk + max 20dk uzatma = 110dk
+      if (dk > 110) return "MS";
       if (dk > 90) return `90+${dk - 90}'`;
       return `${dk}'`;
     }
@@ -194,6 +200,7 @@ function calculateMinute(match: any, now: Date): string {
       const secondHalfStart = new Date(t2.getTime() + halftimeDuration * 60000);
       const elapsed = Math.floor((now.getTime() - secondHalfStart.getTime()) / 60000);
       const dk = 46 + elapsed;
+      if (dk > 110) return "MS";
       if (dk > 90) return `90+${dk - 90}'`;
       return `${dk}'`;
     }
@@ -203,6 +210,7 @@ function calculateMinute(match: any, now: Date): string {
     if (start) {
       const elapsed = Math.floor((now.getTime() - start.getTime()) / 60000);
       const dk = 91 + elapsed;
+      if (dk > 120) return "MS";
       if (dk > 105) return `105+${dk - 105}'`;
       return `${dk}'`;
     }
@@ -213,6 +221,7 @@ function calculateMinute(match: any, now: Date): string {
     if (start) {
       const elapsed = Math.floor((now.getTime() - start.getTime()) / 60000);
       const dk = 106 + elapsed;
+      if (dk > 150) return "MS";
       if (dk > 120) return `120+${dk - 120}'`;
       return `${dk}'`;
     }
@@ -223,6 +232,7 @@ function calculateMinute(match: any, now: Date): string {
     if (t3) {
       const elapsed = Math.floor((now.getTime() - t3.getTime()) / 60000);
       const dk = 46 + elapsed;
+      if (dk > 110) return "MS";
       if (dk > 90) return `90+${dk - 90}'`;
       return `${dk}'`;
     }
@@ -235,6 +245,7 @@ function calculateMinute(match: any, now: Date): string {
         const secondHalfStart = new Date(t2.getTime() + halftimeDuration * 60000);
         const elapsed = Math.floor((now.getTime() - secondHalfStart.getTime()) / 60000);
         const dk = 46 + elapsed;
+        if (dk > 110) return "MS";
         if (dk > 90) return `90+${dk - 90}'`;
         return `${dk}'`;
       }
@@ -242,6 +253,7 @@ function calculateMinute(match: any, now: Date): string {
     const t1 = getMdtTimestamp(mdtList, 1);
     if (t1) {
       const elapsed = Math.floor((now.getTime() - t1.getTime()) / 60000);
+      if (elapsed > 60) return "MS";
       if (elapsed > 45) return `45+${elapsed - 45}'`;
       return `${Math.max(1, elapsed)}'`;
     }
@@ -302,6 +314,9 @@ export function parseMatch(m: any): ParsedMatch {
     scores.fhHome || scores.fhAway ? `${scores.fhHome}:${scores.fhAway}` : "-";
 
   const stats = parseStats(m.SE || []);
+  const computedMinute = calculateMinute(m, now);
+  const isFinished = FINISHED_STATUSES.has(status) || computedMinute === "MS";
+  const isLive = ACTIVE_STATUSES.has(status) && !isFinished;
 
   // FotMob cross-source lookup (best-effort, sync DB call is too slow
   // for the /api/matches hot path so we accept null on miss and let
@@ -331,12 +346,12 @@ export function parseMatch(m: any): ParsedMatch {
     homeGoals: scores.homeTotal,
     awayGoals: scores.awayTotal,
     firstHalfScore,
-    minute: calculateMinute(m, now),
+    minute: computedMinute,
     status,
     statusText: STATUS_MAP[status] || String(status),
     time: matchTime,
-    isLive: ACTIVE_STATUSES.has(status),
-    isFinished: FINISHED_STATUSES.has(status),
+    isLive,
+    isFinished,
     isUpcoming: status === 1,
     country: m.FC || "",
     stats,

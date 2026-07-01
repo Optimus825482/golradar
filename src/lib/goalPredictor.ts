@@ -393,9 +393,9 @@ export function loadModel(): GBDTModel | null {
   } catch (e) {
     devError('[ML] Failed to load model:', e);
   }
-  // No model on disk — auto-train with synthetic data
-  devLog('[ML] No model found, auto-training with synthetic data...');
-  return initializeModel();
+  // No model on disk — caller (initializeModel / predictGoal) will train one.
+  devLog('[ML] No model found on disk. Caller should trigger training.');
+  return null;
 }
 
 // ── Training Data Persistence ──────────────────────────────────────

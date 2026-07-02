@@ -1,0 +1,1076 @@
+{
+  "date": null,
+  "matchCount": 37,
+  "detailFetched": 0,
+  "matches": [
+    {
+      "matchId": 4932890,
+      "uuid": "82l7bnmjyz17800ovplee91jo",
+      "status": "Played",
+      "period": 0,
+      "fullTimeScore": [
+        0,
+        4
+      ],
+      "halfTimeScore": [
+        0,
+        4
+      ],
+      "time": "00:00",
+      "competitionName": "ABD USL 2. Lig",
+      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
+      "teamA": {
+        "id": null,
+        "name": "New England"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Vermont Green"
+      },
+      "slot": {
+        "slotTitle": "ABD USL 2. Lig",
+        "slotTime": "00:00",
+        "slotCompetition": "enzlj1as2raqm4ids1zyb07y1",
+        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
+      }
+    },
+    {
+      "matchId": 4933757,
+      "uuid": "eqxw408lcmgn3qn4x0bn58pw4",
+      "status": "Played",
+      "period": 0,
+      "fullTimeScore": [
+        3,
+        2
+      ],
+      "halfTimeScore": [
+        3,
+        2
+      ],
+      "time": "01:00",
+      "competitionName": "ABD USL 2. Lig",
+      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
+      "teamA": {
+        "id": null,
+        "name": "Staten Island"
+      },
+      "teamB": {
+        "id": null,
+        "name": "NJ Copa"
+      },
+      "slot": {
+        "slotTitle": "ABD USL 2. Lig",
+        "slotTime": "00:00",
+        "slotCompetition": "enzlj1as2raqm4ids1zyb07y1",
+        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
+      }
+    },
+    {
+      "matchId": 4933923,
+      "uuid": "cb00y7b8u9g2md4otj6f2cc2c",
+      "status": "Playing",
+      "period": 2,
+      "fullTimeScore": [
+        0,
+        0
+      ],
+      "halfTimeScore": [
+        0,
+        0
+      ],
+      "time": "02:00",
+      "competitionName": "ABD USL 2. Lig",
+      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
+      "teamA": {
+        "id": null,
+        "name": "Virginia Beach Utd"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Loudoun Utd II"
+      },
+      "slot": {
+        "slotTitle": "ABD USL 2. Lig",
+        "slotTime": "00:00",
+        "slotCompetition": "enzlj1as2raqm4ids1zyb07y1",
+        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
+      }
+    },
+    {
+      "matchId": 4932816,
+      "uuid": "f1no77yiazp6zsrm78pjsn2tw",
+      "status": "Playing",
+      "period": 1,
+      "fullTimeScore": [
+        1,
+        0
+      ],
+      "halfTimeScore": [
+        1,
+        0
+      ],
+      "time": "03:00",
+      "competitionName": "ABD USL 2. Lig",
+      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
+      "teamA": {
+        "id": null,
+        "name": "Sueno"
+      },
+      "teamB": {
+        "id": null,
+        "name": "RKC"
+      },
+      "slot": {
+        "slotTitle": "ABD USL 2. Lig",
+        "slotTime": "00:00",
+        "slotCompetition": "enzlj1as2raqm4ids1zyb07y1",
+        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
+      }
+    },
+    {
+      "matchId": 4935234,
+      "uuid": "6kyakdsad99zn88wti7v5nn6c",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "03:30",
+      "competitionName": "ABD USL 2. Lig",
+      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
+      "teamA": {
+        "id": null,
+        "name": "Denton Diablos"
+      },
+      "teamB": {
+        "id": null,
+        "name": "West Texas"
+      },
+      "slot": {
+        "slotTitle": "ABD USL 2. Lig",
+        "slotTime": "00:00",
+        "slotCompetition": "enzlj1as2raqm4ids1zyb07y1",
+        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
+      }
+    },
+    {
+      "matchId": 4934918,
+      "uuid": "3s2akyki7uiwmsor6o85skb9w",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "05:00",
+      "competitionName": "ABD USL 2. Lig",
+      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
+      "teamA": {
+        "id": null,
+        "name": "Davis Legacy"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Academica"
+      },
+      "slot": {
+        "slotTitle": "ABD USL 2. Lig",
+        "slotTime": "00:00",
+        "slotCompetition": "enzlj1as2raqm4ids1zyb07y1",
+        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
+      }
+    },
+    {
+      "matchId": 4934590,
+      "uuid": "4wwk6ncy3h64jkqe0v4j5da8k",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "05:30",
+      "competitionName": "ABD USL 2. Lig",
+      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
+      "teamA": {
+        "id": null,
+        "name": "West Seattle"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Bigfoot"
+      },
+      "slot": {
+        "slotTitle": "ABD USL 2. Lig",
+        "slotTime": "00:00",
+        "slotCompetition": "enzlj1as2raqm4ids1zyb07y1",
+        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
+      }
+    },
+    {
+      "matchId": 4887034,
+      "uuid": "dolhxf24zlt4ihke4tiaxo7pw",
+      "status": "Played",
+      "period": 0,
+      "fullTimeScore": [
+        2,
+        1
+      ],
+      "halfTimeScore": [
+        2,
+        1
+      ],
+      "time": "00:30",
+      "competitionName": "ABD USL 1. Lig",
+      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
+      "teamA": {
+        "id": null,
+        "name": "Charlotte Ind."
+      },
+      "teamB": {
+        "id": null,
+        "name": "Corpus Christi"
+      },
+      "slot": {
+        "slotTitle": "ABD USL 1. Lig",
+        "slotTime": "00:30",
+        "slotCompetition": "jznihqxle06xych9ygwiwnsa",
+        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
+      }
+    },
+    {
+      "matchId": 4887032,
+      "uuid": "dnvtbxlmo6b904a42aqd8pous",
+      "status": "Playing",
+      "period": 3,
+      "fullTimeScore": [
+        2,
+        0
+      ],
+      "halfTimeScore": [
+        2,
+        0
+      ],
+      "time": "02:00",
+      "competitionName": "ABD USL 1. Lig",
+      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
+      "teamA": {
+        "id": null,
+        "name": "C. Red Wolves"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Westchester SC"
+      },
+      "slot": {
+        "slotTitle": "ABD USL 1. Lig",
+        "slotTime": "00:30",
+        "slotCompetition": "jznihqxle06xych9ygwiwnsa",
+        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
+      }
+    },
+    {
+      "matchId": 4887036,
+      "uuid": "dpgkmz3ygjyj1se36ti28o00k",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "05:30",
+      "competitionName": "ABD USL 1. Lig",
+      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
+      "teamA": {
+        "id": null,
+        "name": "Union Omaha"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Alta"
+      },
+      "slot": {
+        "slotTitle": "ABD USL 1. Lig",
+        "slotTime": "00:30",
+        "slotCompetition": "jznihqxle06xych9ygwiwnsa",
+        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
+      }
+    },
+    {
+      "matchId": 4962321,
+      "uuid": "7sxn3xy44bvfjm3ofngludmok",
+      "status": "Played",
+      "period": 0,
+      "fullTimeScore": [
+        0,
+        1
+      ],
+      "halfTimeScore": [
+        0,
+        1
+      ],
+      "time": "01:00",
+      "competitionName": "Şili Kupa",
+      "competitionUuid": "a27c2174-2865-3cf9-ee26-05581e82b131",
+      "teamA": {
+        "id": null,
+        "name": "Cobresal"
+      },
+      "teamB": {
+        "id": null,
+        "name": "D. La Serena"
+      },
+      "slot": {
+        "slotTitle": "Şili Kupa",
+        "slotTime": "01:00",
+        "slotCompetition": "eu2g5j36zzxiazpd729osx0wm",
+        "slotAreaId": "a27c2174-2865-3cf9-ee26-05581e82b131"
+      }
+    },
+    {
+      "matchId": 4962285,
+      "uuid": "3mveagme2nkj0ejdfua3sl8gk",
+      "status": "Played",
+      "period": 0,
+      "fullTimeScore": [
+        1,
+        1
+      ],
+      "halfTimeScore": [
+        1,
+        1
+      ],
+      "time": "01:00",
+      "competitionName": "Şili Kupa",
+      "competitionUuid": "a27c2174-2865-3cf9-ee26-05581e82b131",
+      "teamA": {
+        "id": null,
+        "name": "Limache"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Coquimbo U."
+      },
+      "slot": {
+        "slotTitle": "Şili Kupa",
+        "slotTime": "01:00",
+        "slotCompetition": "eu2g5j36zzxiazpd729osx0wm",
+        "slotAreaId": "a27c2174-2865-3cf9-ee26-05581e82b131"
+      }
+    },
+    {
+      "matchId": 4962329,
+      "uuid": "58xavautt3vy74atztisxvw9g",
+      "status": "Playing",
+      "period": 1,
+      "fullTimeScore": [
+        0,
+        0
+      ],
+      "halfTimeScore": [
+        0,
+        0
+      ],
+      "time": "03:30",
+      "competitionName": "Şili Kupa",
+      "competitionUuid": "a27c2174-2865-3cf9-ee26-05581e82b131",
+      "teamA": {
+        "id": null,
+        "name": "U. de Chile"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Dep. Calera"
+      },
+      "slot": {
+        "slotTitle": "Şili Kupa",
+        "slotTime": "01:00",
+        "slotCompetition": "eu2g5j36zzxiazpd729osx0wm",
+        "slotAreaId": "a27c2174-2865-3cf9-ee26-05581e82b131"
+      }
+    },
+    {
+      "matchId": 4926254,
+      "uuid": "73vt9380to900ub4fxbh86wic",
+      "status": "Played",
+      "period": 0,
+      "fullTimeScore": [
+        3,
+        0
+      ],
+      "halfTimeScore": [
+        3,
+        0
+      ],
+      "time": "01:00",
+      "competitionName": "Ekvador Pro Lig",
+      "competitionUuid": "ce15dbd6-20e0-e622-2ce7-ec925d3f847f",
+      "teamA": {
+        "id": null,
+        "name": "LDU Quito"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Orense"
+      },
+      "slot": {
+        "slotTitle": "Ekvador Pro Lig",
+        "slotTime": "01:00",
+        "slotCompetition": "6lwpjhktjhl9g7x2w7njmzva6",
+        "slotAreaId": "ce15dbd6-20e0-e622-2ce7-ec925d3f847f"
+      }
+    },
+    {
+      "matchId": 4868751,
+      "uuid": "ef8yvmn1ivhbrnjyj133kf7ys",
+      "status": "Playing",
+      "period": 1,
+      "fullTimeScore": [
+        1,
+        0
+      ],
+      "halfTimeScore": [
+        1,
+        0
+      ],
+      "time": "03:00",
+      "competitionName": "Dünya Dünya Kupası",
+      "competitionUuid": "b5f65d72-ec19-43d8-5ddb-a6ff45957d02",
+      "teamA": {
+        "id": null,
+        "name": "ABD"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Bosna-Hersek"
+      },
+      "slot": {
+        "slotTitle": "Dünya Dünya Kupası",
+        "slotTime": "03:00",
+        "slotCompetition": "70excpe1synn9kadnbppahdn7",
+        "slotAreaId": "b5f65d72-ec19-43d8-5ddb-a6ff45957d02"
+      }
+    },
+    {
+      "matchId": 4868750,
+      "uuid": "c26uegvn7o8d3uyb04tuuxjbo",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "22:00",
+      "competitionName": "Dünya Dünya Kupası",
+      "competitionUuid": "b5f65d72-ec19-43d8-5ddb-a6ff45957d02",
+      "teamA": {
+        "id": null,
+        "name": "İspanya"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Avusturya"
+      },
+      "slot": {
+        "slotTitle": "Dünya Dünya Kupası",
+        "slotTime": "03:00",
+        "slotCompetition": "70excpe1synn9kadnbppahdn7",
+        "slotAreaId": "b5f65d72-ec19-43d8-5ddb-a6ff45957d02"
+      }
+    },
+    {
+      "matchId": 4957440,
+      "uuid": "8h0y1oo460hjdd83e4ylmfyfo",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "15:00",
+      "competitionName": "Etiyopya Premier Lig",
+      "competitionUuid": "28682d8c-ecd0-ab6e-1aac-0fc99618e2db",
+      "teamA": {
+        "id": null,
+        "name": "Awassa"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Adama City"
+      },
+      "slot": {
+        "slotTitle": "Etiyopya Premier Lig",
+        "slotTime": "15:00",
+        "slotCompetition": "6ybvtzejh91761lqe7y1csrqo",
+        "slotAreaId": "28682d8c-ecd0-ab6e-1aac-0fc99618e2db"
+      }
+    },
+    {
+      "matchId": 4915590,
+      "uuid": "erri4dl78qhwuxfkc1vnpl91w",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "15:30",
+      "competitionName": "Lübnan Premier Lig",
+      "competitionUuid": "2686853d-4063-6879-23b0-55411f963c81",
+      "teamA": {
+        "id": null,
+        "name": "Jwaya"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Al Sahel"
+      },
+      "slot": {
+        "slotTitle": "Lübnan Premier Lig",
+        "slotTime": "15:30",
+        "slotCompetition": "3e40pestup9xzagsu2o6c0i8u",
+        "slotAreaId": "2686853d-4063-6879-23b0-55411f963c81"
+      }
+    },
+    {
+      "matchId": 4957197,
+      "uuid": "c21sasrb7unr63y5vebjc5fkk",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "16:00",
+      "competitionName": "Avrupa UEFA U19 Şampiyonası",
+      "competitionUuid": "9b58c530-1831-c385-6f90-3b2334906f6e",
+      "teamA": {
+        "id": null,
+        "name": "Hırvatistan U19"
+      },
+      "teamB": {
+        "id": null,
+        "name": "İtalya U19"
+      },
+      "slot": {
+        "slotTitle": "Avrupa UEFA U19 Şampiyonası",
+        "slotTime": "16:00",
+        "slotCompetition": "8u5w0g8jimye1cu5albkcb3qs",
+        "slotAreaId": "9b58c530-1831-c385-6f90-3b2334906f6e"
+      }
+    },
+    {
+      "matchId": 4957198,
+      "uuid": "c2atcs46sc5xuho2z8mdnoqac",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "Avrupa UEFA U19 Şampiyonası",
+      "competitionUuid": "9b58c530-1831-c385-6f90-3b2334906f6e",
+      "teamA": {
+        "id": null,
+        "name": "Sırbistan U19"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Ukrayna U19"
+      },
+      "slot": {
+        "slotTitle": "Avrupa UEFA U19 Şampiyonası",
+        "slotTime": "16:00",
+        "slotCompetition": "8u5w0g8jimye1cu5albkcb3qs",
+        "slotAreaId": "9b58c530-1831-c385-6f90-3b2334906f6e"
+      }
+    },
+    {
+      "matchId": 4935570,
+      "uuid": "6nl87pqy61v3zjdiefnb096ok",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "18:00",
+      "competitionName": "Beyaz Rusya Premier Lig",
+      "competitionUuid": "3763d9b2-3ef8-ef9a-d97e-14cfdd429958",
+      "teamA": {
+        "id": null,
+        "name": "BATE Borisov"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Gomel"
+      },
+      "slot": {
+        "slotTitle": "Beyaz Rusya Premier Lig",
+        "slotTime": "18:00",
+        "slotCompetition": "8y29fg2s85ppcb8uugm5ee8s4",
+        "slotAreaId": "3763d9b2-3ef8-ef9a-d97e-14cfdd429958"
+      }
+    },
+    {
+      "matchId": 4935573,
+      "uuid": "6p39jivoc0njlus86lkmvkmj8",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "Beyaz Rusya Premier Lig",
+      "competitionUuid": "3763d9b2-3ef8-ef9a-d97e-14cfdd429958",
+      "teamA": {
+        "id": null,
+        "name": "FC Minsk"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Dinamo Minsk"
+      },
+      "slot": {
+        "slotTitle": "Beyaz Rusya Premier Lig",
+        "slotTime": "18:00",
+        "slotCompetition": "8y29fg2s85ppcb8uugm5ee8s4",
+        "slotAreaId": "3763d9b2-3ef8-ef9a-d97e-14cfdd429958"
+      }
+    },
+    {
+      "matchId": 4939392,
+      "uuid": "a4afv6jje9jubkm2a48bc7z84",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "18:00",
+      "competitionName": "Litvanya 1. Lig",
+      "competitionUuid": "ef6071ec-86b2-f2c8-2505-0547d397501a",
+      "teamA": {
+        "id": null,
+        "name": "BFA"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Ekranas"
+      },
+      "slot": {
+        "slotTitle": "Litvanya 1. Lig",
+        "slotTime": "18:00",
+        "slotCompetition": "7qf0jaayyxy3ruamsexv5p1kl",
+        "slotAreaId": "ef6071ec-86b2-f2c8-2505-0547d397501a"
+      }
+    },
+    {
+      "matchId": 4939391,
+      "uuid": "a41w43nyehx50be41yf5xad5g",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "18:00",
+      "competitionName": "Litvanya 1. Lig",
+      "competitionUuid": "ef6071ec-86b2-f2c8-2505-0547d397501a",
+      "teamA": {
+        "id": null,
+        "name": "Zalgiris II"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Hegelmann"
+      },
+      "slot": {
+        "slotTitle": "Litvanya 1. Lig",
+        "slotTime": "18:00",
+        "slotCompetition": "7qf0jaayyxy3ruamsexv5p1kl",
+        "slotAreaId": "ef6071ec-86b2-f2c8-2505-0547d397501a"
+      }
+    },
+    {
+      "matchId": 4974150,
+      "uuid": "7uzn7giytnesgzu5of8u9os9g",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "18:00",
+      "competitionName": "İran Azadegan Ligi",
+      "competitionUuid": "582fac2a-c3c8-bd99-a89a-58347c3cb973",
+      "teamA": {
+        "id": null,
+        "name": "Niroye"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Pars Jam"
+      },
+      "slot": {
+        "slotTitle": "İran Azadegan Ligi",
+        "slotTime": "18:00",
+        "slotCompetition": "abs7n2ae3oydilk0tgmpnsj89",
+        "slotAreaId": "582fac2a-c3c8-bd99-a89a-58347c3cb973"
+      }
+    },
+    {
+      "matchId": 4893574,
+      "uuid": "d4hjlcldx8wxgqwhskbj4k844",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "19:00",
+      "competitionName": "Norveç 1. Lig",
+      "competitionUuid": "a3166fd4-a4e1-5b74-2d51-855032595b44",
+      "teamA": {
+        "id": null,
+        "name": "Lyn"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Asane"
+      },
+      "slot": {
+        "slotTitle": "Norveç 1. Lig",
+        "slotTime": "19:00",
+        "slotCompetition": "7r1f93t6ddrsa5n8v1nq6qlzm",
+        "slotAreaId": "a3166fd4-a4e1-5b74-2d51-855032595b44"
+      }
+    },
+    {
+      "matchId": 4921309,
+      "uuid": "2r2pxe145t6i8fdl4q8ux2j2s",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "19:00",
+      "competitionName": "Estonya Meistriliiga",
+      "competitionUuid": "3c0f896c-16d1-bc06-deb9-66b830254895",
+      "teamA": {
+        "id": null,
+        "name": "Kuressaare"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Flora T."
+      },
+      "slot": {
+        "slotTitle": "Estonya Meistriliiga",
+        "slotTime": "19:00",
+        "slotCompetition": "4d5d3sf6805n5u6jdoa0hdlog",
+        "slotAreaId": "3c0f896c-16d1-bc06-deb9-66b830254895"
+      }
+    },
+    {
+      "matchId": 4994122,
+      "uuid": "b6edyin7quenf94sakgx2wu1g",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "Fas Botola Pro",
+      "competitionUuid": "1779f94e-0c99-3887-2105-2990e7f16558",
+      "teamA": {
+        "id": null,
+        "name": "CODM Meknes"
+      },
+      "teamB": {
+        "id": null,
+        "name": "AS Far Rabat"
+      },
+      "slot": {
+        "slotTitle": "Fas Botola Pro",
+        "slotTime": "20:00",
+        "slotCompetition": "1eruend45vd20g9hbrpiggs5u",
+        "slotAreaId": "1779f94e-0c99-3887-2105-2990e7f16558"
+      }
+    },
+    {
+      "matchId": 4994117,
+      "uuid": "b4zgurw0fnm43rywm278hiadw",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "Fas Botola Pro",
+      "competitionUuid": "1779f94e-0c99-3887-2105-2990e7f16558",
+      "teamA": {
+        "id": null,
+        "name": "Dcheira"
+      },
+      "teamB": {
+        "id": null,
+        "name": "OCS de Safi"
+      },
+      "slot": {
+        "slotTitle": "Fas Botola Pro",
+        "slotTime": "20:00",
+        "slotCompetition": "1eruend45vd20g9hbrpiggs5u",
+        "slotAreaId": "1779f94e-0c99-3887-2105-2990e7f16558"
+      }
+    },
+    {
+      "matchId": 4994120,
+      "uuid": "b5twy01zz7gojlcjp1cq9kb2s",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "Fas Botola Pro",
+      "competitionUuid": "1779f94e-0c99-3887-2105-2990e7f16558",
+      "teamA": {
+        "id": null,
+        "name": "Kawkab"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Mas Maghrib"
+      },
+      "slot": {
+        "slotTitle": "Fas Botola Pro",
+        "slotTime": "20:00",
+        "slotCompetition": "1eruend45vd20g9hbrpiggs5u",
+        "slotAreaId": "1779f94e-0c99-3887-2105-2990e7f16558"
+      }
+    },
+    {
+      "matchId": 4994115,
+      "uuid": "b4carq2wuiou9218wn0hek4k4",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "Fas Botola Pro",
+      "competitionUuid": "1779f94e-0c99-3887-2105-2990e7f16558",
+      "teamA": {
+        "id": null,
+        "name": "Raja CA"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Hassania A."
+      },
+      "slot": {
+        "slotTitle": "Fas Botola Pro",
+        "slotTime": "20:00",
+        "slotCompetition": "1eruend45vd20g9hbrpiggs5u",
+        "slotAreaId": "1779f94e-0c99-3887-2105-2990e7f16558"
+      }
+    },
+    {
+      "matchId": 4994119,
+      "uuid": "b5jq6t0e6i5i5np805pujgkd0",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "Fas Botola Pro",
+      "competitionUuid": "1779f94e-0c99-3887-2105-2990e7f16558",
+      "teamA": {
+        "id": null,
+        "name": "RCA Zemamra"
+      },
+      "teamB": {
+        "id": null,
+        "name": "FUS Rabat"
+      },
+      "slot": {
+        "slotTitle": "Fas Botola Pro",
+        "slotTime": "20:00",
+        "slotCompetition": "1eruend45vd20g9hbrpiggs5u",
+        "slotAreaId": "1779f94e-0c99-3887-2105-2990e7f16558"
+      }
+    },
+    {
+      "matchId": 4994121,
+      "uuid": "b641lxqhqnlb32x57b8fisxec",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "Fas Botola Pro",
+      "competitionUuid": "1779f94e-0c99-3887-2105-2990e7f16558",
+      "teamA": {
+        "id": null,
+        "name": "RSB Berkane"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Wydad AC"
+      },
+      "slot": {
+        "slotTitle": "Fas Botola Pro",
+        "slotTime": "20:00",
+        "slotCompetition": "1eruend45vd20g9hbrpiggs5u",
+        "slotAreaId": "1779f94e-0c99-3887-2105-2990e7f16558"
+      }
+    },
+    {
+      "matchId": 4994116,
+      "uuid": "b4p9hpaql6jp0u9inojdw06qc",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "Fas Botola Pro",
+      "competitionUuid": "1779f94e-0c99-3887-2105-2990e7f16558",
+      "teamA": {
+        "id": null,
+        "name": "UTS"
+      },
+      "teamB": {
+        "id": null,
+        "name": "IR Tanger"
+      },
+      "slot": {
+        "slotTitle": "Fas Botola Pro",
+        "slotTime": "20:00",
+        "slotCompetition": "1eruend45vd20g9hbrpiggs5u",
+        "slotAreaId": "1779f94e-0c99-3887-2105-2990e7f16558"
+      }
+    },
+    {
+      "matchId": 4994118,
+      "uuid": "b59m991crc2tj0rvy3acf376c",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "Fas Botola Pro",
+      "competitionUuid": "1779f94e-0c99-3887-2105-2990e7f16558",
+      "teamA": {
+        "id": null,
+        "name": "Yacoub"
+      },
+      "teamB": {
+        "id": null,
+        "name": "Hassan Jdidi"
+      },
+      "slot": {
+        "slotTitle": "Fas Botola Pro",
+        "slotTime": "20:00",
+        "slotCompetition": "1eruend45vd20g9hbrpiggs5u",
+        "slotAreaId": "1779f94e-0c99-3887-2105-2990e7f16558"
+      }
+    },
+    {
+      "matchId": 4913319,
+      "uuid": "6dd7gzhg3vrrsvguu7k0t4ys4",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "20:00",
+      "competitionName": "İzlanda Urvalsdeild",
+      "competitionUuid": "382cbd44-e8ed-e0e2-0484-90bb71c5c9b3",
+      "teamA": {
+        "id": null,
+        "name": "Thor Akureyr"
+      },
+      "teamB": {
+        "id": null,
+        "name": "KR Reykjavik"
+      },
+      "slot": {
+        "slotTitle": "İzlanda Urvalsdeild",
+        "slotTime": "20:00",
+        "slotCompetition": "zilopfej2h0n3vpan5tcynpo",
+        "slotAreaId": "382cbd44-e8ed-e0e2-0484-90bb71c5c9b3"
+      }
+    },
+    {
+      "matchId": 4913317,
+      "uuid": "6cc1tt9y7n9o738ij2dhlwtg4",
+      "status": "Fixture",
+      "period": 0,
+      "fullTimeScore": null,
+      "halfTimeScore": [
+        -1,
+        -1
+      ],
+      "time": "22:15",
+      "competitionName": "İzlanda Urvalsdeild",
+      "competitionUuid": "382cbd44-e8ed-e0e2-0484-90bb71c5c9b3",
+      "teamA": {
+        "id": null,
+        "name": "Vikingur R."
+      },
+      "teamB": {
+        "id": null,
+        "name": "KA Akureyri"
+      },
+      "slot": {
+        "slotTitle": "İzlanda Urvalsdeild",
+        "slotTime": "20:00",
+        "slotCompetition": "zilopfej2h0n3vpan5tcynpo",
+        "slotAreaId": "382cbd44-e8ed-e0e2-0484-90bb71c5c9b3"
+      }
+    }
+  ]
+}

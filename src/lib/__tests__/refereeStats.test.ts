@@ -84,3 +84,43 @@ describe('refereeStats TTL cache helpers', () => {
     mod._resetRefereeCacheForTests();
   });
 });
+
+describe('refereeStatsToFeatures (Sofascore partial data)', () => {
+  test('Sofascore has cardRate only — penalty/foul fall back to neutral', () => {
+    // Sofascore: yellowCards + redCards only, no penalty or fouls
+    const sofascoreStats: RefereeStatsData = {
+      refereeName: 'Cuneyt Cakir',
+      matchesCount: 389,
+      avgYellowCards: 4.098,
+      avgRedCards: 0.113,
+      avgFouls: 0,    // Sofascore doesn't expose this
+      avgPenalties: 0, // Sofascore doesn't expose this
+      penaltyRate: 0,
+      cardRate: 4.098,
+    };
+    const f = refereeStatsToFeatures(sofascoreStats);
+    // cardRate: real data (4.098 sarı/maç → normalize 0-8 → ~0.51)
+    expect(f.ref_card_rate).toBeGreaterThan(0.4);
+    expect(f.ref_card_rate).toBeLessThan(0.6);
+    // penalty/foul: NEUTRAL (0.1 / 0.5) because Sofascore = 0
+    expect(f.ref_penalty_rate).toBe(0.1);
+    expect(f.ref_foul_rate).toBe(0.5);
+  });
+
+  test('full stats from Transfermarkt/Sahadan path — all features real', () => {
+    const fullStats: RefereeStatsData = {
+      refereeName: 'Full Data Ref',
+      matchesCount: 100,
+      avgYellowCards: 5.0,
+      avgRedCards: 0.1,
+      avgFouls: 25,
+      avgPenalties: 0.3,
+      penaltyRate: 0.3,
+      cardRate: 5.0,
+    };
+    const f = refereeStatsToFeatures(fullStats);
+    expect(f.ref_card_rate).toBeGreaterThan(0);
+    expect(f.ref_penalty_rate).toBeGreaterThan(0); // not neutral
+    expect(f.ref_foul_rate).toBeGreaterThan(0);    // not neutral
+  });
+});

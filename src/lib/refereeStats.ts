@@ -189,10 +189,18 @@ export function refereeStatsToFeatures(
   const normLinear = (v: number, min: number, max: number) =>
     Math.max(0, Math.min(1, (v - min) / (max - min)));
 
+  // Sofascore'dan gelen penaltyRate ve avgFouls 0 ise (kaynakta yok),
+  // nötr default kullan — feature'ın 0 olması modeli yanlış yönde
+  // eğitir ("hakem asla penaltı/faul yapmaz" gibi). Sadece cardRate
+  // gerçek veri olarak feature'a girer.
   return {
     ref_card_rate: normLinear(stats.cardRate, 0, 8),
-    ref_penalty_rate: normLinear(stats.penaltyRate, 0, 0.5),
-    ref_foul_rate: normLinear(stats.avgFouls, 15, 35),
+    ref_penalty_rate: stats.penaltyRate > 0
+      ? normLinear(stats.penaltyRate, 0, 0.5)
+      : NEUTRAL.ref_penalty_rate,
+    ref_foul_rate: stats.avgFouls > 0
+      ? normLinear(stats.avgFouls, 15, 35)
+      : NEUTRAL.ref_foul_rate,
   };
 }
 

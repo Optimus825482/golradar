@@ -25,35 +25,32 @@ def esc(s: Any) -> str:
 def row_sql(scraped: Dict[str, Any]) -> Optional[str]:
     if not scraped.get("ok") or not scraped.get("refereeName"):
         return None
-    fields = [
-        "refereeName",
-        "matchesCount",
-        "avgYellowCards",
-        "avgRedCards",
-        "avgFouls",
-        "avgPenalties",
-        "penaltyRate",
-        "cardRate",
-    ]
+    # DB id server-side üretilir (Prisma @default(cuid()) yerine
+    # gen_random_uuid()::text — schema değişikliği gerekmez)
     values = [
-        esc(scraped["refereeName"]),
-        int(scraped.get("matchesCount", 0)),
-        float(scraped.get("avgYellowCards", 0.0)),
-        float(scraped.get("avgRedCards", 0.0)),
-        float(scraped.get("avgFouls", 0.0)),
-        float(scraped.get("avgPenalties", 0.0)),
-        float(scraped.get("penaltyRate", 0.0)),
-        float(scraped.get("cardRate", 0.0)),
+        "gen_random_uuid()::text",  # id
+        esc(scraped["refereeName"]),  # refereeName
+        str(int(scraped.get("matchesCount", 0))),  # matchesCount
+        str(float(scraped.get("avgYellowCards", 0.0))),
+        str(float(scraped.get("avgRedCards", 0.0))),
+        str(float(scraped.get("avgFouls", 0.0))),
+        str(float(scraped.get("avgPenalties", 0.0))),
+        str(float(scraped.get("penaltyRate", 0.0))),
+        str(float(scraped.get("cardRate", 0.0))),
     ]
-    placeholders = ", ".join(["%s"] * len(values))
+    fields = [
+        "id", "refereeName", "matchesCount", "avgYellowCards", "avgRedCards",
+        "avgFouls", "avgPenalties", "penaltyRate", "cardRate",
+    ]
     column_list = ", ".join(f'"{f}"' for f in fields)
+    value_list = ", ".join(values)
     update_set = ", ".join(
-        f'"{f}" = EXCLUDED."{f}"' for f in fields if f != "refereeName"
+        f'"{f}" = EXCLUDED."{f}"' for f in fields if f not in ("id", "refereeName")
     )
     return (
-        f"INSERT INTO \"RefereeStats\" ({column_list}) VALUES ({placeholders})\n"
+        f"INSERT INTO \"RefereeStats\" ({column_list}) VALUES ({value_list})\n"
         f"ON CONFLICT (\"refereeName\") DO UPDATE SET {update_set};"
-    ) % tuple(values)
+    )
 
 
 def main() -> int:

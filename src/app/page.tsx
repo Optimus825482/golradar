@@ -881,14 +881,14 @@ export default function OptimusGolRadariPage() {
     match: selectedMatch, currentPressure, selectedGoalProb,
     pressureChartData, statsChartData, momentumBars, xgFlowData, threatIndex,
     filteredStats, statsHalf, setStatsHalf, fotmobData, fotmobLoading,
-    fotmobTab, setFotmobTab, scoremerStats, scoremerHtStats, scoremerLoading,
+    scoremerStats, scoremerHtStats, scoremerLoading,
     goalooMatchId: goalooMatchIdMap[selectedMatch.code] || 0,
     activeChartTab, setActiveChartTab,
   } : null, [
     selectedMatch, currentPressure, selectedGoalProb,
     pressureChartData, statsChartData, momentumBars, xgFlowData, threatIndex,
     filteredStats, statsHalf, fotmobData, fotmobLoading,
-    fotmobTab, scoremerStats, scoremerHtStats, scoremerLoading,
+    scoremerStats, scoremerHtStats, scoremerLoading,
     goalooMatchIdMap, selectedMatch?.code ?? 0,
     activeChartTab, setStatsHalf, setFotmobTab, setActiveChartTab,
   ])

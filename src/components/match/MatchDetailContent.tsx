@@ -10,7 +10,7 @@ import { CountryFlag, MatchStatusBadge, StatBar, RedCardIndicator } from './shar
 import { SIGNAL_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
 import { DangerousAttacksChart } from '@/components/charts/DangerousAttacksChart'
 import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomentumChart'
-import { FotMobSection } from '@/components/fotmob/FotMobSection'
+import { FotMobStatsBlock, FotMobEventsBlock, FotMobInfoBlock } from '@/components/fotmob/FotMobSection'
 import { estimateXgFromShots } from '@/lib/advancedAnalytics'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
@@ -38,8 +38,6 @@ export interface MatchDetailContentProps {
   setStatsHalf: (h: 'full' | '1h' | '2h') => void
   fotmobData: FotMobMatchDetails | null
   fotmobLoading: boolean
-  fotmobTab: 'events' | 'stats' | 'info'
-  setFotmobTab: (tab: 'events' | 'stats' | 'info') => void
   scoremerStats?: Record<string, { home: number | null; away: number | null }> | null
   scoremerHtStats?: Record<string, { home: number | null; away: number | null }> | null
   scoremerLoading?: boolean
@@ -62,8 +60,6 @@ export const MatchDetailContent = memo(function MatchDetailContent({
   setStatsHalf,
   fotmobData,
   fotmobLoading,
-  fotmobTab,
-  setFotmobTab,
   scoremerStats,
   scoremerHtStats,
   scoremerLoading,
@@ -457,81 +453,16 @@ export const MatchDetailContent = memo(function MatchDetailContent({
 	        )}
       </div>
 
-      {/* Match Statistics */}
-      <div className="p-4 sm:p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-            <svg className="w-4 h-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-            Maç İstatistikleri
-          </h3>
-          <div className="flex items-center gap-1 bg-gray-100 rounded-full p-0.5">
-            {([
-              { key: 'full' as const, label: 'Toplam' },
-              { key: '1h' as const, label: '1. Yarı' },
-              { key: '2h' as const, label: '2. Yarı' },
-            ]).map(h => (
-              <button
-                key={h.key}
-                onClick={() => setStatsHalf(h.key)}
-                className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold transition-all ${
-                  statsHalf === h.key
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {h.label}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* ── BİRLEŞİK MAÇ İSTATİSTİKLERİ ── */}
 
-        {match.hasStats ? (
-          <div className="space-y-0.5">
-            <div className="flex items-center justify-between mb-2 text-xs">
-              <span className="font-semibold text-orange-600">{match.home}</span>
-              <span className="text-gray-300">vs</span>
-              <span className="font-semibold text-blue-600">{match.away}</span>
-            </div>
-            {statKeys.map(({ key, label, suffix, isEstimated }) => {
-              let stat = filteredStats[key]
-              if (key === 'xg' && (!stat || (stat.home == null && stat.away == null) || (stat.home === 0 && stat.away === 0))) {
-                const estimated = estimateXgFromShots(filteredStats)
-                if (estimated.home > 0 || estimated.away > 0) {
-                  stat = { home: estimated.home, away: estimated.away }
-                }
-              }
-              if (!stat) return null
-              return (
-                <StatBar
-                  key={key}
-                  label={isEstimated ? 'xG (est.)' : label}
-                  home={stat.home}
-                  away={stat.away}
-                  suffix={suffix}
-                  isPossession={key === 'possession'}
-                />
-              )
-            })}
-          </div>
-        ) : (
-          <div className="py-8 text-center bg-gray-50 rounded-lg">
-            <p className="text-sm text-gray-400">Bu maç için istatistik bulunmuyor</p>
-          </div>
-        )}
-      </div>
-
-      {/* Scoremer Enhanced Stats Section */}
-      {match.isFinished && (scoremerLoading || scoremerStats) && (
+      {/* ── BİRLEŞİK MAÇ İSTATİSTİKLERİ (Power BI Visualization prensipleriyle) ── */}
+      {/* Scoremer Enhanced Stats — biten maçlar için zenginleştirilmiş */}
+      {match.isFinished && (scoremerLoading || scoremerStats) ? (
         <div className="border-b border-gray-100">
           <div className="px-4 pt-3 pb-1 flex items-center gap-2">
-            <span className="text-xs font-bold text-purple-700 uppercase tracking-wider">Maç İstatistikleri</span>
-            {scoremerLoading && (
-              <div className="w-3 h-3 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin" />
-            )}
+            <span className="text-xs font-bold text-purple-700 uppercase tracking-wider">Detaylı Maç İstatistikleri</span>
+            {scoremerLoading && <div className="w-3 h-3 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin" />}
           </div>
-
           {scoremerLoading && !scoremerStats ? (
             <div className="px-4 pb-4 py-6 flex items-center justify-center gap-2 text-purple-400">
               <div className="w-4 h-4 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin" />
@@ -546,48 +477,82 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                 <StatBar label="Tehlikeli Hücum" home={scoremerStats.dangerous_attacks?.home} away={scoremerStats.dangerous_attacks?.away} />
                 <StatBar label="Hücum" home={scoremerStats.attacks?.home} away={scoremerStats.attacks?.away} />
                 <StatBar label="Top Sahipliği %" home={scoremerStats.possession?.home} away={scoremerStats.possession?.away} isPossession />
-                {scoremerStats.xg && (
-                  <StatBar label="xG" home={scoremerStats.xg.home} away={scoremerStats.xg.away} />
-                )}
+                {scoremerStats.xg && <StatBar label="xG" home={scoremerStats.xg.home} away={scoremerStats.xg.away} />}
               </div>
-
               {scoremerHtStats && (scoremerHtStats.shots_on_target || scoremerHtStats.dangerous_attacks || scoremerHtStats.possession) && (
                 <div className="border-t border-gray-100 pt-3">
                   <div className="text-center text-[10px] text-gray-500 font-semibold mb-1">İlk Yarı</div>
-                  {scoremerHtStats.shots_on_target && (
-                    <StatBar label="İsabetli Şut" home={scoremerHtStats.shots_on_target.home} away={scoremerHtStats.shots_on_target.away} />
-                  )}
-                  {scoremerHtStats.shots_off_target && (
-                    <StatBar label="İsabetsiz Şut" home={scoremerHtStats.shots_off_target.home} away={scoremerHtStats.shots_off_target.away} />
-                  )}
-                  {scoremerHtStats.dangerous_attacks && (
-                    <StatBar label="Tehlikeli Hücum" home={scoremerHtStats.dangerous_attacks.home} away={scoremerHtStats.dangerous_attacks.away} />
-                  )}
-                  {scoremerHtStats.attacks && (
-                    <StatBar label="Hücum" home={scoremerHtStats.attacks.home} away={scoremerHtStats.attacks.away} />
-                  )}
-                  {scoremerHtStats.possession && (
-                    <StatBar label="Top Sahipliği %" home={scoremerHtStats.possession.home} away={scoremerHtStats.possession.away} isPossession />
-                  )}
+                  {scoremerHtStats.shots_on_target && <StatBar label="İsabetli Şut" home={scoremerHtStats.shots_on_target.home} away={scoremerHtStats.shots_on_target.away} />}
+                  {scoremerHtStats.shots_off_target && <StatBar label="İsabetsiz Şut" home={scoremerHtStats.shots_off_target.home} away={scoremerHtStats.shots_off_target.away} />}
+                  {scoremerHtStats.dangerous_attacks && <StatBar label="Tehlikeli Hücum" home={scoremerHtStats.dangerous_attacks.home} away={scoremerHtStats.dangerous_attacks.away} />}
+                  {scoremerHtStats.attacks && <StatBar label="Hücum" home={scoremerHtStats.attacks.home} away={scoremerHtStats.attacks.away} />}
+                  {scoremerHtStats.possession && <StatBar label="Top Sahipliği %" home={scoremerHtStats.possession.home} away={scoremerHtStats.possession.away} isPossession />}
                 </div>
               )}
             </div>
           ) : null}
         </div>
-      )}
+      ) : /* Canlı maçlar için standart istatistikler */
+      <div className="border-b border-gray-100">
+        <div className="p-4 sm:p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+              <svg className="w-4 h-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              Maç İstatistikleri
+            </h3>
+            <div className="flex items-center gap-1 bg-gray-100 rounded-full p-0.5">
+              {([
+                { key: 'full' as const, label: 'Toplam' },
+                { key: '1h' as const, label: '1. Yarı' },
+                { key: '2h' as const, label: '2. Yarı' },
+              ]).map(h => (
+                <button key={h.key} onClick={() => setStatsHalf(h.key)}
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold transition-all ${statsHalf === h.key ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                  {h.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {match.hasStats ? (
+            <div className="space-y-0.5">
+              <div className="flex items-center justify-between mb-2 text-xs">
+                <span className="font-semibold text-orange-600">{match.home}</span>
+                <span className="text-gray-300">vs</span>
+                <span className="font-semibold text-blue-600">{match.away}</span>
+              </div>
+              {statKeys.map(({ key, label, suffix, isEstimated }) => {
+                let stat = filteredStats[key]
+                if (key === 'xg' && (!stat || (stat.home == null && stat.away == null) || (stat.home === 0 && stat.away === 0))) {
+                  const estimated = estimateXgFromShots(filteredStats)
+                  if (estimated.home > 0 || estimated.away > 0) stat = { home: estimated.home, away: estimated.away }
+                }
+                if (!stat) return null
+                return (<StatBar key={key} label={isEstimated ? 'xG (est.)' : label} home={stat.home} away={stat.away} suffix={suffix} isPossession={key === 'possession'} />)
+              })}
+            </div>
+          ) : (
+            <div className="py-8 text-center bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-400">Bu maç için istatistik bulunmuyor</p>
+            </div>
+          )}
+        </div>
 
-      <ErrorBoundary context="FotMobSection">
-      <FotMobSection
-        fotmobData={fotmobData}
-        fotmobLoading={fotmobLoading}
-        fotmobTab={fotmobTab}
-        setFotmobTab={setFotmobTab}
-        homeTeam={match.home}
-        awayTeam={match.away}
-      />
-      </ErrorBoundary>
+        {/* FotMob Stats Block — xG, shots, cards */}
+        <ErrorBoundary context="FotMobStatsBlock">
+          <FotMobStatsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
+        </ErrorBoundary>
+      </div>}
 
-      {/* ── Upcoming Match Prediction ── */}
+      {/* ── OLAYLAR (Events timeline — en altta) ── */}
+      <div className="border-b border-gray-100">
+        <ErrorBoundary context="FotMobEventsBlock">
+          <FotMobEventsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
+        </ErrorBoundary>
+	      </div>
+
+	      {/* ── Takım Bilgileri: Elo + Pi-Rating + Form + Son 5 + Sezon ortalaması ── */}
       {match.isUpcoming && prediction && (
         <div className="px-3 sm:px-4 pb-3">
           <div className="bg-white rounded-xl border border-indigo-200 shadow-sm overflow-hidden">
@@ -828,6 +793,11 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               </div>
 
             </div>
+
+            {/* FotMob Info — weather, squad, formation, referee */}
+            <ErrorBoundary context="FotMobInfoBlock">
+              <FotMobInfoBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
+            </ErrorBoundary>
           </div>
         </div>
       )}

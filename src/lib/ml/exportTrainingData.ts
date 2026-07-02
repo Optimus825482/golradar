@@ -226,8 +226,9 @@ export async function exportTrainingData(
     // somehow the field is unparseable.
     let features: number[];
     try {
-      const parsed = JSON.parse(log.featuresJson) as MatchFeatures;
-      features = featuresToArray(parsed);
+      const rawParsed = JSON.parse(log.featuresJson);
+      // DB'de array olarak kaydedilmişse direkt kullan, object ise featuresToArray
+      features = Array.isArray(rawParsed) ? rawParsed : featuresToArray(rawParsed as MatchFeatures);
     } catch {
       const input = reconstructFeatureInput(log);
       if (!input) {

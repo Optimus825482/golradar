@@ -1,6 +1,6 @@
 {
   "date": null,
-  "matchCount": 37,
+  "matchCount": 33,
   "detailFetched": 0,
   "matches": [
     {
@@ -68,15 +68,15 @@
     {
       "matchId": 4933923,
       "uuid": "cb00y7b8u9g2md4otj6f2cc2c",
-      "status": "Playing",
-      "period": 2,
+      "status": "Played",
+      "period": 0,
       "fullTimeScore": [
-        0,
-        0
+        1,
+        2
       ],
       "halfTimeScore": [
-        0,
-        0
+        1,
+        2
       ],
       "time": "02:00",
       "competitionName": "ABD USL 2. Lig",
@@ -99,15 +99,15 @@
     {
       "matchId": 4932816,
       "uuid": "f1no77yiazp6zsrm78pjsn2tw",
-      "status": "Playing",
-      "period": 1,
+      "status": "Played",
+      "period": 0,
       "fullTimeScore": [
-        1,
-        0
+        5,
+        1
       ],
       "halfTimeScore": [
-        1,
-        0
+        5,
+        1
       ],
       "time": "03:00",
       "competitionName": "ABD USL 2. Lig",
@@ -119,90 +119,6 @@
       "teamB": {
         "id": null,
         "name": "RKC"
-      },
-      "slot": {
-        "slotTitle": "ABD USL 2. Lig",
-        "slotTime": "00:00",
-        "slotCompetition": "enzlj1as2raqm4ids1zyb07y1",
-        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
-      }
-    },
-    {
-      "matchId": 4935234,
-      "uuid": "6kyakdsad99zn88wti7v5nn6c",
-      "status": "Fixture",
-      "period": 0,
-      "fullTimeScore": null,
-      "halfTimeScore": [
-        -1,
-        -1
-      ],
-      "time": "03:30",
-      "competitionName": "ABD USL 2. Lig",
-      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
-      "teamA": {
-        "id": null,
-        "name": "Denton Diablos"
-      },
-      "teamB": {
-        "id": null,
-        "name": "West Texas"
-      },
-      "slot": {
-        "slotTitle": "ABD USL 2. Lig",
-        "slotTime": "00:00",
-        "slotCompetition": "enzlj1as2raqm4ids1zyb07y1",
-        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
-      }
-    },
-    {
-      "matchId": 4934918,
-      "uuid": "3s2akyki7uiwmsor6o85skb9w",
-      "status": "Fixture",
-      "period": 0,
-      "fullTimeScore": null,
-      "halfTimeScore": [
-        -1,
-        -1
-      ],
-      "time": "05:00",
-      "competitionName": "ABD USL 2. Lig",
-      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
-      "teamA": {
-        "id": null,
-        "name": "Davis Legacy"
-      },
-      "teamB": {
-        "id": null,
-        "name": "Academica"
-      },
-      "slot": {
-        "slotTitle": "ABD USL 2. Lig",
-        "slotTime": "00:00",
-        "slotCompetition": "enzlj1as2raqm4ids1zyb07y1",
-        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
-      }
-    },
-    {
-      "matchId": 4934590,
-      "uuid": "4wwk6ncy3h64jkqe0v4j5da8k",
-      "status": "Fixture",
-      "period": 0,
-      "fullTimeScore": null,
-      "halfTimeScore": [
-        -1,
-        -1
-      ],
-      "time": "05:30",
-      "competitionName": "ABD USL 2. Lig",
-      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
-      "teamA": {
-        "id": null,
-        "name": "West Seattle"
-      },
-      "teamB": {
-        "id": null,
-        "name": "Bigfoot"
       },
       "slot": {
         "slotTitle": "ABD USL 2. Lig",
@@ -245,8 +161,8 @@
     {
       "matchId": 4887032,
       "uuid": "dnvtbxlmo6b904a42aqd8pous",
-      "status": "Playing",
-      "period": 3,
+      "status": "Played",
+      "period": 0,
       "fullTimeScore": [
         2,
         0
@@ -265,34 +181,6 @@
       "teamB": {
         "id": null,
         "name": "Westchester SC"
-      },
-      "slot": {
-        "slotTitle": "ABD USL 1. Lig",
-        "slotTime": "00:30",
-        "slotCompetition": "jznihqxle06xych9ygwiwnsa",
-        "slotAreaId": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c"
-      }
-    },
-    {
-      "matchId": 4887036,
-      "uuid": "dpgkmz3ygjyj1se36ti28o00k",
-      "status": "Fixture",
-      "period": 0,
-      "fullTimeScore": null,
-      "halfTimeScore": [
-        -1,
-        -1
-      ],
-      "time": "05:30",
-      "competitionName": "ABD USL 1. Lig",
-      "competitionUuid": "4dbb5d9a-85df-3799-39d6-b18ea5e5745c",
-      "teamA": {
-        "id": null,
-        "name": "Union Omaha"
-      },
-      "teamB": {
-        "id": null,
-        "name": "Alta"
       },
       "slot": {
         "slotTitle": "ABD USL 1. Lig",
@@ -366,15 +254,15 @@
     {
       "matchId": 4962329,
       "uuid": "58xavautt3vy74atztisxvw9g",
-      "status": "Playing",
-      "period": 1,
+      "status": "Played",
+      "period": 0,
       "fullTimeScore": [
         0,
-        0
+        1
       ],
       "halfTimeScore": [
         0,
-        0
+        1
       ],
       "time": "03:30",
       "competitionName": "Şili Kupa",
@@ -428,14 +316,14 @@
     {
       "matchId": 4868751,
       "uuid": "ef8yvmn1ivhbrnjyj133kf7ys",
-      "status": "Playing",
-      "period": 1,
+      "status": "Played",
+      "period": 0,
       "fullTimeScore": [
-        1,
+        2,
         0
       ],
       "halfTimeScore": [
-        1,
+        2,
         0
       ],
       "time": "03:00",

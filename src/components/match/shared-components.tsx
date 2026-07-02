@@ -107,16 +107,16 @@ export function StatBar({ label, home, away, suffix = '', isPossession = false }
   }
 
   return (
-    <div className="flex items-center gap-3 py-1.5">
-      <span className={`text-right font-mono text-sm font-semibold text-gray-800 ${!Number.isInteger(h) ? 'w-12' : 'w-10'}`}>{formatVal(h)}</span>
-      <div className="flex-1">
-        <div className="text-center text-[10px] text-gray-400 mb-0.5">{label}</div>
-        <div className="flex h-2 rounded-full overflow-hidden bg-gray-100">
-          <div className="bg-emerald-500 transition-all duration-500 ease-out" style={{ width: `${homePercent}%` }} />
-          <div className="bg-rose-500 transition-all duration-500 ease-out" style={{ width: `${awayPercent}%` }} />
+    <div className="flex items-center gap-2 py-1">
+      <span className={`text-right font-mono text-[11px] font-semibold text-gray-800 w-10`}>{formatVal(h)}</span>
+      <div className="flex-1 min-w-0">
+        <div className="text-center text-[9px] text-gray-400 mb-0.5 truncate">{label}</div>
+        <div className="flex h-1.5 rounded-full overflow-hidden bg-gray-100">
+          <div className="bg-orange-500 transition-all duration-500 ease-out" style={{ width: `${homePercent}%` }} />
+          <div className="bg-blue-500 transition-all duration-500 ease-out" style={{ width: `${awayPercent}%` }} />
         </div>
       </div>
-      <span className={`text-left font-mono text-sm font-semibold text-gray-800 ${!Number.isInteger(a) ? 'w-12' : 'w-10'}`}>{formatVal(a)}</span>
+      <span className={`text-left font-mono text-[11px] font-semibold text-gray-800 w-10`}>{formatVal(a)}</span>
     </div>
   )
 }

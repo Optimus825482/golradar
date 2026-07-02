@@ -454,10 +454,8 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       </div>
 
       {/* ── BİRLEŞİK MAÇ İSTATİSTİKLERİ ── */}
-
-      {/* ── BİRLEŞİK MAÇ İSTATİSTİKLERİ (Power BI Visualization prensipleriyle) ── */}
-      {/* Scoremer Enhanced Stats — biten maçlar için zenginleştirilmiş */}
-      {match.isFinished && (scoremerLoading || scoremerStats) ? (
+      {/* Oynanmamis maclarda istatistik gosterme */}
+      {match.isUpcoming ? null : (match.isFinished && (scoremerLoading || scoremerStats) ? (
         <div className="border-b border-gray-100">
           <div className="px-4 pt-3 pb-1 flex items-center gap-2">
             <span className="text-xs font-bold text-purple-700 uppercase tracking-wider">Detaylı Maç İstatistikleri</span>
@@ -500,7 +498,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               <svg className="w-4 h-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
-              Maç İstatistikleri
+              Birleşik Maç İstatistikleri
             </h3>
             <div className="flex items-center gap-1 bg-gray-100 rounded-full p-0.5">
               {([
@@ -543,14 +541,16 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         <ErrorBoundary context="FotMobStatsBlock">
           <FotMobStatsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
         </ErrorBoundary>
-      </div>}
+      </div>)}
 
-      {/* ── OLAYLAR (Events timeline — en altta) ── */}
-      <div className="border-b border-gray-100">
-        <ErrorBoundary context="FotMobEventsBlock">
-          <FotMobEventsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
-        </ErrorBoundary>
-	      </div>
+      {/* ── OLAYLAR (Events timeline — en altta, sadece canli/biten) ── */}
+      {!match.isUpcoming && (
+        <div className="border-b border-gray-100">
+          <ErrorBoundary context="FotMobEventsBlock">
+            <FotMobEventsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
+          </ErrorBoundary>
+        </div>
+      )}
 
 	      {/* ── Takım Bilgileri: Elo + Pi-Rating + Form + Son 5 + Sezon ortalaması ── */}
       {match.isUpcoming && prediction && (
@@ -630,6 +630,21 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Takım Bilgileri</h3>
               {ratingLoading && <div className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />}
             </div>
+            {ratingLoading && !homeRating && !awayRating ? (
+              <div className="p-4 space-y-3 animate-pulse">
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-24 bg-gray-200 rounded" />
+                  <div className="h-3 w-8 bg-gray-200 rounded" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="h-14 bg-gray-100 rounded-lg" />
+                  <div className="h-14 bg-gray-100 rounded-lg" />
+                </div>
+                <div className="h-4 w-48 bg-gray-200 rounded" />
+                <div className="h-20 bg-gray-100 rounded-lg" />
+                <div className="h-24 bg-gray-100 rounded-lg" />
+              </div>
+            ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
 
               {/* ═══ Home Team ═══ */}
@@ -793,6 +808,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               </div>
 
             </div>
+            )}
 
             {/* FotMob Info — weather, squad, formation, referee */}
             <ErrorBoundary context="FotMobInfoBlock">

@@ -9,32 +9,80 @@ import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
+/** Elo -> relative strength. 1500 = 1.0, +/-100 = +/-0.1 */
+function eloToStrength(elo: number): number {
+  return Math.round((0.5 + (elo - 1500) / 1000) * 100) / 100;
+}
+
+async function findTeamRating(teamName: string) {
+  // Try exact match first, then teamNameTr, then fallback
+  const exact = await db.teamRating.findFirst({ where: { teamName: { equals: teamName, mode: 'insensitive' } } });
+  if (exact) return exact;
+  const byTr = await db.teamRating.findFirst({ where: { teamNameTr: { equals: teamName, mode: 'insensitive' } } });
+  if (byTr) return byTr;
+  // Last resort: try contains (for partial club names)
+  return db.teamRating.findFirst({ where: { teamName: { contains: teamName, mode: 'insensitive' } } });
+}
+
+async function findNationalElo(teamName: string) {
+  const exact = await db.nationalTeamElo.findFirst({ where: { countryName: { equals: teamName, mode: 'insensitive' } } });
+  if (exact) return exact;
+  return db.nationalTeamElo.findFirst({ where: { countryName: { contains: teamName, mode: 'insensitive' } } });
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const home = searchParams.get('home')?.trim();
   const away = searchParams.get('away')?.trim();
   if (!home || !away) return NextResponse.json({ error: 'home and away required' }, { status: 400 });
 
-  // 1. TeamRating'den takim guclerini al (kulup takimlari)
-  const [homeRating, awayRating, homeNat, awayNat] = await Promise.all([
-    db.teamRating.findFirst({ where: { teamName: { contains: home, mode: 'insensitive' } } }),
-    db.teamRating.findFirst({ where: { teamName: { contains: away, mode: 'insensitive' } } }),
-    db.nationalTeamElo.findFirst({ where: { countryName: { contains: home, mode: 'insensitive' } } }),
-    db.nationalTeamElo.findFirst({ where: { countryName: { contains: away, mode: 'insensitive' } } }),
+  // 1. TeamRating + NationalTeamElo + TeamHistoryMatch — try exact match first
+  const [homeRating, awayRating, homeNat, awayNat, homeMatches, awayMatches] = await Promise.all([
+    findTeamRating(home),
+    findTeamRating(away),
+    findNationalElo(home),
+    findNationalElo(away),
+    db.teamHistoryMatch.findMany({
+      where: { OR: [{ homeTeam: { contains: home, mode: 'insensitive' } }, { awayTeam: { contains: home, mode: 'insensitive' } }] },
+      orderBy: { matchDate: 'desc' }, take: 30,
+    }),
+    db.teamHistoryMatch.findMany({
+      where: { OR: [{ homeTeam: { contains: away, mode: 'insensitive' } }, { awayTeam: { contains: away, mode: 'insensitive' } }] },
+      orderBy: { matchDate: 'desc' }, take: 30,
+    }),
   ]);
 
-  // 2. Elo: TeamRating → NationalTeamElo fallback
-  const homeElo = homeRating?.elo ?? homeNat?.elo ?? 1500;
-  const awayElo = awayRating?.elo ?? awayNat?.elo ?? 1500;
-
-  // 3. predictFromElo ile kazanma olasiliklari
+  // 2. Elo: TeamRating → NationalTeamElo → predictFromElo → fallback
   const eloPred = predictFromElo(home, away);
+  const predHomeElo = eloPred.homeRating;
+  const predAwayElo = eloPred.awayRating;
+  const homeElo = homeRating?.elo ?? homeNat?.elo ?? predHomeElo;
+  const awayElo = awayRating?.elo ?? awayNat?.elo ?? predAwayElo;
 
-  // 4. Atak/Defans gucleri
-  const homeAtk = homeRating?.attackStrength ?? (homeNat ? 1.0 : 1.0);
-  const homeDef = homeRating?.defenseWeakness ?? (homeNat ? 1.0 : 1.0);
-  const awayAtk = awayRating?.attackStrength ?? (awayNat ? 1.0 : 1.0);
-  const awayDef = awayRating?.defenseWeakness ?? (awayNat ? 1.0 : 1.0);
+  // 3. Atak/Defans: DB → TeamHistoryMatch goals → elo-based fallback
+  function computeStrength(team: string, rating: any, matches: any[], isAttack: boolean, elo: number): number {
+    if (isAttack && rating?.attackStrength != null && rating.attackStrength !== 1.0) return rating.attackStrength;
+    if (!isAttack && rating?.defenseWeakness != null && rating.defenseWeakness !== 1.0) return rating.defenseWeakness;
+    // Derive from match history goals
+    if (matches.length > 0) {
+      let totalGf = 0, totalGa = 0, count = 0;
+      for (const m of matches) {
+        const isHome = m.homeTeam.toLowerCase() === team.toLowerCase();
+        totalGf += isHome ? m.homeGoals : m.awayGoals;
+        totalGa += isHome ? m.awayGoals : m.homeGoals;
+        count++;
+      }
+      const avgGf = totalGf / count;
+      const avgGa = totalGa / count;
+      if (isAttack) return Math.round((avgGf / 1.5) * 100) / 100;
+      else return Math.round((avgGa / 1.5) * 100) / 100;
+    }
+    return eloToStrength(elo);
+  }
+  const homeAtk = computeStrength(home, homeRating, homeMatches, true, predHomeElo);
+  const homeDef = computeStrength(home, homeRating, homeMatches, false, predHomeElo);
+  const awayAtk = computeStrength(away, awayRating, awayMatches, true, predAwayElo);
+  const awayDef = computeStrength(away, awayRating, awayMatches, false, predAwayElo);
 
   // 5. Expected goals (Poisson)
   const lambdaHome = (homeAtk + awayDef) / 2 * 1.2; // ev avantaji

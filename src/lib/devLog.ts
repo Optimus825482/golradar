@@ -45,3 +45,13 @@ export function logInfo(context: string, ...args: unknown[]) {
   const prefix = `[${context}]`;
   console.log(prefix, ...args);
 }
+
+/**
+ * Dev-only logger — silent in production.
+ * Use for verbose per-tick / per-poll logs that spam otherwise.
+ */
+export function logDev(context: string, ...args: unknown[]) {
+  if (process.env.NODE_ENV !== 'development') return;
+  const prefix = `[${context}]`;
+  console.log(prefix, ...args);
+}

@@ -2,7 +2,7 @@
 import type { MatchStats as _MatchStats } from './nesineTypes';
 import { calculatePressure as _calculatePressure } from './nesineTypes';
 import { ET_MAP } from '../../mini-services/shared/nesineLiveTypes';
-import { logError, logInfo } from '@/lib/devLog';
+import { logError, logInfo, logDev } from '@/lib/devLog';
 
 export type { MatchStats } from './nesineTypes';
 export { calculatePressure } from './nesineTypes';
@@ -426,7 +426,7 @@ export async function hydrateFotMobIdCache(): Promise<void> {
     fotMobIdCache = map;
     fotMobIdCacheTimestamp = Date.now();
     fotMobIdCacheHydrating = false;
-    logInfo('nesine', `FotMob ID cache hydrated: ${map.size} mappings`);
+    logDev('nesine', `FotMob ID cache hydrated: ${map.size} mappings`);
   } catch (err) {
     fotMobIdCacheHydrating = false;
     logError('nesine', 'Failed to hydrate FotMob ID cache:', err);

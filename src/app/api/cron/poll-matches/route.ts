@@ -21,7 +21,7 @@
 import { NextResponse } from "next/server";
 import { setMatchesCache, getMatchesCache } from "@/lib/server/matchesCache";
 import { publishMatchEvent } from "@/lib/server/matchEvents";
-import { logError, logInfo } from "@/lib/devLog";
+import { logError, logInfo, logDev } from "@/lib/devLog";
 
 export const dynamic = "force-dynamic";
 
@@ -80,7 +80,8 @@ export async function POST(request: Request) {
     });
 
     lastSuccessAt = startedAt;
-    logInfo(
+    // 5s'de bir tekrarlıyorsa log spam olur — dev-only
+    logDev(
       "cron-poll-matches",
       `Writer refresh OK: ${(body as { count?: number }).count ?? "?"} matches in ${Date.now() - startedAt}ms`,
     );

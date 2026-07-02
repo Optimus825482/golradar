@@ -132,14 +132,41 @@ async function _fetchFromSofascore(
     if (games === 0) return null;
     const yellow = Number(ref.yellowCards) || 0;
     const red = Number(ref.redCards) || 0;
+
+    // 3) Per-tournament statistics — adds penalty count (Pen/maç).
+    // Sofascore /statistics endpoint returns a list of tournament
+    // objects; we sum penalty across all of them.
+    let totalPenalty = 0;
+    try {
+      const statsRes = await fetch(`${SOFASCORE}/referee/${refId}/statistics`, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        const statsList: any[] = statsData?.statistics || [];
+        for (const s of statsList) {
+          if (s && typeof s.penalty === "number") {
+            totalPenalty += s.penalty;
+          }
+        }
+      }
+    } catch {
+      // best-effort — penalty 0 is fine fallback
+    }
+
     return {
       refereeName: ref.name || name,
       matchesCount: games,
       avgYellowCards: Math.round((yellow / games) * 1000) / 1000,
       avgRedCards: Math.round((red / games) * 1000) / 1000,
       avgFouls: 0,    // Sofascore doesn't expose fouls
-      avgPenalties: 0, // Sofascore doesn't expose penalties
-      penaltyRate: 0,
+      avgPenalties: Math.round((totalPenalty / games) * 1000) / 1000,
+      penaltyRate: Math.round((totalPenalty / games) * 1000) / 1000,
       cardRate: Math.round((yellow / games) * 1000) / 1000,
       sofascoreId: refId,
     };

@@ -100,8 +100,35 @@ def get_referee(referee_id: int | str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_referee_statistics(referee_id: int | str) -> Optional[list]:
+    """Per-tournament stats including penalty count.
+
+    Endpoint: GET /api/v1/referee/<id>/statistics
+    Returns: list of {uniqueTournament, appearances, yellowCards,
+                       yellowRedCards, redCards, penalty}
+    Sofascore aggregates per tournament; we sum for career totals.
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE}/referee/{referee_id}/statistics",
+            impersonate="chrome124",
+            timeout=10,
+            headers={"User-Agent": USER_AGENT},
+        )
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    try:
+        return json.loads(r.text).get("statistics") or []
+    except Exception:
+        return None
+
+
 def scrape_referee(name: str) -> Dict[str, Any]:
-    """Resolve name → ID → stats. Returns normalized JSON dict."""
+    """Resolve name → ID → stats (detail + per-tournament).
+    Returns normalized JSON dict with penalty data.
+    """
     entity = search_referee(name)
     if not entity:
         return {"ok": False, "refereeName": name, "error": "no search results"}
@@ -111,10 +138,16 @@ def scrape_referee(name: str) -> Dict[str, Any]:
     detail = get_referee(ref_id)
     if not detail:
         return {"ok": False, "refereeName": name, "error": f"detail fetch failed (id={ref_id})"}
-    return _normalize(detail, searched_name=name)
+    # Per-tournament statistics — adds penalty and per-tournament breakdown
+    stats_list = get_referee_statistics(ref_id)
+    return _normalize(detail, stats_list, searched_name=name)
 
 
-def _normalize(ref: Dict[str, Any], searched_name: str = "") -> Dict[str, Any]:
+def _normalize(
+    ref: Dict[str, Any],
+    stats_list: Optional[list] = None,
+    searched_name: str = "",
+) -> Dict[str, Any]:
     """Sofascore payload → normalized JSON for downstream DB/feature use."""
     name = ref.get("name") or searched_name
     games = int(ref.get("games") or 0)
@@ -128,20 +161,41 @@ def _normalize(ref: Dict[str, Any], searched_name: str = "") -> Dict[str, Any]:
             "error": "no games played",
         }
     country = ref.get("country", {}) or {}
+
+    # Sum per-tournament stats (penalty ekle)
+    total_penalty = 0
+    tournament_breakdown = []
+    if stats_list:
+        for s in stats_list:
+            if not isinstance(s, dict):
+                continue
+            pen = int(s.get("penalty") or 0)
+            total_penalty += pen
+            t = s.get("uniqueTournament", {}) or {}
+            tournament_breakdown.append({
+                "name": t.get("name", ""),
+                "appearances": s.get("appearances", 0),
+                "yellowCards": s.get("yellowCards", 0),
+                "redCards": s.get("redCards", 0),
+                "yellowRedCards": s.get("yellowRedCards", 0),
+                "penalty": pen,
+            })
+
     return {
         "ok": True,
         "refereeName": name,
-        "uuid": str(ref.get("id")),  # Sofascore numeric ID
+        "uuid": str(ref.get("id")),
         "nationality": country.get("alpha2", ""),
         "matchesCount": games,
         "avgYellowCards": round(yellow / games, 3),
         "avgRedCards": round(red / games, 3),
         "avgYellowRedCards": round(y2r / games, 3),
         "cardRate": round(yellow / games, 3),
-        "penaltyRate": 0.0,  # Sofascore doesn't expose penalty stats
+        "penaltyRate": round(total_penalty / games, 3) if games > 0 else 0.0,
         "totalYellow": yellow,
         "totalRed": red,
-        "totalPenalty": 0,
+        "totalPenalty": total_penalty,
+        "tournaments": tournament_breakdown,
     }
 
 

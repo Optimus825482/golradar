@@ -12,6 +12,8 @@ interface BlockProps {
   fotmobLoading: boolean
   homeTeam: string
   awayTeam: string
+  homeScore?: number
+  awayScore?: number
 }
 
 // ——— Loading skeleton ———
@@ -42,9 +44,31 @@ export function FotMobStatsBlock({ fotmobData, fotmobLoading, homeTeam, awayTeam
 //  Shows events timeline: goals, cards, subs
 // ============================================================
 
-export function FotMobEventsBlock({ fotmobData, fotmobLoading, homeTeam, awayTeam }: BlockProps) {
+export function FotMobEventsBlock({ fotmobData, fotmobLoading, homeTeam, awayTeam, homeScore, awayScore }: BlockProps) {
   if (fotmobLoading) return <BlockLoader />
   if (!fotmobData || (fotmobData.events?.length ?? 0) === 0) return null
+
+  // Sanitize: biten maclarda event'lerdeki gol sayisi mac skorunu asiyorsa veri bozuk, gosterme
+  if (homeScore != null && awayScore != null) {
+    const totalGoalsInEvents = fotmobData.events.filter((e: any) => e.type === 'Goal').length;
+    const actualTotal = homeScore + awayScore;
+    if (totalGoalsInEvents > actualTotal) {
+      // Try to filter events to only those consistent with match score
+      let homeG = 0, awayG = 0;
+      const validEvents = fotmobData.events.filter((e: any) => {
+        if (e.type === 'Goal') {
+          const isHome = e.isHome === true || e.isHome === 'true';
+          if (isHome && homeG < homeScore) { homeG++; return true; }
+          else if (!isHome && awayG < awayScore) { awayG++; return true; }
+          else return false;
+        }
+        return true; // non-goal events pass through
+      });
+      // If filtering removed nothing but mismatch remains, hide entirely
+      if (validEvents.length === fotmobData.events.length) return null;
+      return <NetScoresEventsTab events={validEvents as any[]} homeTeamName={homeTeam} awayTeamName={awayTeam} />
+    }
+  }
 
   return <NetScoresEventsTab events={fotmobData.events as any[]} homeTeamName={homeTeam} awayTeamName={awayTeam} />
 }

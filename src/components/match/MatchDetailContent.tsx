@@ -539,7 +539,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
 
         {/* FotMob Stats Block — xG, shots, cards */}
         <ErrorBoundary context="FotMobStatsBlock">
-          <FotMobStatsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
+          <FotMobStatsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} homeScore={match.homeGoals} awayScore={match.awayGoals} />
         </ErrorBoundary>
       </div>)}
 
@@ -547,7 +547,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       {!match.isUpcoming && (
         <div className="border-b border-gray-100">
           <ErrorBoundary context="FotMobEventsBlock">
-            <FotMobEventsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
+            <FotMobEventsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} homeScore={match.homeGoals} awayScore={match.awayGoals} />
           </ErrorBoundary>
         </div>
       )}

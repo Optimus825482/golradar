@@ -103,14 +103,11 @@ def parse_referee(uuid: str, data: List[Any]) -> Optional[Dict[str, Any]]:
     ref_root = data[7]
     if not isinstance(ref_root, dict):
         return None
-    expected_uuid = ref_root.get("id")
+    expected_uuid = _resolve(data, ref_root.get("id"))
     if not isinstance(expected_uuid, str):
         return None
-    if isinstance(data[0], str) and isinstance(uuid, str) and data[0] != uuid:
-        # data[0] kaynak string ("dn" gibi), bu kontrol geçerli değil
-        pass
-    # data[1] = "Şu anki referee" string objesi
-    if not expected_uuid:
+    # Sanity check: istek URL'si ile sayfanın UUID'si eşleşmeli (path/redirect guard)
+    if isinstance(uuid, str) and isinstance(expected_uuid, str) and uuid != expected_uuid:
         return None
 
     name_obj = _resolve(data, ref_root.get("name"))

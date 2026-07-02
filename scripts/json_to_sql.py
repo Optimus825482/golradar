@@ -48,9 +48,8 @@ def row_sql(scraped: Dict[str, Any]) -> Optional[str]:
     update_set = ", ".join(
         f'"{f}" = EXCLUDED."{f}"' for f in fields if f not in ("id", "refereeName")
     )
-    # lastUpdated her zaman NOW() olsun (Prisma @default(now()) sadece
-    # app-side, DB'de default yok)
-    update_set += ', "lastUpdated" = NOW()'
+    # lastUpdated INSERT'te NOW() olarak set edildi, conflict'te
+    # de EXCLUDED ile override edilir — duplicate assignment'a gerek yok.
     return (
         f"INSERT INTO \"RefereeStats\" ({column_list}) VALUES ({value_list})\n"
         f"ON CONFLICT (\"refereeName\") DO UPDATE SET {update_set};"

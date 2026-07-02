@@ -37,16 +37,20 @@ def row_sql(scraped: Dict[str, Any]) -> Optional[str]:
         str(float(scraped.get("avgPenalties", 0.0))),
         str(float(scraped.get("penaltyRate", 0.0))),
         str(float(scraped.get("cardRate", 0.0))),
+        "NOW()",  # lastUpdated
     ]
     fields = [
         "id", "refereeName", "matchesCount", "avgYellowCards", "avgRedCards",
-        "avgFouls", "avgPenalties", "penaltyRate", "cardRate",
+        "avgFouls", "avgPenalties", "penaltyRate", "cardRate", "lastUpdated",
     ]
     column_list = ", ".join(f'"{f}"' for f in fields)
     value_list = ", ".join(values)
     update_set = ", ".join(
         f'"{f}" = EXCLUDED."{f}"' for f in fields if f not in ("id", "refereeName")
     )
+    # lastUpdated her zaman NOW() olsun (Prisma @default(now()) sadece
+    # app-side, DB'de default yok)
+    update_set += ', "lastUpdated" = NOW()'
     return (
         f"INSERT INTO \"RefereeStats\" ({column_list}) VALUES ({value_list})\n"
         f"ON CONFLICT (\"refereeName\") DO UPDATE SET {update_set};"

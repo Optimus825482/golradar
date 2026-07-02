@@ -1,24 +1,36 @@
 // ── Referee Statistics Module ──────────────────────────────────────
-// DB-backed per-referee aggregates (card rate, penalty rate, fouls).
-// Scraped from Transfermarkt by scripts/scrape_referee_stats.py,
-// then upserted into the RefereeStats table.
+// Sofascore API-backed per-referee aggregates (card rate, yellowRed rate).
+// In-memory TTL cache (5min) for hot referees. Soft-fail: returns null
+// on any error so the feature pipeline falls back to neutral defaults
+// (0.5/0.1/0.5) instead of crashing the request.
 //
-// Used as control features in the ML pipeline (Faz E Task E5).
-// High cardRate → more set-pieces → more goal opportunities.
-// High penaltyRate → higher expected goals.
+// Data flow:
+//   getRefereeFeatures(name) → cache hit   → return cached
+//                           → cache miss  → fetch from Sofascore API
+//                                          → store in cache → return
+//
+// Sofascore endpoints used (no auth, no JS):
+//   - Search: GET api.sofascore.com/api/v1/search/referees?q=<name>
+//   - Detail: GET api.sofascore.com/api/v1/referee/<id>
+//
+// RefereeStats table is OPTIONAL: used only for snapshot/audit when
+// admin runs a batch backfill. Production feature path doesn't touch DB.
 
 import { db } from './db';
-import { logError } from './devLog';
+import { logError, logWarn } from './devLog';
 
 export interface RefereeStatsData {
   refereeName: string;
   matchesCount: number;
   avgYellowCards: number;
   avgRedCards: number;
-  avgFouls: number;
-  avgPenalties: number;
+  avgFouls: number;        // 0.0 — Sofascore doesn't expose fouls
+  avgPenalties: number;    // 0.0 — Sofascore doesn't expose penalties
   penaltyRate: number;
   cardRate: number;
+  /** Sofascore referee ID (numeric). Cached alongside stats for
+   *  faster repeat lookups. */
+  sofascoreId?: number;
 }
 
 export interface RefereeFeatures {
@@ -37,9 +49,9 @@ const NEUTRAL: RefereeFeatures = {
 };
 
 /**
- * DB'den hakem stats çek. Yoksa null döndür (caller default'a
- * düşer). Hiçbir koşulda exception fırlatmaz — feature pipeline
- * sessizce nötr değerlere düşer.
+ * Hakem stats çek. Önce in-memory cache, sonra Sofascore API.
+ * Hiçbir koşulda exception fırlatmaz — feature pipeline sessizce
+ * null döner ve caller default'a (0.5/0.1/0.5) düşer.
  */
 export async function getRefereeStats(
   refereeName: string,
@@ -47,33 +59,90 @@ export async function getRefereeStats(
   if (!refereeName || refereeName.trim().length === 0) return null;
   const normalized = refereeName.trim();
 
-  // In-memory LRU cache. SSE / 5s poll → every match re-fetches
-  // extractFeatures → referee query per match per poll would
-  // hammer the DB. Cache hot referees for 5 minutes — the data
-  // is scraped from Transfermarkt and changes slowly.
+  // In-memory TTL cache. SSE / 5s poll → her maç için 1 cache check.
+  // Aktif hakem seti küçük (~50 top-flight), cache küçük kalır.
   const cached = _refereeCache.get(normalized);
   if (cached && cached.expires > Date.now()) {
     return cached.value;
   }
 
+  // Cache miss → Sofascore'dan çek
+  const value = await _fetchFromSofascore(normalized);
+  _setRefereeCache(normalized, value);
+  return value;
+}
+
+async function _fetchFromSofascore(
+  name: string,
+): Promise<RefereeStatsData | null> {
+  const SOFASCORE = "https://api.sofascore.com/api/v1";
   try {
-    const row = await db.refereeStats.findUnique({
-      where: { refereeName: normalized },
+    // 1) Search → referee ID
+    const searchUrl = `${SOFASCORE}/search/referees?q=${encodeURIComponent(name)}`;
+    const searchRes = await fetch(searchUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        Accept: "application/json",
+      },
+      // Server Component'tan çağrılabilmesi için next cache'e girme
+      cache: "no-store",
     });
-    const value: RefereeStatsData | null = row
-      ? {
-          refereeName: row.refereeName,
-          matchesCount: row.matchesCount,
-          avgYellowCards: row.avgYellowCards,
-          avgRedCards: row.avgRedCards,
-          avgFouls: row.avgFouls,
-          avgPenalties: row.avgPenalties,
-          penaltyRate: row.penaltyRate,
-          cardRate: row.cardRate,
-        }
-      : null;
-    _setRefereeCache(normalized, value);
-    return value;
+    if (!searchRes.ok) {
+      logWarn('refereeStats', `sofascore search ${searchRes.status} for "${name}"`);
+      return null;
+    }
+    const searchData = await searchRes.json();
+    const results: any[] = searchData?.results || [];
+    if (results.length === 0) {
+      logWarn('refereeStats', `no sofascore results for "${name}"`);
+      return null;
+    }
+    // Best match: exact name > first by score
+    const nameLc = name.toLowerCase().trim();
+    const best =
+      results.find((r: any) =>
+        (r.entity?.name || "").toLowerCase().trim() === nameLc,
+      ) || results[0];
+    const entity = best.entity;
+    const refId = entity?.id;
+    if (!refId) {
+      logWarn('refereeStats', `no id in sofascore result for "${name}"`);
+      return null;
+    }
+
+    // 2) Detail → stats
+    const detailRes = await fetch(`${SOFASCORE}/referee/${refId}`, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    });
+    if (!detailRes.ok) {
+      logWarn('refereeStats', `sofascore detail ${detailRes.status} (id=${refId})`);
+      return null;
+    }
+    const detailData = await detailRes.json();
+    const ref = detailData?.referee;
+    if (!ref) return null;
+
+    const games = Number(ref.games) || 0;
+    if (games === 0) return null;
+    const yellow = Number(ref.yellowCards) || 0;
+    const red = Number(ref.redCards) || 0;
+    return {
+      refereeName: ref.name || name,
+      matchesCount: games,
+      avgYellowCards: Math.round((yellow / games) * 1000) / 1000,
+      avgRedCards: Math.round((red / games) * 1000) / 1000,
+      avgFouls: 0,    // Sofascore doesn't expose fouls
+      avgPenalties: 0, // Sofascore doesn't expose penalties
+      penaltyRate: 0,
+      cardRate: Math.round((yellow / games) * 1000) / 1000,
+      sofascoreId: refId,
+    };
   } catch (e) {
     logError('refereeStats', e);
     return null;

@@ -261,6 +261,7 @@ export async function GET(request: Request) {
 	      // crash vermesin diye lazy-loaded. Timeout 300ms.
 	      let goalooOddsBoost: { homeBoost: number; awayBoost: number; significance: string } | null = null;
 	      let goalooData: GoalooEnrichment | null = null;
+	      let closingOddsProxy: import('@/lib/goaloo').ClosingOddsProxy | null = null;
 	      try {
 	        const goaloo = await import('@/lib/goaloo');
 	        const goalooMatch = await Promise.race([
@@ -272,6 +273,8 @@ export async function GET(request: Request) {
 	            goaloo.fetchGoalooOdds(goalooMatch.goalooMatchId).catch(() => null),
 	            goaloo.fetchGoalooMomentum(goalooMatch.goalooMatchId).catch(() => null),
 	          ]);
+	          // E2: Closing line value proxy (Wilkens 2026)
+	          closingOddsProxy = await goaloo.fetchClosingOddsProxy(goalooMatch.goalooMatchId).catch(() => null);
 	          if (odds) {
 	            const movement = goaloo.analyzeOddsMovement(odds);
 	            if (movement.significance !== 'none') {
@@ -336,7 +339,7 @@ export async function GET(request: Request) {
           let featuresJson: string | null = null;
           let championP: number | null = null;
           try {
-            const features = await extractFeatures({
+	            const features = await extractFeatures({
               stats: parsed.stats,
               minute: parsed.minute,
               isLive: true,
@@ -356,6 +359,18 @@ export async function GET(request: Request) {
               // this is one query per unique active referee per 5 min,
               // regardless of how many matches they officiate.
               refereeName: fotmobData?.infoBox?.referee ?? null,
+              // E1: FotMob shotmap → shot geometry features (angle, distance, GK proxy)
+              shotmap: fotmobData?.shotmap ?? undefined,
+              fotmobHomeTeamId: fotmobData?.homeTeam?.id ?? null,
+              fotmobAwayTeamId: fotmobData?.awayTeam?.id ?? null,
+              // E2: Closing line value from Goaloo initial odds (Wilkens 2026)
+              closingOdds: closingOddsProxy ? {
+                over25: closingOddsProxy.over25Implied,
+                btts: closingOddsProxy.bttsYesImplied,
+                homeWin: closingOddsProxy.homeImplied,
+                draw: closingOddsProxy.drawImplied,
+                awayWin: closingOddsProxy.awayImplied,
+              } : undefined,
               skipXtGrid: true,
             });
             const fa = featuresToArray(features);
@@ -386,6 +401,18 @@ export async function GET(request: Request) {
                 awayGoals: parsed.awayGoals ?? 0,
                 homeTeam: parsed.home,
                 awayTeam: parsed.away,
+                // E1+E2: shot geometry + closing odds → ensemble ML inference
+                shotmap: fotmobData?.shotmap ?? undefined,
+                fotmobHomeTeamId: fotmobData?.homeTeam?.id ?? null,
+                fotmobAwayTeamId: fotmobData?.awayTeam?.id ?? null,
+                closingOdds: closingOddsProxy ? {
+                  over25: closingOddsProxy.over25Implied,
+                  btts: closingOddsProxy.bttsYesImplied,
+                  homeWin: closingOddsProxy.homeImplied,
+                  draw: closingOddsProxy.drawImplied,
+                  awayWin: closingOddsProxy.awayImplied,
+                } : undefined,
+                refereeName: fotmobData?.infoBox?.referee ?? null,
               });
               if (typeof ensemble.modelAgreementCount === 'number') {
                 goalRadar.modelAgreementCount = ensemble.modelAgreementCount;

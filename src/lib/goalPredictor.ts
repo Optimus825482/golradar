@@ -431,104 +431,14 @@ function loadTrainingData(): TrainingRecord[] {
   return [];
 }
 
-// ── Generate synthetic training data for bootstrap ─────────────────
-// When we don't have enough real training data, generate synthetic
-// samples based on the known statistical properties of football.
-
-function generateSyntheticTrainingData(
-  numSamples: number = 5000,
-  rng: () => number = Math.random,
-): TrainingRecord[] {
-  const records: TrainingRecord[] = [];
-
-  for (let i = 0; i < numSamples; i++) {
-    const minute = Math.floor(rng() * 90) + 1;
-    const elapsed15 = Math.max(1, minute / 15);
-
-    // Simulate match stats with realistic distributions
-    const possHome = 40 + rng() * 20; // 40-60%
-    const possAway = 100 - possHome;
-
-    const daHome = Math.floor(rng() * 50 * (minute / 90));
-    const daAway = Math.floor(rng() * 50 * (minute / 90));
-
-    const sotHome = Math.floor(rng() * 8 * (minute / 90));
-    const sotAway = Math.floor(rng() * 8 * (minute / 90));
-
-    const shotsHome = sotHome + Math.floor(rng() * 10 * (minute / 90));
-    const shotsAway = sotAway + Math.floor(rng() * 10 * (minute / 90));
-
-    const cornersHome = Math.floor(rng() * 8 * (minute / 90));
-    const cornersAway = Math.floor(rng() * 8 * (minute / 90));
-
-    const xgHome = sotHome * 0.38 + Math.max(0, shotsHome - sotHome) * 0.05 + cornersHome * 0.04 + daHome * 0.01;
-    const xgAway = sotAway * 0.38 + Math.max(0, shotsAway - sotAway) * 0.05 + cornersAway * 0.04 + daAway * 0.01;
-
-    // Calculate pressure
-    const totalPoss = possHome + possAway;
-    const totalDA = daHome + daAway;
-    const totalSOT = sotHome + sotAway;
-    const totalCorners = cornersHome + cornersAway;
-    const totalShots = shotsHome + shotsAway;
-
-    const homePressure = (totalPoss > 0 ? (possHome / totalPoss) * 0.075 * 100 : 0) +
-                        (totalDA > 0 ? (daHome / totalDA) * 0.30 * 100 : 0) +
-                        (totalShots > 0 ? (shotsHome / totalShots) * 0.15 * 100 : 0) +
-                        (totalSOT > 0 ? (sotHome / totalSOT) * 0.25 * 100 : 0) +
-                        (totalCorners > 0 ? (cornersHome / totalCorners) * 0.125 * 100 : 0);
-
-    // Goal probability model: based on research-calibrated features
-    const xgRate = (xgHome + xgAway) / elapsed15;
-    const timeFactor = minute <= 15 ? 0.70 : minute <= 30 ? 0.88 : minute <= 45 ? 1.05 :
-                       minute <= 60 ? 1.00 : minute <= 75 ? 1.12 : 1.30;
-    const pressureIntensity = Math.abs(homePressure - 50) / 50;
-
-    // Base goal probability per 10-minute window: ~14% (gerçek gol oranı)
-    const baseGoalP = 0.14 * (10 / 90);
-    const adjustedP = baseGoalP * timeFactor * (1 + xgRate * 0.5) * (1 + pressureIntensity * 0.2);
-
-    // Label: 1 if goal in next 10 min (probabilistic, cap 0.25)
-    const label = rng() < Math.min(0.25, adjustedP * 10) ? 1 : 0;
-
-    // Build feature vector
-    const features = new Array(FEATURE_NAMES.length).fill(0);
-    const norm = (v: number, min: number, max: number) => Math.max(0, Math.min(1, (v - min) / (max - min)));
-    const normRate = (v: number, max: number) => Math.max(0, Math.min(1, v / max));
-
-    features[0] = homePressure / 100;                    // pressure_home
-    features[1] = (100 - homePressure) / 100;            // pressure_away
-    features[2] = Math.abs(homePressure - 50) / 50;      // pressure_gap
-    features[3] = homePressure > 50 ? 1 : 0;            // pressure_dominant_side
-    features[4] = possHome / 100;                        // possession_home
-    features[5] = Math.abs(possHome - possAway) / 100;   // possession_gap
-    features[6] = normRate(daHome / elapsed15, 8);       // dangerous_attacks_home_rate
-    features[7] = normRate(shotsHome / elapsed15, 8);    // shots_total_home_rate
-    features[8] = normRate(shotsAway / elapsed15, 8);    // shots_total_away_rate
-    features[9] = normRate(sotHome / elapsed15, 6);      // shots_on_target_home_rate
-    features[10] = normRate(sotAway / elapsed15, 6);     // shots_on_target_away_rate
-    features[11] = shotsHome > 0 ? sotHome / shotsHome : 0; // sot_ratio_home
-    features[12] = shotsAway > 0 ? sotAway / shotsAway : 0; // sot_ratio_away
-    features[13] = norm(xgHome, 0, 3.0);                // xg_home
-    features[14] = norm(xgAway, 0, 3.0);                // xg_away
-    features[15] = normRate(cornersHome / elapsed15, 5); // corners_home_rate
-    features[16] = normRate(cornersAway / elapsed15, 5); // corners_away_rate
-    features[25] = minute / 90;                          // match_minute_norm
-    features[26] = norm(timeFactor, 0.5, 1.5);          // time_multiplier
-    features[27] = minute <= 45 ? 1 : 0;                // is_first_half
-    features[28] = minute >= 76 ? 1 : 0;                // is_peak_goal_time
-
-    records.push({
-      features,
-      label,
-      matchCode: -1, // synthetic
-      minute,
-      timestamp: Date.now() - (90 - minute) * 60000,
-      side: rng() > 0.5 ? 'home' : 'away',
-    });
-  }
-
-  return records;
-}
+// ── Synthetic training data UNAVAILABLE ────────────────────────────
+// Sentetik veri KALDIRILDI (2026-07-04). Sistem yalnızca gerçek maç
+// verileriyle çalışır. Gerçek veri kaynakları:
+//   1. PredictionLog tablosu (canlı maç prediction kayıtları)
+//   2. Understat xG verisi (top 5 lig)
+//   3. Football-Data.co.uk tarihsel maç verileri
+//   4. Sofascore API (canlı + bitmiş maç istatistikleri)
+// Eğitim verisi eksikse model güncellenmez, mevcut model kullanılır.
 
 // ── Initialize or retrain model ────────────────────────────────────
 
@@ -540,23 +450,23 @@ function initializeModel(): GBDTModel | null {
     return existing;
   }
 
-  // Need to train or retrain
-  devLog('[ML] Training new model...');
-
-  // Load real training data if available
-  let realData = loadTrainingData();
+  // Load real training data only
+  devLog('[ML] Training new model from real data only...');
+  const realData = loadTrainingData();
   devLog(`[ML] Real training records: ${realData.length}`);
 
-  // Supplement with synthetic data
-  const synthData = generateSyntheticTrainingData(Math.max(1000, 5000 - realData.length));
-  const allData = [...realData, ...synthData];
+  // YETERSIZ VERİ — sentetik fallback YOK.
+  // Model yalnızca yeterli gerçek veri varsa eğitilir.
+  if (realData.length < MIN_REAL_SAMPLES_FOR_PROMOTION) {
+    devWarn(`[ML] Insufficient real data: ${realData.length} < ${MIN_REAL_SAMPLES_FOR_PROMOTION}. ` +
+      `Skipping training. Collect more data from: PredictionLog, Football-Data.co.uk, Understat.`);
+    return existing; // Mevcut modeli kullan
+  }
 
   // Balance classes (goal vs no-goal)
-  const goals = allData.filter(r => r.label === 1);
-  const noGoals = allData.filter(r => r.label === 0);
-  const minClass = Math.min(goals.length, noGoals.length);
+  const goals = realData.filter(r => r.label === 1);
+  const noGoals = realData.filter(r => r.label === 0);
 
-  // Oversample minority class
   let balancedData: TrainingRecord[];
   if (goals.length < noGoals.length) {
     const oversampledGoals = Array(Math.ceil(noGoals.length / Math.max(1, goals.length)))

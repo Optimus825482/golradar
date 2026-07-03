@@ -68,3 +68,4 @@ mini-services/*/venv/
 mini-services/*/.env
 *.pyc
 docs/NEWALOGOMD/*
+docs/footiqo/*

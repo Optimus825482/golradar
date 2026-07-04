@@ -658,7 +658,13 @@ export default function OptimusGolRadariPage() {
 	    }
 	  }, [goalProbabilities, matches])
 
-  const radarCount = goalProbabilities.size
+	  const radarCount = useMemo(() => {
+	    let count = 0
+	    for (const [, prob] of goalProbabilities) {
+	      if (prob.score >= SIGNAL_THRESHOLD && prob.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) count++
+	    }
+	    return count
+	  }, [goalProbabilities])
 
   // Filter matches based on bottom tab
   const filteredMatches = useMemo(() => {

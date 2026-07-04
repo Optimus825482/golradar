@@ -172,8 +172,8 @@ export const INPLAY_MIN_GATE = 20;
 /**
  * Ensemble `score` çıktısı üst sınırı (0-100).
  *
- * Önceki değer 85 idi — bu, `critical` seviyesinin (≥%60) doğal yüksek
- * skorlarını boğuyordu. SIGNAL_THRESHOLD (60) ile hizalı 100'e çıkarıldı.
+	 * Önceki değer 85 idi — bu, `critical` seviyesinin doğal yüksek
+	 * skorlarını boğuyordu. RADAR_THRESHOLD (65) ile hizalı 100'e çıkarıldı.
  */
 export const ENSEMBLE_SCORE_CAP = 100;
 
@@ -197,9 +197,10 @@ export const MIN_REAL_SAMPLES_FOR_PROMOTION = 200;
  * eder (L dahil grid search). Buradaki değerler yalnızca ilk-çalıştırma
  * /fallback içindir.
  *
- * Not: Önceki kodda `L=0.95` (kod) vs yorumda "0.80" çelişkisi vardı.
- * Resmi kaynak değer 0.95; yorum Faz 2'de düzeltilecek veya L grid
- * search'a dahil edilip sabit kaldırılacak.
+	 * Not: L=0.75 backtest'te overconfidence gözlendikten sonra 0.90'dan
+	 * düşürüldü. Daha düşük L + daha yüksek T (0.20) = daha düz sigmoid,
+	 * daha iyi kalibrasyon. hydrateCalibrationFromDB fallback'leri de
+	 * DEFAULT_CALIBRATION_PARAMS ile hizalanmıştır.
  */
 export const DEFAULT_CALIBRATION_PARAMS: { L: number; k: number; x0: number; T: number } = {
   /** Maksimum olasılık (tavan). */

@@ -10,8 +10,8 @@ import {
 } from "../calibration";
 
 describe("calibration: CALIBRATION_PARAMS", () => {
-  test("L ceiling is 0.90 (config default)", () => {
-    expect(CALIBRATION_PARAMS.L).toBe(0.90);
+  test("L ceiling is 0.75 (config default, lowered from 0.90 for overconfidence)", () => {
+    expect(CALIBRATION_PARAMS.L).toBe(0.75);
   });
   test("k steepness positive", () => {
     expect(CALIBRATION_PARAMS.k).toBeGreaterThan(0);
@@ -50,10 +50,11 @@ describe("calibration: calibrateScore (sigmoid)", () => {
     expect(p).toBeLessThan(0.1);
   });
 
-  test("score 100 → high probability (near L=0.95)", () => {
+  test("score 100 → near ceiling L=0.75", () => {
     isolateSigmoid();
     const p = calibrateScore(100);
-    expect(p).toBeGreaterThan(0.8);
+    expect(p).toBeGreaterThan(0.7);
+    expect(p).toBeLessThanOrEqual(0.75);
   });
 
   test("score at midpoint x0 ≈ L/2", () => {

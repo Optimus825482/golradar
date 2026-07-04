@@ -300,7 +300,7 @@ export function startTrainingScheduler(): SchedulerState {
       fetch(`http://localhost:${process.env.PORT || 3012}/api/cron/poll-matches`, {
         method: 'POST',
         cache: 'no-store',
-        signal: AbortSignal.timeout(8_000),
+        signal: AbortSignal.timeout(20_000),
       }).catch((err) => {
         logError('MLScheduler', 'poll-matches writer failed:', err);
       });

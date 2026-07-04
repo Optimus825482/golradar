@@ -27,6 +27,9 @@ const VALID_NAMES = new Set<string>([
   "inplay",
   "team-strength",
   "xt-grid",
+  "gap",
+  "pi",
+  "glicko2",
 ]);
 
 export const GET = adminRoute(async () => {

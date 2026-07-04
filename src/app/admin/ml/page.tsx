@@ -23,6 +23,9 @@ const MODEL_NAMES: Record<string, { label: string; color: string; description: s
   'team-strength': { label: 'Takım Gücü', color: '#f79520', description: 'Kalman filter takım güç tahmini' },
   'xt-grid': { label: 'xT Grid', color: '#56a6d9', description: 'Expected Threat — pozisyon bazlı tehlike' },
   lightgbm: { label: 'LightGBM', color: '#f59e0b', description: 'Hızlı eğitim, düşük bellek — GBDT alternatifi' },
+  gap: { label: 'GAP Rating', color: '#ec4899', description: 'Wheatcroft GAP — atak performans ratingi' },
+  pi: { label: 'Pi-Rating', color: '#14b8a6', description: 'Constantinou & Fenton dinamik takım gücü' },
+  glicko2: { label: 'Glicko-2', color: '#8b5cf6', description: 'Glickman rating volatilite modeli' },
 };
 
 interface MLStatus {

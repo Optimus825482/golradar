@@ -27,7 +27,7 @@ interface RawBacktestResult {
   computedAt: string; notes: string[]; side?: 'both' | 'home' | 'away';
 }
 
-const CHAMPION_MODELS = ['xgb', 'gbdt', 'inplay', 'lightgbm'];
+const CHAMPION_MODELS = ['xgb', 'gbdt', 'inplay', 'lightgbm', 'gap', 'pi', 'glicko2'];
 
 const fmt = (v: number | null | undefined, d = 4): string => v == null || !Number.isFinite(v) ? '—' : v.toFixed(d);
 const fmtPct = (v: number | null | undefined, d = 2): string => v == null || !Number.isFinite(v) ? '—' : `${(v * 100).toFixed(d)}%`;

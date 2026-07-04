@@ -56,7 +56,7 @@ export default function SuccessDashboard() {
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            {champ && ['xgb', 'gbdt', 'inplay'].map(n => {
+            {champ && ['xgb', 'gbdt', 'inplay', 'gap', 'pi', 'glicko2'].map(n => {
               const m = champ[n];
               if (!m) return null;
               return (

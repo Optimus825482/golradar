@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 
 const VALID_NAMES = new Set<ModelName>([
   'gbdt', 'xgb', 'inplay', 'team-strength', 'xt-grid', 'lightgbm',
+  'gap', 'pi', 'glicko2',
 ]);
 
 export const GET = adminRoute(async (request: Request) => {

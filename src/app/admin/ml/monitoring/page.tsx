@@ -360,7 +360,7 @@ export default function MonitoringPage() {
           <CardContent>
             {loading ? <div className="space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-3/4" /></div> :
              <div className="space-y-2">
-              {["gbdt", "xgb", "inplay", "lightgbm", "team-strength"].map((model) => {
+              {["gbdt", "xgb", "inplay", "lightgbm", "team-strength", "gap", "pi", "glicko2"].map((model) => {
                 const w = weights.find((x) => x.name === model && x.isChampion);
                 const champ = mlStatus?.champions?.[model];
                 const auc = champ?.metrics?.auc ?? null;

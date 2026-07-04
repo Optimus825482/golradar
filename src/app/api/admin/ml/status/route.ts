@@ -86,6 +86,9 @@ export const GET = adminRoute(async () => {
       "xgbBrier",
       "inPlayBrier",
       "teamStrengthBrier",
+      "gapBrier",
+      "piBrier",
+      "glicko2Brier",
     ] as const) {
       const modelName = key
         .replace("Brier", "")

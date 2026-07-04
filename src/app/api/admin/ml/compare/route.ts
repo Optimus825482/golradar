@@ -17,7 +17,7 @@ import { adminRoute } from '@/lib/adminRoute';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_NAMES: ModelName[] = ['gbdt', 'xgb', 'inplay', 'team-strength'];
+const VALID_NAMES: ModelName[] = ['gbdt', 'xgb', 'inplay', 'team-strength', 'gap', 'pi', 'glicko2'];
 
 export const GET = adminRoute(async (request: Request) => {
   if (typeof window !== 'undefined') {

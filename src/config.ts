@@ -202,14 +202,14 @@ export const MIN_REAL_SAMPLES_FOR_PROMOTION = 200;
  * search'a dahil edilip sabit kaldırılacak.
  */
 export const DEFAULT_CALIBRATION_PARAMS: { L: number; k: number; x0: number; T: number } = {
-  /** Maksimum olasılık (tavan). Grid-opt: 0.95→0.90 (570K labeled). */
-  L: 0.90,
-  /** Eğim (steepness). Grid-opt: 0.065→0.05 */
-  k: 0.05,
-  /** Skor → %50 olasılık orta noktası. Grid-opt: 65→30 */
-  x0: 30,
-  /** Temperature scaling. Grid-opt: 1.0→0.08 */
-  T: 0.08,
+  /** Maksimum olasılık (tavan). */
+  L: 0.75,
+  /** Eğim (steepness). Backtest'te overconfidence gözlendi, düşürüldü: 0.05→0.03 */
+  k: 0.03,
+  /** Skor → %50 olasılık orta noktası. */
+  x0: 40,
+  /** Temperature scaling. Arttırıldı: 0.08→0.20 (daha düz sigmoid = daha iyi kalibrasyon) */
+  T: 0.20,
 };
 
 // ── Model güven türetme ──────────────────────────────────────────

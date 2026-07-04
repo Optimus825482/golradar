@@ -279,7 +279,14 @@ export function calculateGoalProbability(
       bttsP = Math.max(0.01, Math.min(0.99, bttsP));
     }
 
-    const bw = minNum < 30 ? 0.15 : minNum < 60 ? 0.12 : minNum < 75 ? 0.10 : 0.08;
+    // Dinamik Poisson blend ağırlığı
+    // Normalde ~0.12, kırmızı kart varsa Poisson daha güvenilir → artar
+    // Skor farkı büyükse rule-based daha iyi → azalır
+    let bw = 0.12;
+    if ((homeRedCards ?? 0) > 0 || (awayRedCards ?? 0) > 0) bw += 0.05;
+    const goalDiff = Math.abs((currentHomeGoals ?? 0) - (currentAwayGoals ?? 0));
+    if (goalDiff >= 2) bw -= 0.03;
+    bw = Math.max(0.05, Math.min(0.25, bw));
     ctx.hs = Math.round(ctx.hs * (1 - bw) + pr.homeGoalP * 100 * bw);
     ctx.as = Math.round(ctx.as * (1 - bw) + pr.awayGoalP * 100 * bw);
   } catch (e) { logError('goalRadar', e); }
@@ -379,8 +386,8 @@ export function calculateGoalProbability(
             else fXgA += shot.expectedGoals;
           }
         }
-        if (fXgH > xg.home) { const bp = Math.min(5, Math.round((fXgH - xg.home) * 7)); if (bp >= 2) { ctx.hs += bp; ctx.hf.push(`FotMob xG +${fXgH.toFixed(2)}`); } }
-        if (fXgA > xg.away) { const bp = Math.min(5, Math.round((fXgA - xg.away) * 7)); if (bp >= 2) { ctx.as += bp; ctx.af.push(`FotMob xG +${fXgA.toFixed(2)}`); } }
+        if (fXgH > xg.home) { const bp = Math.min(4, Math.round((fXgH - xg.home) * 3)); if (bp >= 2) { ctx.hs += bp; ctx.hf.push(`FotMob xG +${fXgH.toFixed(2)}`); } }
+        if (fXgA > xg.away) { const bp = Math.min(4, Math.round((fXgA - xg.away) * 3)); if (bp >= 2) { ctx.as += bp; ctx.af.push(`FotMob xG +${fXgA.toFixed(2)}`); } }
       }
       // FotMob xG boost'tan sonra 5-dk gate'ini güncelle
       if (fXgH > xg.home || fXgA > xg.away) {

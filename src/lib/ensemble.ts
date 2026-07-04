@@ -578,9 +578,9 @@ export async function predictEnsemble(
   // STACKING_BLEND_ALPHA ∈ [0, 1]: 0=devre dışı (BMA-only), 1=full stacking.
   // Yalnız ring buffer eğitim verisi yeterliyse ve model agreement yüksekse
   // aktif olur (cold-start guard + agreement gate).
-  // Faz 2 — Stacking α-blend. Default α=0.5 (önerilen). env override edilebilir.
-  const stackingAlpha = parseFloat(process.env.STACKING_BLEND_ALPHA ?? '0.0');
-  const STACKING_MIN_SAMPLES = 200; // trainStackingMetaModel n<100 reddeder; burada 200 ile conservative
+  // Faz 2 — Stacking α-blend. Default α=0.3 (kademeli aktif). env override edilebilir.
+  const stackingAlpha = parseFloat(process.env.STACKING_BLEND_ALPHA ?? '0.3');
+  const STACKING_MIN_SAMPLES = 50; // Minimum örneklem sayısı
   const stackingSampleCount = getStackingSamplesCount();
   const stackingEligible =
     stackingAlpha > 0 &&

@@ -176,40 +176,29 @@ export function buildBasePoissonMatrix(
  * Reference: McHale & Scarf (2011).
  */
 export function weibullPMF(lambda: number, k: number, shape: number = 1.4): number {
-  if (lambda <= 0 || k < 0) return k === 0 ? 1 : 0;
-  // Lognormal approximation - Weibull PMF tam formu:
-  // exp(-(k/λ)^shape) * (k/λ)^(shape - 1) gibi varyanslarını üretir.
-  // Burada Stirling approximation kullanarak pratik bir formula.
-  // ln P(k) ≈ shape · k · ln(k / λ*scale) − (k/λ*scale)^shape
-  // scale = λ^(1/shape) · gamma(1 + 1/shape)^(−1) (mean-corrected).
-  let logP = 0;
-  if (k === 0) {
-    // P(0) = exp(−(λ/Γ(1+1/c))^c · 0) = exp(0) = 1
-    return 1;
-  }
-  const gammaTerm = Math.exp(
-    logGamma(1 + 1 / shape) / 1 + ((1 / shape) * Math.log(lambda)),
-  );
-  // Simplified: scale adjusted lambda
-  const scaleAdjusted = lambda / Math.exp(logGamma(1 + 1 / shape));
-  logP = shape * Math.log(k) - shape * shape * Math.log(scaleAdjusted) - Math.pow(k / scaleAdjusted, shape);
-  // Stirling düzeltmesi:
-  logP -= 0.5 * Math.log(2 * Math.PI * k);
-  return Math.exp(logP);
+  // Weibull count distribution — survival-based PMF (McHale & Scarf 2011, eq. 5).
+  // P(K = k) = S(k) − S(k+1)  where S(k) = exp(−(k / b)^c)
+  // Scale b = λ / Γ(1 + 1/c) ensures E[K] = λ.
+  if (lambda <= 0) return k === 0 ? 1 : 0;
+  if (k < 0) return 0;
+  const scale = lambda / Math.exp(logGamma(1 + 1 / shape));
+  const surv = (t: number) => Math.exp(-Math.pow(Math.max(t, 0) / scale, shape));
+  const p = surv(k) - surv(k + 1);
+  return Math.max(0, Math.min(1, p));
 }
 
 function logGamma(x: number): number {
-  // Lanczos approximation (g=7, n=9)
+  // Lanczos approximation (g=7, n=9) — standard log-Gamma.
+  // log Γ(x) ≈ 0.5·ln(2π) + (x + 0.5)·ln(x + g + 0.5) − (x + g + 0.5) + ln(ser)
   const coef = [
     676.5203681218854, -1259.1392167224028, 771.3234280164934, -176.61502916214059,
     12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
   ];
   let y = x;
-  let tmp = x + 7.5;
-  tmp -= x + 0.5;
+  let z = x + 7.5;
   let ser = 0.99999999999980993;
   for (let i = 0; i < coef.length; i++) ser += coef[i] / ++y;
-  return 0.5 * Math.log(2 * Math.PI) + (x - 0.5) * Math.log(tmp) - tmp + Math.log(ser / x);
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(z) - z + Math.log(ser / x);
 }
 
 function poissonPMF(lambda: number, k: number): number {

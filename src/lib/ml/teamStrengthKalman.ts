@@ -123,21 +123,23 @@ function kalmanUpdate(
   observed: number,
   config: KalmanConfig,
 ): { mean: number; variance: number } {
-  // Karling: log-link normal approximation.
-  // x = log(λ) so observation log-λ has variance ≈ 1/λ.
-  // For predict step we use the current mean as the predicted x.
-  // For update: residual on the *response* scale (goals), with
-  // variance exp(mean).
-  const expMean = Math.exp(clamp(mean, -10, 10));
-  const obsVariance = Math.max(0.01, expMean); // floor avoids div-by-zero
-  const K = variance / (variance + obsVariance);
-  // Residual: difference between observed and predicted λ (on response scale).
-  // Raw residual: (observed - expected). In log-space Kalman update:
-  // x_new = x + K * (obs - exp(x)) where K = P/(P+V) is the Kalman gain.
-  // Division by exp(x) is NOT needed here — the Kalman gain already handles scale.
-  const r = observed - expMean;
-  const newMean = clamp(mean + K * r, config.clampMin, config.clampMax);
-  const newVariance = (1 - K) * variance;
+  // Extended Kalman Filter with log-link for Poisson observations.
+  // State: x = log(λ).  Observation: y ~ Poisson(λ) = Poisson(exp(x)).
+  //
+  // Linearization around current estimate:
+  //   h(x) = exp(x),   H = dh/dx = exp(x) = λ
+  //   Innovation: v = y − λ
+  //   Innovation covariance: S = H²·P + R = λ²·P + λ   (Poisson var ≈ λ)
+  //   Kalman gain (log-scale): K = (P·H) / S
+  //                              = (P·λ) / (λ²·P + λ)
+  //                              = P / (λ·P + 1)
+  //   Update: x_new = x + K·v
+  //           P_new = (1 − K·H)·P = (1 − K·λ)·P
+  const lambda = Math.exp(clamp(mean, -10, 10));
+  const K = variance / (lambda * variance + 1);
+  const innovation = observed - lambda;
+  const newMean = clamp(mean + K * innovation, config.clampMin, config.clampMax);
+  const newVariance = (1 - K * lambda) * variance;
   return { mean: newMean, variance: newVariance };
 }
 

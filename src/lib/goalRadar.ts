@@ -433,9 +433,10 @@ export function calculateGoalProbability(
     level = 'low';
     side = null;
     if (finalFinalScore < RADAR_THRESHOLD) {
-      finalScore = Math.min(finalFinalScore, 59);
-      finalFinalHome = Math.min(finalFinalHome, 59);
-      finalFinalAway = Math.min(finalFinalAway, 59);
+      const capThreshold = Math.max(40, RADAR_THRESHOLD - 6); // env değişince uyumlu
+      finalScore = Math.min(finalFinalScore, capThreshold);
+      finalFinalHome = Math.min(finalFinalHome, capThreshold);
+      finalFinalAway = Math.min(finalFinalAway, capThreshold);
     } else {
       finalScore = finalFinalScore;
     }

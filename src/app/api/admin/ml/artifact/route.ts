@@ -12,7 +12,7 @@ import { adminRoute } from '@/lib/adminRoute';
 export const dynamic = 'force-dynamic';
 
 const VALID_NAMES = new Set<ModelName>([
-  'gbdt', 'xgb', 'inplay', 'team-strength', 'xt-grid',
+  'gbdt', 'xgb', 'inplay', 'team-strength', 'xt-grid', 'lightgbm',
 ]);
 
 export const GET = adminRoute(async (request: Request) => {

@@ -629,7 +629,12 @@ export async function fitAndRegisterTeamStrength(
   const filePath = await writeModelArtifact('team-strength', modelVersion, serialized);
 
   // Compute Brier on a held-out 20% as a sanity metric
-  const shuffled = [...fitRows].sort(() => Math.random() - 0.5);
+  // Fisher-Yates shuffle (Math.random()-0.5 biased, bu doğru)
+  const shuffled = [...fitRows];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
   const splitIdx = Math.floor(shuffled.length * 0.8);
   const testSet = shuffled.slice(splitIdx);
   let brierSum = 0;

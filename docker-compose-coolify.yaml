@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "3012:3012"
     labels:
@@ -85,7 +85,7 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
     environment:
       ML_DATA_ROOT: /data
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"

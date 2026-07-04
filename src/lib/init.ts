@@ -5,6 +5,7 @@
 
 import { seedDefaultAdmin } from "./auth";
 import { logInfo, logError } from "./devLog";
+import { refreshProfileCache } from "./smartCalibration";
 
 // Guard: only run on the server, once per process start
 if (typeof window === "undefined") {
@@ -15,6 +16,7 @@ if (typeof window === "undefined") {
     for (let attempt = 1; attempt <= retriesLeft; attempt++) {
       try {
         await seedDefaultAdmin();
+        await refreshProfileCache();
         logInfo("Init", "App initialization complete");
         return;
       } catch (err) {

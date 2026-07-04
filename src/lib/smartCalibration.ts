@@ -189,12 +189,40 @@ async function loadLeagueProfiles(): Promise<Map<number, LeagueGoalProfile>> {
   return map;
 }
 
+// ── DB profilleri için module-level cache ────────────────────────
+// calculateGoalProbability (sync) DB okumaz, cache'lenmiş profilleri kullanır.
+// refreshProfileCache() init'te veya admin/api üzerinden çağrılır.
+let _dbProfileCache: Map<number, LeagueGoalProfile> | null = null;
+
+/**
+ * DB'den lig profillerini yükle ve cache'e yaz.
+ * App init'te veya admin panelden çağrılır.
+ */
+export async function refreshProfileCache(): Promise<void> {
+  try {
+    const rows = await db.leagueProfile.findMany();
+    if (rows.length === 0) { _dbProfileCache = null; return; }
+    const map = new Map<number, LeagueGoalProfile>();
+    for (const r of rows) {
+      map.set(r.leagueId, {
+        leagueId: r.leagueId, leagueName: r.leagueName, country: r.country,
+        avgGoalMinute: r.avgGoalMinute, medianGoalMinute: r.medianGoalMinute,
+        goalTimeStdDev: r.goalTimeStdDev, earlyGoalRate: r.earlyGoalRate,
+        lateGoalRate: r.lateGoalRate, halftimeGoalRate: r.halftimeGoalRate,
+        matchCount: r.matchCount, lastUpdated: r.lastUpdated.getTime(),
+      });
+    }
+    _dbProfileCache = map;
+  } catch { _dbProfileCache = null; }
+}
+
 /**
  * Sync default-only map. DB yüklemeleri yapmadan yalnızca LEAGUE_DEFAULTS
- * döner. calculateGoalProbability gibi sync hot-path'ler için kullanılır —
- * DB öğrenmesi async katmanda (calibrateF8 async / admin endpoints) olur.
+ * döner. Eğer _dbProfileCache doluysa onu, yoksa LEAGUE_DEFAULTS'u kullanır.
  */
 function loadLeagueProfilesSyncDefaults(): Map<number, LeagueGoalProfile> {
+  // DB cache doluysa onu kullan (refreshProfileCache ile yüklenir)
+  if (_dbProfileCache && _dbProfileCache.size > 0) return _dbProfileCache;
   const map = new Map<number, LeagueGoalProfile>();
   for (const p of LEAGUE_DEFAULTS) {
     map.set(p.leagueId, p);

@@ -29,7 +29,7 @@ export function GoalRadarSection({
     const bScore = goalProbabilities.get(b.code)?.score || 0
     return bScore - aScore
   })
-  const filtered = sorted.filter(m => (goalProbabilities.get(m.code)?.score || 0) >= SIGNAL_THRESHOLD)
+  const filtered = sorted.filter(m => goalProbabilities.has(m.code))
 
   return (
     <div className="mb-4">

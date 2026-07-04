@@ -465,7 +465,6 @@ export async function GET(request: Request) {
             .catch((e) => { logError('route', e); });
         })();
       }
-    }
     matches.push({ ...parsed, goalRadar });
   }
 

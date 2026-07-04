@@ -468,9 +468,18 @@ export async function GET(request: Request) {
     matches.push({ ...parsed, goalRadar });
   }
 
+  // Sıralama: en yüksek dakika (en çok oynanan) üstte
+  const parseMinuteForSort = (m: typeof matches[0]): number => {
+    if (m.isFinished) return 91;
+    if (m.minute === 'DA') return 45;
+    if (m.minute === 'MS') return 91;
+    const n = parseInt(m.minute.replace(/[^0-9]/g, ''), 10);
+    return isNaN(n) ? 0 : n;
+  };
   matches.sort((a, b) => {
-    const l = a.league.localeCompare(b.league, "tr");
-    return l !== 0 ? l : a.time.localeCompare(b.time);
+    const ma = parseMinuteForSort(a);
+    const mb = parseMinuteForSort(b);
+    return mb - ma; // yüksek dakika üstte
   });
 
   const byLeague: Record<string, ParsedMatch[]> = {};

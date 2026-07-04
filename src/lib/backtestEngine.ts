@@ -179,7 +179,7 @@ function runBacktestImplCore(signals: any[], config: BacktestConfig = {}): any {
   let scoreSumCorrect = 0, scoreSumIncorrect = 0, scoreCorrectN = 0, scoreIncorrectN = 0;
 
   for (const s of signals) {
-    const outcome = s.goalScored;
+    const outcome = s.goalHappened;
     const isPos = s.score >= 60;
     if (isPos && outcome) { tp++; scoreSumCorrect += s.score; scoreCorrectN++; }
     else if (isPos && !outcome) { fp++; scoreSumIncorrect += s.score; scoreIncorrectN++; }
@@ -196,9 +196,9 @@ function runBacktestImplCore(signals: any[], config: BacktestConfig = {}): any {
   const thresholds: any = thresholdRange.map(threshold => {
     let ttp = 0, tfp = 0, ttn = 0, tfn = 0;
     for (const s of signals) {
-      if (s.score >= threshold && s.goalScored) ttp++;
-      else if (s.score >= threshold && !s.goalScored) tfp++;
-      else if (s.score < threshold && !s.goalScored) ttn++;
+      if (s.score >= threshold && s.goalHappened) ttp++;
+      else if (s.score >= threshold && !s.goalHappened) tfp++;
+      else if (s.score < threshold && !s.goalHappened) ttn++;
       else tfn++;
     }
     const tprec = ttp + tfp > 0 ? ttp / (ttp + tfp) : 0;
@@ -221,8 +221,8 @@ function runBacktestImplCore(signals: any[], config: BacktestConfig = {}): any {
     buckets.push({
       scoreRange: [lo, hi] as [number, number],
       count: bin.length,
-      goalCount: bin.filter(s => s.goalScored).length,
-      observedRate: bin.length > 0 ? bin.filter(s => s.goalScored).length / bin.length : 0,
+      goalCount: bin.filter(s => s.goalHappened).length,
+      observedRate: bin.length > 0 ? bin.filter(s => s.goalHappened).length / bin.length : 0,
     });
   }
 
@@ -307,8 +307,8 @@ function runBacktestImplCore(signals: any[], config: BacktestConfig = {}): any {
 function computeSideAccuracy(signals: any[]): { home: { correct: number; total: number; accuracy: number }; away: { correct: number; total: number; accuracy: number } } {
   let hc = 0, ht = 0, ac = 0, at = 0;
   for (const s of signals) {
-    if (s.side === 'home') { ht++; if (s.goalScored) hc++; }
-    else if (s.side === 'away') { at++; if (s.goalScored) ac++; }
+    if (s.side === 'home') { ht++; if (s.goalHappened) hc++; }
+    else if (s.side === 'away') { at++; if (s.goalHappened) ac++; }
   }
   return {
     home: { correct: hc, total: ht, accuracy: ht > 0 ? Math.round(hc / ht * 1000) / 1000 : 0 },
@@ -319,8 +319,8 @@ function computeSideAccuracy(signals: any[]): { home: { correct: number; total: 
 function computeEscalationAccuracy(signals: any[]): { early: { correct: number; total: number; accuracy: number }; late: { correct: number; total: number; accuracy: number } } {
   let ec = 0, et = 0, lc = 0, lt = 0;
   for (const s of signals) {
-    if (s.score < 70) { et++; if (s.goalScored) ec++; }
-    else { lt++; if (s.goalScored) lc++; }
+    if (s.score < 70) { et++; if (s.goalHappened) ec++; }
+    else { lt++; if (s.goalHappened) lc++; }
   }
   return {
     early: { correct: ec, total: et, accuracy: et > 0 ? Math.round(ec / et * 1000) / 1000 : 0 },
@@ -339,8 +339,8 @@ function computeDailyPerformance(signals: any[]): DailyPerformance[] {
   for (const [date, daySignals] of byDate) {
     let tp = 0, fp = 0;
     for (const s of daySignals) {
-      if (s.score >= 60 && s.goalScored) tp++;
-      else if (s.score >= 60 && !s.goalScored) fp++;
+      if (s.score >= 60 && s.goalHappened) tp++;
+      else if (s.score >= 60 && !s.goalHappened) fp++;
     }
     result.push({
       date, totalSignals: daySignals.length, correct: tp, incorrect: fp,

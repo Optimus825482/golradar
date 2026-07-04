@@ -701,15 +701,12 @@ export default function OptimusGolRadariPage() {
       }
       return { mode: 'league' as const, groups }
     } else {
-      // "Zamana göre" sıralama = maçın canlı dakikasına göre artan.
-      // Eski kod `a.time.localeCompare(b.time)` ile maç başlama saatini
-      // (string) karşılaştırıyordu; bu "16" < "9" gibi yanlış
-      // sonuçlar üretiyordu. parseMinute("103'") → 103, böylece
-      // 11' < 12' < 16' < ... < 103' doğru sıralanır.
+      // "Zamana göre" = maç dakikasına göre AZALAN (en ileri → en geri).
+      // parseMinute("90+5") → 95, "11'" → 11; 95 > 11 → 90+5 önce gelir.
       const sorted = [...filteredMatches].sort((a, b) => {
         const aMin = parseMinute(a.minute)
         const bMin = parseMinute(b.minute)
-        if (aMin !== bMin) return aMin - bMin
+        if (aMin !== bMin) return bMin - aMin
         return a.league.localeCompare(b.league, 'tr')
       })
       return { mode: 'time' as const, flat: sorted }
@@ -1091,8 +1088,8 @@ export default function OptimusGolRadariPage() {
             <button
               onClick={() => setSortBy(sortBy === 'league' ? 'time' : 'league')}
               className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-100 hover:bg-gray-200 transition-colors"
-              aria-label={sortBy === 'league' ? 'Zamana göre sırala' : 'Lige göre sırala'}
-              title={sortBy === 'league' ? 'Lig sıralaması' : 'Zaman sıralaması'}
+              aria-label={sortBy === 'league' ? 'Dakikaya göre sırala (yüksekten düşüğe)' : 'Lige göre sırala'}
+              title={sortBy === 'league' ? 'Lig sıralaması' : 'Dakika sıralaması (en ileri maç üstte)'}
             >
               {sortBy === 'league' ? (
                 <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1100,7 +1097,7 @@ export default function OptimusGolRadariPage() {
                 </svg>
               ) : (
                 <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
                 </svg>
               )}
             </button>

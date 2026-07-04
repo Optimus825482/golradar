@@ -289,7 +289,9 @@ export function predictXgb(model: XgbModel, features: number[]): number {
     throw new Error('XGBoost model has no trees');
   }
   const raw = predictRaw(model, features);
-  return sigmoid(raw);
+  // Temperature scaling: backtest'te overconfident → T>1 düz sigmoid
+  const TEMPERATURE = 2.5;
+  return sigmoid(raw / TEMPERATURE);
 }
 
 /**

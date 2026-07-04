@@ -334,7 +334,14 @@ export function predictGBDT(model: GBDTModel, features: number[]): PredictionRes
   }
 
   // Sigmoid to convert log-odds to probability
-  const probability = 1 / (1 + Math.exp(-rawScore));
+  let probability = 1 / (1 + Math.exp(-rawScore));
+
+  // Temperature scaling: model overconfident, flatten probabilities
+  // T=1.0 (no change), T=2.0 (flatter), T=0.5 (sharper)
+  // Backtest'te %70 tahmin edilenin sadece %25'i gerçek → T>1 gerekli
+  const TEMPERATURE = 2.5;
+  const logit = Math.log(Math.max(probability, 1e-7) / Math.max(1 - probability, 1e-7));
+  probability = 1 / (1 + Math.exp(-logit / TEMPERATURE));
 
   // Top contributing features
   const topFactors: Array<{ feature: string; importance: number; value: number }> = [];

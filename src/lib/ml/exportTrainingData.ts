@@ -241,6 +241,16 @@ export async function exportTrainingData(
     // NaN/Inf temizleme (Fix D1): XGBoost NaN değerleri tolere etmez
     features = features.map(v => Number.isFinite(v) ? v : 0);
 
+    // Feature boyutunu 67'ye sabitle (eski kayıtlar 87 olabilir)
+    const TARGET_FEATURE_COUNT = 67;
+    if (features.length !== TARGET_FEATURE_COUNT) {
+      if (features.length > TARGET_FEATURE_COUNT) {
+        features = features.slice(0, TARGET_FEATURE_COUNT);
+      } else {
+        features = [...features, ...Array(TARGET_FEATURE_COUNT - features.length).fill(0.5)];
+      }
+    }
+
     // Primary label: PredictionLog.goalScored (set during backfill / finalize)
     // Secondary: MatchEvent join for logs where goalScored is still null
     let label: number;

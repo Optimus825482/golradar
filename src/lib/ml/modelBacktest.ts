@@ -218,13 +218,8 @@ export async function runModelBacktest(
     createdAt: { gte: cutoff },
     goalScored: { not: null },
   };
-  // Champion re-uses stored calibratedP (no re-score needed).
-  // Artifact/shadow re-score ALL available rows through the new model.
-  // All modes need goalScored != null for a label.
-  if (kind !== "champion") {
-    // Artifact/shadow re-scoring needs featuresJson
-    whereFilter.featuresJson = { not: null };
-  }
+  // All modes re-score through the current model (featuresJson required)
+  whereFilter.featuresJson = { not: null };
   if (side && side !== "both") whereFilter.side = side;
   if (minuteMin != null) whereFilter.minute = { gte: minuteMin };
   if (minuteMax != null) {
@@ -246,28 +241,37 @@ export async function runModelBacktest(
   const resolved: ResolvedLog[] = [];
   const probArray: number[] = [];
 
+  // Pre-load champion GBDT model if needed (lazy, outside loop)
+  let championGm: any = null;
+
   for (const log of logs) {
-    // Champion mode uses stored calibratedP — features not needed.
-    // Artifact/shadow modes re-score through XGB — need featuresJson.
+    // ALL modes re-score through current model — featuresJson required
+    if (!log.featuresJson) continue;
     let features: number[];
-    if (kind === "champion") {
-      features = [];
-    } else {
-      if (!log.featuresJson) continue;
-      try {
-        const parsed = JSON.parse(log.featuresJson) as MatchFeatures;
-        features = featuresToArray(parsed);
-      } catch {
-        continue;
-      }
+    try {
+      const parsed = JSON.parse(log.featuresJson);
+      features = Array.isArray(parsed) ? parsed : featuresToArray(parsed as MatchFeatures);
+      if (features.length > 67) features = features.slice(0, 67);
+      else if (features.length < 67) features = [...features, ...Array(67 - features.length).fill(0.5)];
+    } catch {
+      continue;
     }
 
-    // Compute probability once — same value used for all metrics
+    // Compute probability — use current model for ALL modes
     let p: number;
     if (xgbModel) {
       p = clamp01(predictXgb(xgbModel, features));
     } else {
-      p = clamp01(log.calibratedP);
+      if (!championGm) {
+        const { loadModel, predictGBDT } = await import("@/lib/goalPredictor");
+        championGm = { loadModel, predictGBDT };
+      }
+      const m = championGm.loadModel();
+      if (m) {
+        p = championGm.predictGBDT(m, features).probability;
+      } else {
+        p = clamp01(log.calibratedP);
+      }
     }
     probArray.push(p);
 

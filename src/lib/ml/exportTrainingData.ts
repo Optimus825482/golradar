@@ -24,7 +24,7 @@ import { createHash } from 'crypto';
 import { mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { db } from '../db';
-import { extractFeatures, featuresToArray, type MatchFeatures } from '../featureEngineering';
+import { extractFeatures, featuresToArray, FEATURE_NAMES, type MatchFeatures } from '../featureEngineering';
 import type { FeatureExtractionInput } from '../featureEngineering';
 
 // Use the Docker volume mount path (/app/data/ml-training) so the file is
@@ -241,8 +241,8 @@ export async function exportTrainingData(
     // NaN/Inf temizleme (Fix D1): XGBoost NaN değerleri tolere etmez
     features = features.map(v => Number.isFinite(v) ? v : 0);
 
-    // Feature boyutunu 67'ye sabitle (eski kayıtlar 87 olabilir)
-    const TARGET_FEATURE_COUNT = 67;
+    // Feature boyutunu FEATURE_NAMES'e sabitle
+    const TARGET_FEATURE_COUNT = FEATURE_NAMES.length;
     if (features.length !== TARGET_FEATURE_COUNT) {
       if (features.length > TARGET_FEATURE_COUNT) {
         features = features.slice(0, TARGET_FEATURE_COUNT);

@@ -181,32 +181,80 @@ def to_num(v):
     try: return float(v)
     except: return 0.0
 
-def build_features(m: dict) -> list[float]:
-    f = [0.5]*67
+def build_features(m: dict, minute: int = 45) -> list[float]:
+    """Build 87-element feature vector matching TypeScript FEATURE_NAMES order.
+    Fill available stats from Nesine, keep 0.5 neutral for rest."""
+    f = [0.5]*87
     def norm(v,lo,hi): return max(0,min(1,(v-lo)/(hi-lo)))
+    def norm_rate(per15, max_expected=10): return max(0,min(1,per15/max_expected))
     stats = {}
     if isinstance(m.get("stats"), dict):
         stats = m["stats"]
+    elapsed15 = max(1, minute / 15)
+
+    # Pressure (0-3): needs history, stay 0.5
+
+    # Possession (4-5)
     if "possession" in stats:
-        p=stats["possession"]; f[4]=to_num(p.get("home",50))/100; f[5]=abs(to_num(p.get("home",50))-to_num(p.get("away",50)))/100
+        p=stats["possession"]; f[4]=to_num(p.get("home",50))/100
+        f[5]=abs(to_num(p.get("home",50))-to_num(p.get("away",50)))/100
+
+    # Dangerous attacks (6) — normalize rate
+    if "dangerous_attacks" in stats:
+        d=stats["dangerous_attacks"]; f[6]=norm_rate(to_num(d.get("home",0))/elapsed15, 8)
+
+    # Shots total (7-8) — per-15 rate
     if "shots_total" in stats:
-        s=stats["shots_total"]; f[7]=norm(to_num(s.get("home",0)),0,25); f[8]=norm(to_num(s.get("away",0)),0,25)
+        s=stats["shots_total"]
+        f[7]=norm_rate(to_num(s.get("home",0))/elapsed15, 8)
+        f[8]=norm_rate(to_num(s.get("away",0))/elapsed15, 8)
+
+    # Shots on target (9-12) — rate + ratio
     if "shots_on_target" in stats:
-        s=stats["shots_on_target"]; f[9]=norm(to_num(s.get("home",0)),0,12); f[10]=norm(to_num(s.get("away",0)),0,12)
-        th = to_num(stats.get("shots_total",{}).get("home",0))
-        ta = to_num(stats.get("shots_total",{}).get("away",0))
+        s=stats["shots_on_target"]
+        f[9]=norm_rate(to_num(s.get("home",0))/elapsed15, 6)
+        f[10]=norm_rate(to_num(s.get("away",0))/elapsed15, 6)
+        th=to_num(stats.get("shots_total",{}).get("home",0))
+        ta=to_num(stats.get("shots_total",{}).get("away",0))
         if th>0: f[11]=to_num(s.get("home",0))/th
         if ta>0: f[12]=to_num(s.get("away",0))/ta
-    if "corners" in stats:
-        c=stats["corners"]; f[15]=norm(to_num(c.get("home",0)),0,15); f[16]=norm(to_num(c.get("away",0)),0,15)
+
+    # xG (13-14)
     if "xg" in stats:
-        x=stats["xg"]; f[13]=norm(to_num(x.get("home",0)),0,3); f[14]=norm(to_num(x.get("away",0)),0,3)
+        x=stats["xg"]; f[13]=norm(to_num(x.get("home",0)),0,3)
+        f[14]=norm(to_num(x.get("away",0)),0,3)
+
+    # Corners (15-16)
+    if "corners" in stats:
+        c=stats["corners"]
+        f[15]=norm_rate(to_num(c.get("home",0))/elapsed15, 5)
+        f[16]=norm_rate(to_num(c.get("away",0))/elapsed15, 5)
+
+    # Free kicks (17-18) — not in Nesine, stay 0.5
+
+    # Momentum (19-24) — needs history, stay 0.5
+
+    # Temporal (25-28)
+    f[25]=minute/90
+    f[26]=norm(1.3,0.5,1.5)  # time_multiplier flat
+    f[27]=1.0 if minute<=45 else 0
+    f[28]=1.0 if minute>=76 else 0
+
+    # Elo (29-34) — stay 0.5
+
+    # Score context (35-38)
+    hg = to_num(m.get("home_goals",0)); ag = to_num(m.get("away_goals",0))
+    f[35]=abs(hg-ag)/5; f[36]=(hg+ag)/6
+    f[37]=1.0 if abs(hg-ag)<0.01 else 0
+    f[38]=1.0 if hg>ag else 0
+
+    # Red cards (39-40)
     if "yellow_cards" in stats:
-        y=stats["yellow_cards"]; f[39]=(to_num(y.get("home",0))>2)*1.0; f[40]=(to_num(y.get("away",0))>2)*1.0
-    # Skor context
-    hg = m.get("home_goals",0) or 0; ag = m.get("away_goals",0) or 0
-    f[25]=1.0; f[27]=0; f[28]=1; f[34]=0.53; f[26]=norm(1.3,0.5,1.5)
-    f[35]=abs(hg-ag)/5; f[36]=(hg+ag)/6; f[37]=1.0 if hg==ag else 0; f[38]=1.0 if hg>ag else 0
+        y=stats["yellow_cards"]
+        f[39]=1.0 if to_num(y.get("home",0))>2 else 0
+        f[40]=1.0 if to_num(y.get("away",0))>2 else 0
+
+    # Rest (41-86): advanced features, stay 0.5
     return f
 
 def convert_to_training(horizon_min: int = 10, output: str = ""):
@@ -222,7 +270,7 @@ def convert_to_training(horizon_min: int = 10, output: str = ""):
                 goal_mins = {g["minute"] for g in m.get("goals",[]) if g.get("minute")}
                 for snap in [15,30,45,60,75,90]:
                     label = 1.0 if any(snap < gm <= snap+horizon_min for gm in goal_mins) else 0
-                    records.append({"features":build_features(m),"label":label,
+                    records.append({"features":build_features(m, snap),"label":label,
                                     "matchCode":-(m.get("match_id",0)),"minute":snap,
                                     "timestamp":int(datetime.now().timestamp()*1000),"side":"both"})
         log(f"  OpenLigaDB: {len([r for r in records if r['matchCode']<0])} kayıt")
@@ -234,7 +282,7 @@ def convert_to_training(horizon_min: int = 10, output: str = ""):
                 m = json.loads(line)
                 for snap in [15,30,45,60,75,90]:
                     label = 1.0 if (m.get("home_goals",0)+(m.get("away_goals",0))) > 0 and snap < 80 else 0
-                    records.append({"features":build_features(m),"label":label,
+                    records.append({"features":build_features(m, snap),"label":label,
                                     "matchCode":m.get("bid",0),"minute":snap,
                                     "timestamp":int(datetime.now().timestamp()*1000),"side":"both"})
         log(f"  Nesine: {len([r for r in records if r['matchCode']>0])} kayıt")
@@ -247,7 +295,7 @@ def convert_to_training(horizon_min: int = 10, output: str = ""):
                 shots_after = sum(1 for s in m.get("shots",[]) if s.get("is_goal"))
                 for snap in [15,30,45,60,75,90]:
                     label = 1.0 if any((s.get("minute") or 0) > snap for s in m.get("shots",[]) if s.get("is_goal")) else 0
-                    records.append({"features":build_features(m),"label":label,
+                    records.append({"features":build_features(m, snap),"label":label,
                                     "matchCode":-(m.get("game_id",0)),"minute":snap,
                                     "timestamp":int(datetime.now().timestamp()*1000),"side":"both"})
         log(f"  Sofascore: {len([r for r in records if r['matchCode']<0])} kayıt")

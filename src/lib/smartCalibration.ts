@@ -210,7 +210,7 @@ export async function refreshProfileCache(): Promise<void> {
         goalTimeStdDev: r.goalTimeStdDev, earlyGoalRate: r.earlyGoalRate,
         lateGoalRate: r.lateGoalRate, halftimeGoalRate: r.halftimeGoalRate,
         matchCount: r.matchCount,
-        lastUpdated: typeof r.lastUpdated === 'object' ? r.lastUpdated.getTime() : new Date(r.lastUpdated).getTime(),
+        lastUpdated: r.lastUpdated ? new Date(r.lastUpdated).getTime() : Date.now(),
       });
     }
     _dbProfileCache = map;

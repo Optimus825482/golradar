@@ -67,7 +67,7 @@ export interface GoalooMatchEvent {
   id: number;
   minute: number;
   type: 'goal' | 'yellow_card' | 'red_card' | 'substitution';
-  team: 'home' | 'away';
+  team: 'home' | 'away' | null; // null when raw events lack team context
   player: string;
   detail: string;
   timestamp: string;
@@ -749,18 +749,27 @@ export async function fetchGoalooMatchEvents(matchId: number): Promise<GoalooMat
       const minute = minuteMatch ? parseInt(minuteMatch[1]) : 0;
 
       let type: GoalooMatchEvent['type'] = 'substitution';
-      if (content.includes('Goal')) type = 'goal';
-      else if (content.includes('Red Card')) type = 'red_card';
-      else if (content.includes('Yellow Card')) type = 'yellow_card';
+      const contentLower = content.toLowerCase();
+      if (contentLower.includes('goal')) type = 'goal';
+      else if (contentLower.includes('red card')) type = 'red_card';
+      else if (contentLower.includes('yellow card')) type = 'yellow_card';
 
-      const playerMatch = content.match(/\)\s+(.+?)\s+(?:Goal|Yellow|Red|Substitution)/);
+      // ponytail: Goaloo raw events have no team ID. Infer from content:
+      // "Home" or "Ev Sahibi" prefix → home, "Away" or "Deplasman" → away.
+      // For momentum-derived events the caller cross-references with
+      // homeGoalMinutes / awayGoalMinutes arrays.
+      let team: 'home' | 'away' | null = null;
+      if (/^Home\b|^Ev Sahibi\b/i.test(content.trim())) team = 'home';
+      else if (/^Away\b|^Deplasman\b/i.test(content.trim())) team = 'away';
+
+      const playerMatch = content.match(/\)\s+(.+?)\s+(?:Goal|Yellow|Red|Substitution)/i);
       const player = playerMatch ? playerMatch[1] : content.replace(/<[^>]+>/g, '').trim();
 
       return {
         id: e.id,
         minute,
         type,
-        team: 'home', /* FIXME: Goaloo raw events have no team ID */
+        team,
         player,
         detail: content.replace(/&nbsp;/g, ' ').replace(/<[^>]+>/g, ''),
         timestamp: e.time,
@@ -1235,7 +1244,8 @@ function convertMomentumToSnapshots(
   for (const evt of events) {
     if (evt.type === 'goal') {
       if (evt.team === 'home') homeGoalMins.add(evt.minute);
-      else awayGoalMins.add(evt.minute);
+      else if (evt.team === 'away') awayGoalMins.add(evt.minute);
+      // team === null → skip (can't assign)
     }
   }
 

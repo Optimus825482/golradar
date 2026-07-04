@@ -260,7 +260,16 @@ export function calcFactorCompositeThreat(
   let awayAtkRate5min = (stats.dangerous_attacks?.away ?? 0) / elapsed15;
 
   if (pressureHistory && pressureHistory.length >= 6) {
-    const window5min = pressureHistory.slice(-10); // 5 dk @ 30s poll
+    // ponytail: fixed .slice(-10) assumes 30s polls, but LITE=60s/FULL=15s.
+    // Use timestamps when available to compute a true 5-minute window.
+    let window5min = pressureHistory;
+    const lastTs = pressureHistory[pressureHistory.length - 1]?.timestamp;
+    if (lastTs) {
+      const cutoff = lastTs - 300_000; // 5 minutes ago
+      window5min = pressureHistory.filter(s => (s.timestamp ?? 0) >= cutoff);
+    } else {
+      window5min = pressureHistory.slice(-10); // fallback: ~5 min @ 30s
+    }
     if (window5min.length >= 3) {
       const firstDA_h = window5min[0].stats.dangerous_attacks?.home ?? 0;
       const lastDA_h = window5min[window5min.length - 1].stats.dangerous_attacks?.home ?? 0;

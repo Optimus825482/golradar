@@ -270,7 +270,7 @@ model Signal {
   updatedAt           DateTime @updatedAt
 
   // Multiple signals per match per side — each new signal after a resolved one creates a new row
-  @@index([matchCode, date, signalSide])
+  @@unique([matchCode, date, signalSide])
   @@index([date])
   @@index([matchCode])
   @@index([goalHappened])

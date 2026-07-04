@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "pmb-shared": {
+      "command": "C:\\Python313\\Scripts\\pmb-mcp.EXE",
+      "env": {
+        "PMB_CWD": "D:\\golradar2",
+        "PMB_WORKSPACE": "personal"
+      }
+    }
+  }
+}

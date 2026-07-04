@@ -13,6 +13,7 @@ import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomen
 import { FotMobStatsBlock, FotMobEventsBlock, FotMobInfoBlock } from '@/components/fotmob/FotMobSection'
 import { estimateXgFromShots } from '@/lib/advancedAnalytics'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { GoalooPredictionCard } from './GoalooPredictionCard'
 
 interface TeamRatingInfo {
   teamName: string; teamNameTr: string | null;
@@ -63,6 +64,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
   scoremerStats,
   scoremerHtStats,
   scoremerLoading,
+  goalooMatchId,
 }: MatchDetailContentProps) {
 
   // ── Team Rating data (Elo + Pi-Rating) ──
@@ -454,6 +456,123 @@ export const MatchDetailContent = memo(function MatchDetailContent({
 	        )}
       </div>
 
+      {/* ── Team Info: Elo + Pi-Rating + Form + Last 5 ── */}
+      {(homeRating || awayRating || ratingLoading) && (
+        <div className="px-3 sm:px-4 pb-3 border-b border-gray-100">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50">
+              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Takım Bilgileri</h3>
+              {ratingLoading && <div className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />}
+            </div>
+            {ratingLoading && !homeRating && !awayRating ? (
+              <div className="p-4 space-y-3 animate-pulse">
+                <div className="flex items-center justify-between"><div className="h-4 w-24 bg-gray-200 rounded" /><div className="h-3 w-8 bg-gray-200 rounded" /></div>
+                <div className="grid grid-cols-2 gap-2"><div className="h-14 bg-gray-100 rounded-lg" /><div className="h-14 bg-gray-100 rounded-lg" /></div>
+              </div>
+            ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
+              {/* Home */}
+              <div className="p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-gray-900">{match.home}</span>
+                  <span className="text-[10px] text-gray-400">{homeRating?.matchesPlayed ?? 0} mac</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">Elo</div>
+                    <div className={`text-sm font-black font-mono ${(homeRating?.elo ?? 1500) >= 1700 ? 'text-emerald-600' : (homeRating?.elo ?? 1500) >= 1500 ? 'text-amber-600' : 'text-gray-500'}`}>{homeRating?.elo ?? '1500'}</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">Atak / Savunma</div>
+                    <div className="text-sm font-black font-mono text-gray-700">{homeRating?.attackStrength.toFixed(2) ?? '1.0'} / {homeRating?.defenseWeakness.toFixed(2) ?? '1.0'}</div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                  <span className="text-gray-500">π Ha: <strong className="text-indigo-600">{homeRating?.piHa.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Hd: <strong className="text-indigo-600">{homeRating?.piHd.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Aa: <strong className="text-purple-600">{homeRating?.piAa.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Ad: <strong className="text-purple-600">{homeRating?.piAd.toFixed(4) ?? '0'}</strong></span>
+                </div>
+                {homeRating && (
+                  <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
+                    <div className="flex items-center justify-between text-[11px]"><span className="text-gray-500 font-medium">Sezon</span><span className="font-bold text-gray-700">{homeRating.wins}G / {homeRating.draws}B / {homeRating.losses}M</span></div>
+                    <div className="flex items-center justify-between text-[11px]"><span className="text-gray-500">AG / YG</span><span className="font-mono font-bold text-gray-700">{homeRating.goalsFor} / {homeRating.goalsAgainst}</span></div>
+                  </div>
+                )}
+                {homeRating && homeRating.last5 && homeRating.last5.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Son 5 Maç</div>
+                    <div className="space-y-1">
+                      {homeRating.last5.map((m, i) => (
+                        <div key={i} className="flex items-center justify-between text-[11px] bg-gray-50 rounded px-2 py-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs">{m.result === 'W' ? '✅' : m.result === 'L' ? '❌' : '➖'}</span>
+                            <span className="font-medium text-gray-700 truncate max-w-[80px]">{m.isHome ? '' : '@'}{m.opponent}</span>
+                          </div>
+                          <span className={`font-mono font-bold ${m.result === 'W' ? 'text-emerald-600' : m.result === 'L' ? 'text-red-600' : 'text-amber-600'}`}>{m.goalsFor}-{m.goalsAgainst}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {/* Away */}
+              <div className="p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-gray-900">{match.away}</span>
+                  <span className="text-[10px] text-gray-400">{awayRating?.matchesPlayed ?? 0} mac</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">Elo</div>
+                    <div className={`text-sm font-black font-mono ${(awayRating?.elo ?? 1500) >= 1700 ? 'text-emerald-600' : (awayRating?.elo ?? 1500) >= 1500 ? 'text-amber-600' : 'text-gray-500'}`}>{awayRating?.elo ?? '1500'}</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                    <div className="text-[9px] text-gray-500 font-medium">Atak / Savunma</div>
+                    <div className="text-sm font-black font-mono text-gray-700">{awayRating?.attackStrength.toFixed(2) ?? '1.0'} / {awayRating?.defenseWeakness.toFixed(2) ?? '1.0'}</div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                  <span className="text-gray-500">π Ha: <strong className="text-indigo-600">{awayRating?.piHa.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Hd: <strong className="text-indigo-600">{awayRating?.piHd.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Aa: <strong className="text-purple-600">{awayRating?.piAa.toFixed(4) ?? '0'}</strong></span>
+                  <span className="text-gray-500">π Ad: <strong className="text-purple-600">{awayRating?.piAd.toFixed(4) ?? '0'}</strong></span>
+                </div>
+                {awayRating && (
+                  <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
+                    <div className="flex items-center justify-between text-[11px]"><span className="text-gray-500 font-medium">Sezon</span><span className="font-bold text-gray-700">{awayRating.wins}G / {awayRating.draws}B / {awayRating.losses}M</span></div>
+                    <div className="flex items-center justify-between text-[11px]"><span className="text-gray-500">AG / YG</span><span className="font-mono font-bold text-gray-700">{awayRating.goalsFor} / {awayRating.goalsAgainst}</span></div>
+                  </div>
+                )}
+                {awayRating && awayRating.last5 && awayRating.last5.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Son 5 Maç</div>
+                    <div className="space-y-1">
+                      {awayRating.last5.map((m, i) => (
+                        <div key={i} className="flex items-center justify-between text-[11px] bg-gray-50 rounded px-2 py-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs">{m.result === 'W' ? '✅' : m.result === 'L' ? '❌' : '➖'}</span>
+                            <span className="font-medium text-gray-700 truncate max-w-[80px]">{m.isHome ? '' : '@'}{m.opponent}</span>
+                          </div>
+                          <span className={`font-mono font-bold ${m.result === 'W' ? 'text-emerald-600' : m.result === 'L' ? 'text-red-600' : 'text-amber-600'}`}>{m.goalsFor}-{m.goalsAgainst}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            )}
+            <ErrorBoundary context="FotMobInfoBlock">
+              <FotMobInfoBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
+            </ErrorBoundary>
+          </div>
+        </div>
+      )}
+
+      {/* ── Goaloo Maç Tahmini ── */}
+      <GoalooPredictionCard goalooMatchId={goalooMatchId} match={match} />
+
       {/* ── BİRLEŞİK MAÇ İSTATİSTİKLERİ ── */}
       {/* Oynanmamis maclarda istatistik gosterme */}
       {match.isUpcoming ? null : (match.isFinished && (scoremerLoading || scoremerStats) ? (
@@ -623,201 +742,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         </div>
       )}
 
-      {/* ── Team Info: Elo + Pi-Rating + Form + Last 5 with goals + Season avg ── */}
-      {(homeRating || awayRating || ratingLoading) && (
-        <div className="px-3 sm:px-4 pb-3 border-b border-gray-100">
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50">
-              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Takım Bilgileri</h3>
-              {ratingLoading && <div className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />}
-            </div>
-            {ratingLoading && !homeRating && !awayRating ? (
-              <div className="p-4 space-y-3 animate-pulse">
-                <div className="flex items-center justify-between">
-                  <div className="h-4 w-24 bg-gray-200 rounded" />
-                  <div className="h-3 w-8 bg-gray-200 rounded" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="h-14 bg-gray-100 rounded-lg" />
-                  <div className="h-14 bg-gray-100 rounded-lg" />
-                </div>
-                <div className="h-4 w-48 bg-gray-200 rounded" />
-                <div className="h-20 bg-gray-100 rounded-lg" />
-                <div className="h-24 bg-gray-100 rounded-lg" />
-              </div>
-            ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
-
-              {/* ═══ Home Team ═══ */}
-              <div className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-900">{match.home}</span>
-                  <span className="text-[10px] text-gray-400">{homeRating?.matchesPlayed ?? 0} mac</span>
-                </div>
-
-                {/* Core ratings */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">Elo</div>
-                    <div className={`text-sm font-black font-mono ${(homeRating?.elo ?? 1500) >= 1700 ? 'text-emerald-600' : (homeRating?.elo ?? 1500) >= 1500 ? 'text-amber-600' : 'text-gray-500'}`}>
-                      {homeRating?.elo ?? '1500'}
-                    </div>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">Atak / Savunma</div>
-                    <div className="text-sm font-black font-mono text-gray-700">
-                      {homeRating?.attackStrength.toFixed(2) ?? '1.0'} / {homeRating?.defenseWeakness.toFixed(2) ?? '1.0'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Pi-Rating inline */}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-                  <span className="text-gray-500">π Ha: <strong className="text-indigo-600">{homeRating?.piHa.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Hd: <strong className="text-indigo-600">{homeRating?.piHd.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Aa: <strong className="text-purple-600">{homeRating?.piAa.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Ad: <strong className="text-purple-600">{homeRating?.piAd.toFixed(4) ?? '0'}</strong></span>
-                </div>
-
-                {/* Season totals */}
-                {homeRating && (
-                  <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-gray-500 font-medium">Sezon</span>
-                      <span className="font-bold text-gray-700">
-                        {homeRating.wins}G / {homeRating.draws}B / {homeRating.losses}M
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-gray-500">Attigi / Yedigi</span>
-                      <span className="font-mono font-bold text-gray-700">
-                        {homeRating.goalsFor} / {homeRating.goalsAgainst}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-gray-500">Mac basi AG / YG</span>
-                      <span className="font-mono font-bold text-gray-700">
-                        {homeRating.seasonAvgGF.toFixed(2)} / {homeRating.seasonAvgGA.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Last 5 matches with goals */}
-                {homeRating && homeRating.last5 && homeRating.last5.length > 0 && (
-                  <div>
-                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Son 5 Mac</div>
-                    <div className="space-y-1">
-                      {homeRating.last5.map((m, i) => (
-                        <div key={i} className="flex items-center justify-between text-[11px] bg-gray-50 rounded px-2 py-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs">
-                              {m.result === 'W' ? '✅' : m.result === 'L' ? '❌' : '➖'}
-                            </span>
-                            <span className="font-medium text-gray-700 truncate max-w-[80px]">
-                              {m.isHome ? '' : '@'}{m.opponent}
-                            </span>
-                          </div>
-                          <span className={`font-mono font-bold ${m.result === 'W' ? 'text-emerald-600' : m.result === 'L' ? 'text-red-600' : 'text-amber-600'}`}>
-                            {m.goalsFor}-{m.goalsAgainst}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* ═══ Away Team ═══ */}
-              <div className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-900">{match.away}</span>
-                  <span className="text-[10px] text-gray-400">{awayRating?.matchesPlayed ?? 0} mac</span>
-                </div>
-
-                {/* Core ratings */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">Elo</div>
-                    <div className={`text-sm font-black font-mono ${(awayRating?.elo ?? 1500) >= 1700 ? 'text-emerald-600' : (awayRating?.elo ?? 1500) >= 1500 ? 'text-amber-600' : 'text-gray-500'}`}>
-                      {awayRating?.elo ?? '1500'}
-                    </div>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">Atak / Savunma</div>
-                    <div className="text-sm font-black font-mono text-gray-700">
-                      {awayRating?.attackStrength.toFixed(2) ?? '1.0'} / {awayRating?.defenseWeakness.toFixed(2) ?? '1.0'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Pi-Rating inline */}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-                  <span className="text-gray-500">π Ha: <strong className="text-indigo-600">{awayRating?.piHa.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Hd: <strong className="text-indigo-600">{awayRating?.piHd.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Aa: <strong className="text-purple-600">{awayRating?.piAa.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Ad: <strong className="text-purple-600">{awayRating?.piAd.toFixed(4) ?? '0'}</strong></span>
-                </div>
-
-                {/* Season totals */}
-                {awayRating && (
-                  <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-gray-500 font-medium">Sezon</span>
-                      <span className="font-bold text-gray-700">
-                        {awayRating.wins}G / {awayRating.draws}B / {awayRating.losses}M
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-gray-500">Attigi / Yedigi</span>
-                      <span className="font-mono font-bold text-gray-700">
-                        {awayRating.goalsFor} / {awayRating.goalsAgainst}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-gray-500">Mac basi AG / YG</span>
-                      <span className="font-mono font-bold text-gray-700">
-                        {awayRating.seasonAvgGF.toFixed(2)} / {awayRating.seasonAvgGA.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Last 5 matches with goals */}
-                {awayRating && awayRating.last5 && awayRating.last5.length > 0 && (
-                  <div>
-                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Son 5 Mac</div>
-                    <div className="space-y-1">
-                      {awayRating.last5.map((m, i) => (
-                        <div key={i} className="flex items-center justify-between text-[11px] bg-gray-50 rounded px-2 py-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs">
-                              {m.result === 'W' ? '✅' : m.result === 'L' ? '❌' : '➖'}
-                            </span>
-                            <span className="font-medium text-gray-700 truncate max-w-[80px]">
-                              {m.isHome ? '' : '@'}{m.opponent}
-                            </span>
-                          </div>
-                          <span className={`font-mono font-bold ${m.result === 'W' ? 'text-emerald-600' : m.result === 'L' ? 'text-red-600' : 'text-amber-600'}`}>
-                            {m.goalsFor}-{m.goalsAgainst}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-            </div>
-            )}
-
-            {/* FotMob Info — weather, squad, formation, referee */}
-            <ErrorBoundary context="FotMobInfoBlock">
-              <FotMobInfoBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
-            </ErrorBoundary>
-          </div>
-        </div>
-      )}
+      {/* (Team Info removed from here — moved up after charts) */}
     </div>
   )
 })

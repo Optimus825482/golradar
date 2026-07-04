@@ -182,8 +182,17 @@ export async function GET(request: Request) {
     resp = await fetch(`${LIVESCORE_API}?sportType=1&v=${version}`, {
       headers: HEADERS,
       cache: "no-store",
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(10_000),
     });
+    // Retry once on non-ok (Nesine API bazen 502/503 döner)
+    if (!resp.ok) {
+      await new Promise(r => setTimeout(r, 1000));
+      resp = await fetch(`${LIVESCORE_API}?sportType=1&v=${version}`, {
+        headers: HEADERS,
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      });
+    }
   } catch {
     return emptyResponse();
   }

@@ -26,17 +26,23 @@ import { logError, logInfo, logDev } from "@/lib/devLog";
 export const dynamic = "force-dynamic";
 
 const POLL_INTERVAL_MS = 5_000;
-const TIMEOUT_MS = 8_000;
+const TIMEOUT_MS = 15_000;
 
 // Concurrency lock: only one writer can be in flight at a time.
 // If a second writer is triggered while the first is still running,
 // it returns immediately with "skipped" status. This protects
 // against a runaway cron (e.g. clock drift on multiple replicas).
 let inFlight = false;
+let inFlightSince = 0;
 let lastSuccessAt = 0;
 
 export async function POST(request: Request) {
   const startedAt = Date.now();
+
+  // Stale lock guard: eğer 30s+ stuck kaldıysa zorla resetle
+  if (inFlight && startedAt - inFlightSince > 30_000) {
+    inFlight = false;
+  }
 
   if (inFlight) {
     return NextResponse.json({
@@ -47,6 +53,7 @@ export async function POST(request: Request) {
     });
   }
   inFlight = true;
+  inFlightSince = startedAt;
 
   try {
     // Compute the base URL from the request. The cron lives in

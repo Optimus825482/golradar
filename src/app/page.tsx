@@ -585,34 +585,30 @@ export default function OptimusGolRadariPage() {
 
   }, [matches, favorites])
 
-	  // Goal probabilities — gösterim + kayıt tutarlılığı
-	  // Sadece kaydedilebilecek sinyalleri göster (score + 5min prob + side)
+	  // Goal probabilities — tüm canlı maçlar için hesapla
 	  const goalProbabilities = useMemo(() => {
 	    const map = new Map<number, GoalProbability>()
 	    for (const m of matches) {
 	      if (!m.isLive || !m.hasStats || HALFTIME_STATUSES.has(m.status)) continue
 	      // Server goalRadar varsa ve maç hala canlıysa kullan
 	      let prob: GoalProbability | undefined
-	      if (m.goalRadar && m.goalRadar.score >= SIGNAL_THRESHOLD && m.goalRadar.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) {
+	      if (m.goalRadar) {
 	        prob = m.goalRadar
 	      } else {
 	        const history = allPressureData[m.code]
-	        const cp = calculateGoalProbability(
+	        prob = calculateGoalProbability(
 	          m.stats, m.minute, m.isLive, history, m.homeGoals, m.awayGoals, m.home, m.away,
 	        )
-	        if (cp.score >= SIGNAL_THRESHOLD && cp.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) {
-	          prob = cp
-	        }
 	      }
 	      if (!prob) continue
-	      // Side kontrolü: null ise determineSideByStats ile dene, yine nullsa gösterme
+	      // Side kontrolü: null ise determineSideByStats ile dene
 	      if (!prob.side) {
 	        try {
 	          const fallbackSide = determineSideByStats(m.stats)
 	          if (fallbackSide) {
 	            prob = { ...prob, side: fallbackSide }
 	          } else {
-	            continue // side belirlenemiyor → gösterme
+	            continue
 	          }
 	        } catch { continue }
 	      }

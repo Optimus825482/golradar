@@ -663,7 +663,7 @@ export default function OptimusGolRadariPage() {
   // Filter matches based on bottom tab
   const filteredMatches = useMemo(() => {
     if (activeTab === 'live') return matches.filter(m => m.isLive)
-    if (activeTab === 'radar') return matches.filter(m => goalProbabilities.has(m.code))
+    if (activeTab === 'radar') return matches.filter(m => (goalProbabilities.get(m.code)?.score || 0) >= SIGNAL_THRESHOLD)
     if (activeTab === 'favorites') return matches.filter(m => favorites.has(m.code))
     // "all" tab: exclude upcoming (shown separately above)
     return matches.filter(m => !m.isUpcoming)

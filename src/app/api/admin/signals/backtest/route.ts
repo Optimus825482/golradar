@@ -192,8 +192,8 @@ export const POST = adminRoute(async (request: Request) => {
         wouldFireCount: wouldFire,
         fireRate: wouldFire / replayed.length,
         brierRaw: totalBrierNew / replayed.length,
-        brierCalibrated: totalBrierCal / rows.length,
-        observedGoalRate: posLabel / rows.length,
+        brierCalibrated: totalBrierNew / replayed.length,
+        observedGoalRate: posLabel / replayed.length,
         positiveAndFired: posPredAndFire,
       },
     });

@@ -154,6 +154,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const version = searchParams.get("v") || "0";
+  const isWriter = searchParams.get("writer") === "1";
 
   // ── Cache lookup (post-2026-07-01 refactor) ─────────────────────
   // The /api/cron/poll-matches writer refreshes this cache every 5s.
@@ -247,7 +248,7 @@ export async function GET(request: Request) {
     const hist = getSnapshots(parsed.code);
     let goalRadar: GoalProbability | undefined;
 
-	    if (parsed.isLive && parsed.hasStats) {
+ 	    if (parsed.isLive && parsed.hasStats && !isWriter) {
 	      // Try to enrich with FotMob data. The async lookup is bounded
 	      // by Promise.race + a 200ms timeout — slow cache misses fall
 	      // through to a non-enriched goalRadar.

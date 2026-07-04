@@ -26,7 +26,7 @@ import { logError, logInfo, logDev } from "@/lib/devLog";
 export const dynamic = "force-dynamic";
 
 const POLL_INTERVAL_MS = 5_000;
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 30_000;
 
 // Concurrency lock: only one writer can be in flight at a time.
 // If a second writer is triggered while the first is still running,
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     // Compute the base URL from the request. The cron lives in
     // the same container so a loopback fetch is fine.
     const url = new URL(request.url);
-    const target = `${url.protocol}//${url.host}/api/matches?v=writer-${startedAt}`;
+    const target = `${url.protocol}//${url.host}/api/matches?writer=1&v=writer-${startedAt}`;
 
     const resp = await fetch(target, {
       cache: "no-store",

@@ -1,25 +1,30 @@
 # Sonraki Oturumda Yapılacaklar
 
-## 1. Fresh Backtest — Gerçek Veriyle
+## 1. ✅ DONE: Feature Vector 67→87 + Nesine Data Fix
+- `exportTrainingData.ts`: TARGET_FEATURE_COUNT hardcoded 67 → FEATURE_NAMES.length (87)
+- `backfill-training-data.py`: build_features 67→87, per-15 rate normalization
+- Nesine label fix (%78 → %15 goal rate)
+- Container'da `--force` ile convert worked (22986 records, 87 features)
 
-**Sorun**: Predict API tüm tahminlerde 0.500 dönüyor.
-**Sebep**: GBDT modeli OpenLigaDB verisiyle eğitildi (feature'lar çoğunlukla 0.5 nötr). Nesine'den gelen gerçek possession/shots/xG istatistiklerini görünce ne yapacağını bilmiyor.
+## 2. ✅ DONE: Poll-Writer Timeout Fix
+- matches/route.ts: Nesine API 5s→10s + 1 retry
+- poll-matches/route.ts: 8s→30s timeout + stale lock guard
+- trainingScheduler.ts: 8s→20s
+- `?writer=1` → skips Goaloo/FotMob/ML enrichment (150s→5s per poll)
+- goalRadar always calculated (was undefined for writer path)
 
-**Yapılacaklar**:
-- `backfill-training-data.py`'deki build_features fonksiyonunda Nesine stat formatını düzelt: `{h,a}` → `{home,away}`
-- Nesine stats'larını featureEngineering'deki MatchFeatures yapısına doğru maple
-- Convert aşamasında Nesine istatistiklerini feature vektörüne işle
-- Modeli Nesine zengin verisiyle yeniden eğit
-- Fresh backtest script'ini çalıştır (`node /tmp/bt.js`)
+## 3. ⚠️ NEEDS WORK: calibratedP Too Low (score→probability mapping)
+- goalProbability5min: 0.393 (39%) — good
+- calibratedP: 0.003 — too low, score=3 mapped to near-zero
+- `calibrateScore()` function too aggressive
+- Fix: review `calibrateScore()` in goalRadar/calibration.ts
 
-## 2. Coolify `--no-cache` Kaldır
+## 4. ⚠️ WAITING: ML Model Retrain with Real Data
+- XGBoost trained on backfill data → Brier=0.0026 (data leakage, fake)
+- Need 24-48h of live PredictionLog data
+- Then export → retrain → realistic Brier
 
-**Sorun**: Her deploy tüm paketleri sıfırdan indiriyor (~10dk).
-**Çözüm**: Coolify dashboard → golradar servisi → Build ayarları → `--no-cache` kaldır. Build süresi ~2dk'ya düşer.
-
-## 3. Kalan Audit Bulguları
-
-Düşük öncelikli, zaman kalırsa:
-- goalRadar.ts: `goalProbability5min` NaN olabilir (sessiz hata)
+## 5. TODO: Kalan Audit Bulguları
+- goalRadar.ts: goalProbability5min NaN olabilir
 - dixonColes.ts: rho tüm liglerde aynı (-0.13)
-- featureEngineering.ts: `home_advantage_factor: 0.53` sabit (liga göre değişmeli)
+- featureEngineering.ts: home_advantage_factor: 0.53 sabit

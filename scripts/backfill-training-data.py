@@ -257,7 +257,7 @@ def build_features(m: dict, minute: int = 45) -> list[float]:
     # Rest (41-86): advanced features, stay 0.5
     return f
 
-def convert_to_training(horizon_min: int = 10, output: str = ""):
+def convert_to_training(horizon_min: int = 10, output: str = "", force: bool = False):
     if not output:
         output = os.path.join(os.path.dirname(__file__),"..","data","ml-models","training-data.json")
     records = []
@@ -280,8 +280,20 @@ def convert_to_training(horizon_min: int = 10, output: str = ""):
         with open(p) as f:
             for line in f:
                 m = json.loads(line)
+                hg = int(m.get("home_goals",0) or 0)
+                ag = int(m.get("away_goals",0) or 0)
+                total_goals = hg + ag
                 for snap in [15,30,45,60,75,90]:
-                    label = 1.0 if (m.get("home_goals",0)+(m.get("away_goals",0))) > 0 and snap < 80 else 0
+                    # Nesine'de gol dakikası yok, bu yüzden:
+                    # maç 0-0 bittiyse → tüm snapshot'lar 0
+                    # gol varsa → son 2 snapshot'a (60,75) gol atanma olasılığı daha yüksek
+                    if total_goals == 0:
+                        label = 0
+                    elif snap >= 80:
+                        label = 0  # 80'den sonra horizon yok
+                    else:
+                        # Gol var: snap 75'e gol ata (maç sonuna en yakın)
+                        label = 1.0 if snap == 75 else 0
                     records.append({"features":build_features(m, snap),"label":label,
                                     "matchCode":m.get("bid",0),"minute":snap,
                                     "timestamp":int(datetime.now().timestamp()*1000),"side":"both"})
@@ -304,6 +316,17 @@ def convert_to_training(horizon_min: int = 10, output: str = ""):
     if os.path.exists(output):
         try: existing = json.loads(open(output).read())
         except: pass
+    # Check feature length compatibility
+    if existing:
+        existing_feat_len = len(existing[0]["features"])
+        new_feat_len = len(records[0]["features"])
+        if existing_feat_len != new_feat_len:
+            log(f"  ⚠ Feature length mismatch: existing={existing_feat_len}, new={new_feat_len}")
+            if force:
+                log(f"  --force: discarding existing ({len(existing)}) records")
+                existing = []
+            else:
+                log(f"  Use --force to discard incompatible existing data")
     exist_keys = {f"{r['matchCode']}-{r['minute']}" for r in existing}
     new = [r for r in records if f"{r['matchCode']}-{r['minute']}" not in exist_keys]
     merged = (existing + new)[-50000:]
@@ -325,6 +348,7 @@ def main():
     parser.add_argument("--days", type=int, default=30, help="Geriye dönük gün")
     parser.add_argument("--horizon", type=int, default=10)
     parser.add_argument("--output", default="")
+    parser.add_argument("--force", action="store_true", help="Discard existing incompatible data")
     args = parser.parse_args()
     if args.action in ("openligadb","all"):
         log("=== FAZ 1: OpenLigaDB ==="); openligadb_backfill(args.leagues)
@@ -333,7 +357,7 @@ def main():
     if args.action in ("sofascore","all"):
         log("=== FAZ 3: Sofascore ==="); sofascore_backfill(args.days)
     if args.action in ("convert","all"):
-        log("=== FAZ 4: Convert ==="); convert_to_training(args.horizon, args.output)
+        log("=== FAZ 4: Convert ==="); convert_to_training(args.horizon, args.output, args.force)
     log("=== TAMAMLANDI ===")
 
 if __name__ == "__main__":

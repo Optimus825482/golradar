@@ -189,8 +189,8 @@ export const MatchDetailContent = memo(function MatchDetailContent({
           </div>
         )}
 
-        {/* Goal Radar Indicator */}
-        {selectedGoalProb && selectedGoalProb.score >= SIGNAL_THRESHOLD && selectedGoalProb.goalProbability5min >= SIGNAL_5MIN_THRESHOLD && (
+        {/* Goal Radar Indicator — tüm canlı maçlar için göster */}
+        {match.isLive && selectedGoalProb && (
           <div className={`mt-4 p-3 rounded-xl border-2 ${
             selectedGoalProb.level === 'critical' ? 'bg-red-50 border-red-300' :
             selectedGoalProb.level === 'high' ? 'bg-orange-50 border-orange-300' :
@@ -221,9 +221,10 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                   <span className={`ml-2 text-xs ${
                     selectedGoalProb.level === 'critical' ? 'text-red-500' :
                     selectedGoalProb.level === 'high' ? 'text-orange-500' :
-                    'text-yellow-500'
+                    selectedGoalProb.level === 'medium' ? 'text-yellow-500' :
+                    'text-gray-500'
                   }`}>
-                    İhtimal: %{(selectedGoalProb.score).toFixed(0)}
+                    %{Math.round((selectedGoalProb.goalProbability5min || 0) * 100)} · Skor: {selectedGoalProb.score}
                   </span>
                 </div>
               </div>

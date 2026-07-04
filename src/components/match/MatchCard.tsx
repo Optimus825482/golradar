@@ -113,13 +113,14 @@ export function MatchCard({ match, onClick, showLeague, goalProb, isSelected, is
                 <span className="text-orange-500">{pressure.home}%</span> - <span className="text-blue-500">{pressure.away}%</span>
               </span>
             )}
-            {isRadarAlert && (
+            {match.isLive && goalProb && (
               <span className={`text-[9px] font-bold ${
-                goalProb?.level === 'critical' ? 'text-red-600' :
-                goalProb?.level === 'high' ? 'text-orange-600' :
-                'text-yellow-600'
+                goalProb.level === 'critical' ? 'text-red-600' :
+                goalProb.level === 'high' ? 'text-orange-600' :
+                goalProb.level === 'medium' ? 'text-yellow-600' :
+                'text-gray-400'
               }`}>
-                %{goalProb?.score || 0}
+                %{Math.round((goalProb.goalProbability5min || 0) * 100)} · S:{goalProb.score}
               </span>
             )}
           </div>

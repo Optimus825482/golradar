@@ -69,13 +69,13 @@ export function calcFactorShotQuality(stats: MatchStats, minNum: number): Factor
 
   if (shotsOnTarget?.home != null && shotsOnTarget.home >= 1) {
     let pts = Math.min(6, Math.round(homeSotRate * 2.0));
-    if (homeSotRate >= 1.5) pts += Math.min(4, Math.round((homeSotRate - 1.0) * 3));
+    if (homeSotRate >= 1.5) pts += Math.min(4, Math.round((homeSotRate - 1.5) * 3));
     r.homePts = pts;
     if (pts >= 5) r.homeFactors.push(`${shotsOnTarget.home} isabetli şut (${homeSotRate.toFixed(1)}/15dk)`);
   }
   if (shotsOnTarget?.away != null && shotsOnTarget.away >= 1) {
     let pts = Math.min(6, Math.round(awaySotRate * 2.0));
-    if (awaySotRate >= 1.5) pts += Math.min(4, Math.round((awaySotRate - 1.0) * 3));
+    if (awaySotRate >= 1.5) pts += Math.min(4, Math.round((awaySotRate - 1.5) * 3));
     r.awayPts = pts;
     if (pts >= 5) r.awayFactors.push(`${shotsOnTarget.away} isabetli şut (${awaySotRate.toFixed(1)}/15dk)`);
   }
@@ -376,15 +376,15 @@ export function calcFactorDangerousSequence(pressureHistory: PressureSnapshotLit
 
   // Possession swing counter-attack wave
   const firstHomePoss = first.stats.possession?.home ?? 50, lastHomePoss = last.stats.possession?.home ?? 50;
+  const firstAwayPoss = first.stats.possession?.away ?? 50, lastAwayPoss = last.stats.possession?.away ?? 50;
   const possSwingHome = lastHomePoss - firstHomePoss;
-  const possSwingAway = (first.stats.possession?.away ?? 50) - (last.stats.possession?.away ?? 50);
+  const possSwingAway = lastAwayPoss - firstAwayPoss;
   if (possSwingHome > 20 && homeDADelta >= 2 && firstHomePoss < 45 && lastHomePoss > 60) {
     const pts = Math.min(6, 2 + Math.round(homeDADelta * 0.8));
     r.homePts += pts;
     if (pts >= 3) r.homeFactors.push(`Kontra atak dalgası +${pts}`);
   }
   if (possSwingAway > 20 && awayDADelta >= 2) {
-    const firstAwayPoss = first.stats.possession?.away ?? 50, lastAwayPoss = last.stats.possession?.away ?? 50;
     if (firstAwayPoss < 45 && lastAwayPoss > 60) {
       const pts = Math.min(6, 2 + Math.round(awayDADelta * 0.8));
       r.awayPts += pts;

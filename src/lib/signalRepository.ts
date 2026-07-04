@@ -37,7 +37,7 @@ export function toGoalSignalRecord(row: Signal): GoalSignalRecord {
     date: row.date,
 
     signalMinute: row.signalMinute,
-    signalSide: row.signalSide as "home" | "away",
+    signalSide: row.signalSide as "home" | "away" | "both",
     signalScore: row.signalScore,
     calibratedP: row.calibratedP,
     poissonP: row.poissonP,

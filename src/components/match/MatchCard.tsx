@@ -120,7 +120,7 @@ export function MatchCard({ match, onClick, showLeague, goalProb, isSelected, is
                 goalProb.level === 'medium' ? 'text-yellow-600' :
                 'text-gray-400'
               }`}>
-                %{Math.round((goalProb.goalProbability5min || 0) * 100)} · S:{goalProb.score}
+                %{Math.round((goalProb.goalProbability5min || 0) * 100)} · S:{Math.round(goalProb.score)}
               </span>
             )}
           </div>

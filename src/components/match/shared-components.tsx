@@ -10,7 +10,10 @@ export function CountryFlag({ code }: { code: string }) {
   return (
     <img
       src={`https://flagcdn.com/w20/${codeLower}.png`}
-      alt={code}
+      alt=""
+      role="presentation"
+      loading="lazy"
+      decoding="async"
       className="w-4 h-3 rounded-sm object-cover inline-block mr-1"
       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
     />
@@ -61,10 +64,10 @@ export function GoalRadarIcon({ level }: { level: GoalProbability['level'] }) {
         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
       </svg>
       {level === 'critical' && (
-        <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-400 rounded-full animate-ping" />
+        <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-400 rounded-full animate-ping overflow-visible" />
       )}
       {level === 'high' && (
-        <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-orange-400 rounded-full animate-pulse" />
+        <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-orange-400 rounded-full animate-pulse overflow-visible" />
       )}
     </div>
   )

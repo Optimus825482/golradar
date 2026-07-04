@@ -314,13 +314,16 @@ export function calculateGoalProbability(
   const finalAwayScore = ctx.as;
   let finalScore = blendedThreatScore(finalHomeScore, finalAwayScore);
 
-  // ── 5-minute goal probability ────────────────────────────────
-  let goalProbability5min = 0;
-  try {
-    const hxr = estimateXgFromShots(stats, 'home', minNum);
-    const axr = estimateXgFromShots(stats, 'away', minNum);
-    goalProbability5min = Math.min(0.95, 1 - Math.exp(-Math.max(0, (hxr + axr) * 5)));
-  } catch { /* fallback */ }
+	  // ── 5-minute goal probability ────────────────────────────────
+	  // Uses accumulated xG divided by minute to get per-minute rate,
+	  // then Poisson P(≥1 goal in 5 min): 1 - exp(-rate * 5)
+	  let goalProbability5min = 0;
+	  try {
+	    const hxr = estimateXgFromShots(stats, 'home', minNum);
+	    const axr = estimateXgFromShots(stats, 'away', minNum);
+	    const xgRate = (hxr + axr) / Math.max(1, minNum);
+	    goalProbability5min = Math.min(0.95, 1 - Math.exp(-xgRate * 5));
+	  } catch { /* fallback */ }
 
   // ── Level determination + multi-confirmation gate ─────────────
   let level: GoalProbability['level'] = 'low';
@@ -346,8 +349,8 @@ export function calculateGoalProbability(
         if (intel.weatherImpact.factors.length > 0) ctx.sf.push(...intel.weatherImpact.factors);
       }
       if (intel.squadImpact.homeAdj !== 0 || intel.squadImpact.awayAdj !== 0) {
-        ctx.hs = Math.max(0, Math.min(85, ctx.hs + intel.squadImpact.homeAdj));
-        ctx.as = Math.max(0, Math.min(85, ctx.as + intel.squadImpact.awayAdj));
+        ctx.hs = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, ctx.hs + intel.squadImpact.homeAdj));
+        ctx.as = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, ctx.as + intel.squadImpact.awayAdj));
         ctx.hf.push(...intel.squadImpact.factors.filter(f => f.includes('Ev')));
         ctx.af.push(...intel.squadImpact.factors.filter(f => f.includes('Dep')));
       }
@@ -360,15 +363,15 @@ export function calculateGoalProbability(
       }
       if (intel.form) {
         const hfa = formScoreAdjustment(intel.form.home);
-        if (hfa.adj !== 0) { ctx.hs = Math.max(0, Math.min(85, ctx.hs + hfa.adj)); if (hfa.factors.length > 0) ctx.hf.push(...hfa.factors); }
+        if (hfa.adj !== 0) { ctx.hs = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, ctx.hs + hfa.adj)); if (hfa.factors.length > 0) ctx.hf.push(...hfa.factors); }
         const afa = formScoreAdjustment(intel.form.away);
-        if (afa.adj !== 0) { ctx.as = Math.max(0, Math.min(85, ctx.as + afa.adj)); if (afa.factors.length > 0) ctx.af.push(...afa.factors); }
+        if (afa.adj !== 0) { ctx.as = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, ctx.as + afa.adj)); if (afa.factors.length > 0) ctx.af.push(...afa.factors); }
       }
       if (intel.squad) {
         const hf = intel.squad.homeFormation;
-        if (hf) { const fm = formationGoalMultiplier(hf); if (fm.attackMult !== 1.0) { ctx.hs = Math.max(0, Math.min(85, ctx.hs + Math.round((fm.attackMult - 1) * 10))); if (fm.description) ctx.hf.push(fm.description); } }
+        if (hf) { const fm = formationGoalMultiplier(hf); if (fm.attackMult !== 1.0) { ctx.hs = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, ctx.hs + Math.round((fm.attackMult - 1) * 10))); if (fm.description) ctx.hf.push(fm.description); } }
         const _af = intel.squad.awayFormation;
-        if (_af) { const fm = formationGoalMultiplier(_af); if (fm.attackMult !== 1.0) { ctx.as = Math.max(0, Math.min(85, ctx.as + Math.round((fm.attackMult - 1) * 10))); if (fm.description) ctx.af.push(fm.description); } }
+        if (_af) { const fm = formationGoalMultiplier(_af); if (fm.attackMult !== 1.0) { ctx.as = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, ctx.as + Math.round((fm.attackMult - 1) * 10))); if (fm.description) ctx.af.push(fm.description); } }
       }
     } catch (err) {
       if (process.env.NODE_ENV === 'development')
@@ -389,14 +392,15 @@ export function calculateGoalProbability(
         if (fXgH > xg.home) { const bp = Math.min(4, Math.round((fXgH - xg.home) * 3)); if (bp >= 2) { ctx.hs += bp; ctx.hf.push(`FotMob xG +${fXgH.toFixed(2)}`); } }
         if (fXgA > xg.away) { const bp = Math.min(4, Math.round((fXgA - xg.away) * 3)); if (bp >= 2) { ctx.as += bp; ctx.af.push(`FotMob xG +${fXgA.toFixed(2)}`); } }
       }
-      // FotMob xG boost'tan sonra 5-dk gate'ini güncelle
-      if (fXgH > xg.home || fXgA > xg.away) {
-        const newXgHome = Math.max(xg.home, fXgH);
-        const newXgAway = Math.max(xg.away, fXgA);
-        try {
-          goalProbability5min = Math.min(0.95, 1 - Math.exp(-Math.max(0, (newXgHome + newXgAway) * 5)));
-        } catch { /* fallback */ }
-      }
+	      // FotMob xG boost'tan sonra 5-dk gate'ini güncelle
+	      if (fXgH > xg.home || fXgA > xg.away) {
+	        const newXgHome = Math.max(xg.home, fXgH);
+	        const newXgAway = Math.max(xg.away, fXgA);
+	        try {
+	          const xgRate2 = (newXgHome + newXgAway) / Math.max(1, minNum);
+	          goalProbability5min = Math.min(0.95, 1 - Math.exp(-xgRate2 * 5));
+	        } catch { /* fallback */ }
+	      }
     } catch { /* FotMob xG optional */ }
   }
 

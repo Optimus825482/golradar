@@ -24,8 +24,9 @@ import {
 } from '@/lib/apiSchemas';
 
 // Defer background expiry checker to avoid blocking first request
+// NOTE: setTimeout(fn,0) instead of setImmediate for Edge/serverless compatibility
 if (typeof window === 'undefined') {
-  setImmediate(() => { startExpiryChecker(); });
+  setTimeout(() => { startExpiryChecker(); }, 0);
 }
 
 export const dynamic = "force-dynamic";

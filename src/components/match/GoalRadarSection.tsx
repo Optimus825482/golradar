@@ -3,7 +3,7 @@
 import { MatchCard } from './MatchCard'
 import type { Match } from './types'
 import type { GoalProbability } from '@/lib/nesine'
-import { SIGNAL_THRESHOLD } from '@/config'
+import { SIGNAL_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
 
 interface GoalFlashEntry {
   startedAt: number;
@@ -29,7 +29,10 @@ export function GoalRadarSection({
     const bScore = goalProbabilities.get(b.code)?.score || 0
     return bScore - aScore
   })
-  const filtered = sorted.filter(m => (goalProbabilities.get(m.code)?.score || 0) >= SIGNAL_THRESHOLD)
+  const filtered = sorted.filter(m => {
+    const prob = goalProbabilities.get(m.code)
+    return prob && prob.score >= SIGNAL_THRESHOLD && prob.goalProbability5min >= SIGNAL_5MIN_THRESHOLD
+  })
 
   return (
     <div className="mb-4">

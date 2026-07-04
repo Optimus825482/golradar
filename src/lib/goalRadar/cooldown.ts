@@ -99,9 +99,11 @@
 	    } else if (recentGoalSide === "away") {
 	      as = Math.round(as * Math.max(goalCooldownAway, 0.3));
 	      hs = Math.round(hs * Math.max(goalCooldownHome, goalCooldownAway * 0.6));
-	    } else if (recentGoalSide === "both") {
-	      hs = Math.round(hs * Math.max(goalCooldownHome, 0.3));
-	      as = Math.round(as * Math.max(goalCooldownAway, 0.3));
+    } else if (recentGoalSide === "both") {
+      // When both teams scored, apply cross-suppression
+      // Each team gets max(own_cooldown, 0.3 floor, opponent_cooldown * 0.6)
+      hs = Math.round(hs * Math.max(goalCooldownHome, 0.3, goalCooldownAway * 0.6));
+      as = Math.round(as * Math.max(goalCooldownAway, 0.3, goalCooldownHome * 0.6));
 	    }
 	    if (recentGoalSide && (hs >= 20 || as >= 20)) {
 	      const goalSideLabel =

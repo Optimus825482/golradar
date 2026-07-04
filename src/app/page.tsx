@@ -53,16 +53,17 @@ import { logError } from '@/lib/devLog';
 const GOAL_FLASH_DURATION = 15000
 
 // Parse minute string handling stoppage time: "45+2" → 47, "90" → 90
-function parseGoalMinute(minute: string | number): number {
-  if (typeof minute === 'number') return Math.max(0, minute)
-  const plusMatch = minute.match(/^(\d+)\s*\+\s*(\d+)/)
+// Upper clamp to 120 (extra time), non-numeric input returns 45 as midpoint.
+export function parseGoalMinute(minute: string | number): number {
+  if (typeof minute === 'number') return Math.max(0, Math.min(120, Math.round(minute)))
+  const plusMatch = String(minute).match(/^(\d+)\s*\+\s*(\d+)/)
   if (plusMatch) {
-    return parseInt(plusMatch[1], 10) + parseInt(plusMatch[2], 10)
+    return Math.min(120, parseInt(plusMatch[1], 10) + parseInt(plusMatch[2], 10))
   }
-  const num = parseInt(minute.replace(/[^0-9]/g, ''), 10)
+  const num = parseInt(String(minute).replace(/[^0-9]/g, ''), 10)
   // Non-numeric input (e.g. "MS", "HT", ""): return 45 as midpoint default.
   // The caller (reportGoal) will use signalMinute fallback per-signal.
-  return isNaN(num) ? 45 : Math.max(1, num)
+  return isNaN(num) ? 45 : Math.max(0, Math.min(120, num))
 }
 
 export default function OptimusGolRadariPage() {
@@ -77,6 +78,7 @@ export default function OptimusGolRadariPage() {
   const [statsHalf, setStatsHalf] = useState<'full' | '1h' | '2h'>('full')
   const [allPressureData, setAllPressureData] = useState<Record<number, PressureSnapshot[]>>({})
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const notifTimersRef = useRef<Set<NodeJS.Timeout>>(new Set())
   const retryCountRef = useRef(0)
   const MAX_RETRIES = 5
 
@@ -252,6 +254,9 @@ export default function OptimusGolRadariPage() {
     intervalRef.current = setInterval(fetchMatches, tierConfig(tier).pollIntervalMs)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      // Clean up any pending notification timeouts
+      for (const t of notifTimersRef.current) clearTimeout(t)
+      notifTimersRef.current.clear()
     }
   }, [fetchMatches, tier])
 
@@ -550,9 +555,11 @@ export default function OptimusGolRadariPage() {
             } catch {}
           }
 
-          setTimeout(() => {
+          const timer = setTimeout(() => {
             clearGoalNotification(notification.id)
+            notifTimersRef.current.delete(timer)
           }, 8000)
+          notifTimersRef.current.add(timer)
         }
       }
 
@@ -651,11 +658,12 @@ export default function OptimusGolRadariPage() {
 	        }),
 	      }).catch((e) => { logError('page', e); })
 	    }
-	    // Keep set from growing unbounded — cap at 500 entries
-	    if (posted.size > 500) {
-	      const arr = Array.from(posted)
-	      postedSignalsRef.current = new Set(arr.slice(0, 300))
-	    }
+		    // Keep set from growing unbounded — cap at 500 entries
+		    // Keep most RECENT 300 entries (not oldest) for dedup effectiveness
+		    if (posted.size > 500) {
+		      const arr = Array.from(posted)
+		      postedSignalsRef.current = new Set(arr.slice(-300))
+		    }
 	  }, [goalProbabilities, matches])
 
 	  const radarCount = useMemo(() => {
@@ -875,7 +883,7 @@ export default function OptimusGolRadariPage() {
       selectedMatch.home, selectedMatch.away, goalooOddsMovement,
     )
     if (serverRadar && clientCalc.score < serverRadar.score && pressureSnapshots.length < 3) return serverRadar
-    return clientCalc.score >= 60 && clientCalc.goalProbability5min >= 0.25 ? clientCalc : (serverRadar || null)
+    return clientCalc.score >= SIGNAL_THRESHOLD && clientCalc.goalProbability5min >= SIGNAL_5MIN_THRESHOLD ? clientCalc : (serverRadar || null)
   }, [selectedMatch, pressureSnapshots, goalooOddsMovement])
 
   // Detail content props shared between desktop and mobile

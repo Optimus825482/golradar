@@ -257,19 +257,16 @@ export async function checkAndRecordSignal(
   const today = getLocalDateString();
 
   // ── Signal threshold checks ───────────────────────────────────
-  // P0: Dinamik eşik kullan — lig, dakika, Elo bilgisi yoksa SIGNAL_THRESHOLD fallback
-  const threshold = getDynamicThreshold();
-  if (goalProbability.score < threshold) return null;
-
-  // P0: "both" sinyallerine izin ver — yön belirsiz ama gol olasılığı yüksek.
-  // correctPrediction sadece signalSide !== "both" ise hesaplanır.
-  if (!goalProbability.side) return null;
-
+  // P0: Dinamik eşik — dakika ve lig bilgisi ile context-aware threshold
+  const threshold = getDynamicThreshold(undefined, minNum, undefined);
+  
   // ── Multi-Tier N-of-M Confirmation ─────────────────────────────
   // Sinyal sayısını ARTIRIR: düşük threshold + model onayı = daha çok sinyal, daha doğru
+  // Tier sistemi threshold'un ALTINDAKİ skorlara da izin verir (model sayısı yeterliyse)
   let signalTier: "elite" | "confirmed" | "watch" | "radar" | null = null;
 
   // Tier determination: highest tier that qualifies
+  // Her tier kendi threshold'u ile değerlendirilir, base threshold'tan bağımsız
   if (goalProbability.score >= TIER_ELITE_THRESHOLD && modelAgreement >= TIER_ELITE_MIN_MODELS) {
     signalTier = "elite";
   } else if (goalProbability.score >= TIER_CONFIRMED_THRESHOLD && modelAgreement >= TIER_CONFIRMED_MIN_MODELS) {
@@ -282,6 +279,10 @@ export async function checkAndRecordSignal(
 
   // If no tier qualifies, skip signal
   if (!signalTier) return null;
+
+  // "both" sinyallerine izin ver — yön belirsiz ama gol olasılığı yüksek.
+  // correctPrediction sadece signalSide !== "both" ise hesaplanır.
+  if (!goalProbability.side) return null;
 
   // ── Excluded minute zones ─────────────────────────────────────
   // Faz 9 — DB backed (excludedMinutes.ts), cache TTL 5dk. Config

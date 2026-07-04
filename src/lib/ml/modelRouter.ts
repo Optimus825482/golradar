@@ -18,8 +18,11 @@ import {
 } from "./xgbLoader";
 import { loadTeamStrength, type TeamStrengthModel } from './teamStrengthKalman';
 import { loadXtGrid, type XtGrid } from './xtGrid';
+import { loadGapRating, type GapRatingModel } from './gap';
+import { loadPiRating, type PiRatingModel } from './piRatingGlue';
+import { loadGlicko2, type Glicko2Model } from './glicko2Glue';
 
-export type ModelName = 'gbdt' | 'xgb' | 'inplay' | 'team-strength' | 'xt-grid' | 'lightgbm';
+export type ModelName = 'gbdt' | 'xgb' | 'inplay' | 'team-strength' | 'xt-grid' | 'lightgbm' | 'gap' | 'pi' | 'glicko2';
 
 export interface ModelEntry {
   name: ModelName;

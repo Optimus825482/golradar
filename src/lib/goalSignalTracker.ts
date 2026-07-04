@@ -297,6 +297,7 @@ export async function checkAndRecordSignal(
   // ── Cooldown check (P1: in-memory cache + DB fallback) ──────
   // Önce cache'e bak, cache miss'te DB sorgusu yap.
   // ponytail: bu ~%90 DB sorgusunu keser (30sn poll'de çoğu cooldown içinde).
+  //Upgrade path: Redis if distributed workers
   if (checkCooldownCache(matchCode, signalSide)) {
     // Cache'te cooldown var — updateLastValues yine de yap (DB'deki son değerler taze kalsın)
     const existingForCooldown = await repoFindExisting(matchCode, today, signalSide);
@@ -408,6 +409,7 @@ export function setCooldownCache(matchCode: number, side: string): void {
   const key = cooldownKey(matchCode, side);
   cooldownCache.set(key, Date.now());
   // ponytail: single-interval cleanup on set is cheaper than a background sweeper
+  //Upgrade path: Map-scanning sweeper if TTL policy grows complex
   setTimeout(() => cooldownCache.delete(key), COOLDOWN_CACHE_TTL_MS + 1000);
 }
 

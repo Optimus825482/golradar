@@ -13,10 +13,17 @@ import { estimateXgFromShots as estimateXgShared } from './estimateXg';
 import { predictFromElo, getFormIndexEma, getRating } from './eloRating';
 import { getTimeBasedGoalMultiplier } from './dixonColes';
 import { logError } from '@/lib/devLog';
+import { z } from 'zod';
 // teamHistoryBackfill pulls in sofascore.ts (uses child_process via
 // Python bridge) — keep it out of the client bundle by deferring
 // the import to call time.
 import { predictMatch } from './ml/teamStrengthKalman';
+
+// ponytail: HOME_ADVANTAGE const default 0.53, upgrade: calibrated from DB
+const HOME_ADVANTAGE = (() => {
+  const env = parseFloat(process.env.HOME_ADVANTAGE ?? '');
+  return isNaN(env) ? 0.53 : Math.max(0.40, Math.min(0.70, env));
+})();
 
 // ── Feature Vector Definition ──────────────────────────────────────
 
@@ -707,7 +714,7 @@ export async function extractFeatures(input: FeatureExtractionInput): Promise<Ma
     away_form_index: awayFormIdx,
     home_elo_matches: Math.min(1, homeEloMatches),
     away_elo_matches: Math.min(1, awayEloMatches),
-    home_advantage_factor: 0.53,
+    home_advantage_factor: HOME_ADVANTAGE,
 
     // Score context
     score_gap: normLinear(scoreGap, 0, 5),

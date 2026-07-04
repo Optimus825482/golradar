@@ -13,6 +13,7 @@
 import { db } from "./db";
 import { logError, logInfo } from '@/lib/devLog';
 import { DEFAULT_CALIBRATION_PARAMS } from '@/config';
+import { z } from 'zod';
 
 export interface CalibrationBin {
   scoreRange: [number, number]; // e.g., [30, 40)
@@ -74,6 +75,21 @@ let cachedBeta: BetaParams | null = null;
 const SYSTEM_KEY_BETA = 'calibration.beta';
 
 let cachedIsotonic: IsotonicTable | null = null;
+
+// ponytail: Zod schemas for strict runtime type guards on DB jsonb values
+const CalibrationParamsSchema = z.object({
+  L: z.number(), k: z.number(), x0: z.number(), T: z.number(),
+});
+
+const IsotonicTableSchema = z.object({
+  x: z.array(z.number()), y: z.array(z.number()),
+  fittedAt: z.number(), fittedN: z.number(),
+});
+
+const BetaParamsSchema = z.object({
+  a: z.number(), b: z.number(), c: z.number(),
+  fittedAt: z.number(), fittedN: z.number(),
+});
 
 function poolAdjacentViolators(xIn: number[], yIn: number[]): { x: number[]; y: number[] } {
   const pairs = xIn.map((x, i) => [x, yIn[i]] as [number, number])
@@ -148,26 +164,26 @@ export async function hydrateCalibrationFromDB(): Promise<void> {
     });
     for (const row of rows) {
       if (row.key === SYSTEM_KEY_PARAMS) {
-        const v = row.value as { L?: number; k?: number; x0?: number; T?: number } | null;
-        if (v && typeof v.L === 'number' && typeof v.k === 'number' && typeof v.x0 === 'number') {
-          // Guard: sağlıksız değerler varsa DEFAULT_CALIBRATION_PARAMS'tan fallback
-          const sane = (val: number, min: number, max: number, def: number) =>
-            val >= min && val <= max ? val : def;
-          CALIBRATION_PARAMS.L = sane(v.L, 0.01, 1.0, DEFAULT_CALIBRATION_PARAMS.L);
-          CALIBRATION_PARAMS.k = sane(v.k, 0.001, 1.0, DEFAULT_CALIBRATION_PARAMS.k);
-          CALIBRATION_PARAMS.x0 = sane(v.x0, 0, 100, DEFAULT_CALIBRATION_PARAMS.x0);
-          CALIBRATION_PARAMS.T = typeof v.T === 'number' ? sane(v.T, 0.001, 1.0, DEFAULT_CALIBRATION_PARAMS.T) : DEFAULT_CALIBRATION_PARAMS.T;
+        // ponytail: strict type guard via Zod instead of loose cast
+        const parsed = CalibrationParamsSchema.safeParse(row.value);
+        if (parsed.success) {
+          CALIBRATION_PARAMS.L = parsed.data.L;
+          CALIBRATION_PARAMS.k = parsed.data.k;
+          CALIBRATION_PARAMS.x0 = parsed.data.x0;
+          CALIBRATION_PARAMS.T = parsed.data.T;
+        } else {
+          logError('calibration', `Invalid calibration params in DB: ${parsed.error.message}`);
         }
       } else if (row.key === SYSTEM_KEY_ISOTONIC) {
-        const v = row.value as IsotonicTable | null;
-        if (v && Array.isArray(v.x) && Array.isArray(v.y) && v.x.length === v.y.length) {
-          cachedIsotonic = v;
-        }
+        // ponytail: type guard similar to params above
+        const isoParsed = IsotonicTableSchema.safeParse(row.value);
+        if (isoParsed.success) cachedIsotonic = isoParsed.data;
+        else logError('calibration', `Invalid isotonic table in DB: ${isoParsed.error.message}`);
       } else if (row.key === SYSTEM_KEY_BETA) {
-        const v = row.value as BetaParams | null;
-        if (v && typeof v.a === 'number' && typeof v.b === 'number' && typeof v.c === 'number') {
-          cachedBeta = v;
-        }
+        // ponytail: type guard
+        const betaParsed = BetaParamsSchema.safeParse(row.value);
+        if (betaParsed.success) cachedBeta = betaParsed.data;
+        else logError('calibration', `Invalid beta params in DB: ${betaParsed.error.message}`);
       }
     }
   } catch (e) {

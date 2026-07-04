@@ -314,16 +314,16 @@ export function calculateGoalProbability(
   const finalAwayScore = ctx.as;
   let finalScore = blendedThreatScore(finalHomeScore, finalAwayScore);
 
-	  // ── 5-minute goal probability ────────────────────────────────
-	  // Uses accumulated xG divided by minute to get per-minute rate,
-	  // then Poisson P(≥1 goal in 5 min): 1 - exp(-rate * 5)
-	  let goalProbability5min = 0;
-	  try {
-	    const hxr = estimateXgFromShots(stats, 'home', minNum);
-	    const axr = estimateXgFromShots(stats, 'away', minNum);
-	    const xgRate = (hxr + axr) / Math.max(1, minNum);
-	    goalProbability5min = Math.min(0.95, 1 - Math.exp(-xgRate * 5));
-	  } catch { /* fallback */ }
+  // ── 5-minute goal probability ────────────────────────────────
+  // Uses accumulated xG divided by minute to get per-minute rate,
+  // then Poisson P(≥1 goal in 5 min): 1 - exp(-rate * 5)
+  let goalProbability5min = 0;
+  try {
+    const hxr = estimateXgFromShots(stats, 'home', minNum);
+    const axr = estimateXgFromShots(stats, 'away', minNum);
+    const xgRate = (hxr + axr) / Math.max(1, minNum);
+    goalProbability5min = Math.min(0.95, 1 - Math.exp(-Math.max(0, xgRate * 5)));
+  } catch { /* fallback */ }
 
   // ── Level determination + multi-confirmation gate ─────────────
   let level: GoalProbability['level'] = 'low';

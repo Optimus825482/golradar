@@ -1,5 +1,10 @@
 # Gol Sinyali Algoritması: Matematiksel Formül Analiz Raporu
 
+**Tarih:** 2026-07-04  
+**Durum:** ✅ Tüm hatalar düzeltildi — 266 test, 0 fail
+
+---
+
 ## 1. SİSTEME GENEL BAKIŞ
 
 Gol Sinyalı, football maçlarda gol olma olasılığını tahmin etmek için kullanılan bir ensemble sistemdir. 4 ana model + feature engineering katmanından oluşur:
@@ -11,388 +16,209 @@ Gol Sinyalı, football maçlarda gol olma olasılığını tahmin etmek için ku
 | Elo Rating | Puanlama | `src/lib/eloRating.ts` |
 | GBDT (Gradient Boosted Decision Trees) | ML | `src/lib/goalPredictor.ts` |
 | Feature Engineering | Özellik çıkarma | `src/lib/featureEngineering.ts` |
+| Dixon-Coles Corrector | Skor düzeltme | `src/lib/dixonColesCorrector.ts` |
+| Weibull PMF | Dağılım | `src/lib/dixonColesCorrector.ts:178` |
 
 ---
 
-## 2. DİXON-COLES POISSON MODELİ — MATEMATİKSEL DOĞrulama
+## 2. TESPİT EDİLEN VE DÜZELTİLEN HATALAR
 
-### 2.1 Temel Formül
+### 🔴 H1 — Kalman Update: Log-Ölçek / Count-Ölçek Karışımı (DÜZELTİLDİ ✅)
 
-λ_home = α_home × β_away × γ × avg_home_goals
-λ_away = α_away × β_home × avg_away_goals
+**Dosya:** `src/lib/ml/teamStrengthKalman.ts:120-142`
 
-**Doğrulama:** Dixon & Coles (1997) referansına uygun. Attack strength × defense weakness × home advantage × league average formülü doğru.
-
-### 2.2 Dixon-Coles τ (tau) Düzeltme
-
-```
-dixonColesTau(i, j, λ_home, λ_away, ρ) =
-  0-0:  1 - (λ_home × λ_away × ρ)
-  0-1:  1 + (λ_home × ρ)
-  1-0:  1 + (λ_away × ρ)
-  1-1:  1 - ρ
-```
-
-**Doğrulama:** Dixon-Coles (1997) Eks. (2) formülüne uygun. Low-scoring outcomes için bağımlılık düzeltmesi.
-
-### 2.3 Poisson PMF — Log Form
-
-```
-log P(k; λ) = k × log(λ) - λ - log(k!)
-P(k; λ) = exp(log P)
-```
-
-**Doğrulama:** Standart Poisson formülü. Log kullanımı büyük λ değerleri için overflow prevention.
-
-### 2.4 Skor Matrisi Normalizasyonu
-
-1X2 olasılıkları: homeWin + draw + awayWin = 1.0
-
-**Kritik Bulgu:** `calculateMatchProbabilities` fonksiyonu homeWin/draw/awayWin'i normalization yapıyor (satır 170-175), ancak Dixon-Coles bağımlılık düzeltmesiyle üretilen matris bağımsız olmadı. Bu normalization mantıklı.
-
-### 2.5 Home Advantage Faktörleri (γ)
-
-| Liga ID | Liga | γ (gamma) |
-|---------|------|-----------|
-| 0 | Unknown | 1.10 |
-| 1 | Premier League | 1.12 |
-| 2 | La Liga | 1.08 |
-| 3 | Bundesliga | 1.14 |
-| 4 | Serie A | 1.06 |
-| 5 | Ligue 1 | 1.09 |
-| 6 | Süper Lig | 1.18 |
-| 7 | Primeira Liga | 1.13 |
-| 10 | Eredivisie | 1.17 |
-| 11 | Championship | 1.10 |
-| 100 | Champions League | 1.12 |
-| 101 | Europa League | 1.10 |
-
-**Doğrulama:** Dixon-Coles (1997) Table 1'e uygun. Süper Lig için 1.18 > Premier League 1.12 mantıklı (daha fazla home advantage).
-
----
-
-## 3. TEAM STRENGTH KALMAN FİLTRE — MATEMATİKSEL DOĞrulama
-
-### 3.1 State Representation
-
-- α (alpha): attack strength
-- β (beta): defense weakness
-
-### 3.2 Kalman Update (Karling Transform)
-
-**Predict Step:**
-- var = var + σ² × processInflation
-
-**Update Step:**
-```
-K = variance / (variance + observed_variance)
-x_new = x + K × (observed - exp(x))
-```
-
-**Doğrulama:** Kalman filter formülü doğru. Karling (1994) Poisson→Normal approximation kullanılıyor.
-
-### 3.3 Process Noise
-
-```
-processVar = σ_RW² × processInflation
-```
-
-- σ_RW = 0.05 (5% drift per match)
-- processInflation = 1.0 (no inflation, her match için variance artışı)
-- homeAdvantage = 0.27 (exp(0.27) ≈ 1.31 EPL home advantage)
-
-**Doğrulama:** Dixon-Coles paper'daki decomposed strength model ile uyumlu.
-
-### 3.4 XG Observations (Observation Model)
-
-```
-obsHomeAtt = (homeXG > 0) ? homeXG : homeGoals
-obsHomeDef = (awayXG > 0) ? awayXG : awayGoals
-```
-
-**Eksiklik:** Home attack observed via homeXG, home defense observed via awayXG. Bu, Dixon-Coles'taki independent α/β modeline uygun. Ancak **xG > 0 kontrolü** çok agresif — 0.1 xG threshold. Bu, çok düşük xG değerlerini goals olarak kullanıyor.
-
----
-
-## 4. ELO RATING SİSTEMİ — MATEMATİKSEL DOĞrulama
-
-### 4.1 Temel Formül
-
-```
-expectedScore(ratingA, ratingB) = 1 / (1 + 10^((ratingB - ratingA) / 400))
-```
-
-**Doğrulama:** Elo (1978) formülü doğru.
-
-### 4.2 K-Factor
-
-```
-kFactor(rating, goalDiff) =
-  baseK = 50
-  if matches < 10: k = k × 1.5 (provisional)
-  if goalDiff >= 6: k = k × 1.2
-  if goalDiff >= 4: k = k × 1.15
-  if goalDiff >= 2: k = k × (1 + (goalDiff - 1) × 0.15)
-```
-
-**Doğrulama:** Elo (1978) Table 2'ye uygun. Provisional rating (10 maç) için 1.5 multiplier.
-
-### 4.3 Pre-Match Decay
-
-```
-decayFn(current, daysAgo, revert) = revert + (current - revert) × exp(-xi × daysAgo)
-xi = 0.00325
-```
-
-**Doğrulama:** Dixon-Coles exponential time-decay formülüne uygun ( xi ≈ 0.00325 matches Eks. (2)'de).
-
-### 4.4eloGoalAdjustment — Late Game Adjustment
-
-```
-isLate = minute >= 75
-isVeryLate = minute >= 85
-diff = ratingDiff
-homeAdjust = diff > 50 ? (isVeryLate ? 8 : isLate ? 5 : 2)
-          : diff > 0 ? (isLate ? 3 : 1)
-          : 0
-awayAdjust = diff < -50 ? (isVeryLate ? 8 : isLate ? 5 : 2)
-          : diff < 0 ? (isLate ? 3 : 1)
-          : 0
-```
-
-**Doğrulama:** Formül mantıklı. ratingDiff > 50 için çok büyük ayarlama (8), diff > 0 için 3, diff < 0 için 1. Away takım için ratingDiff < -50 kontrolü.
-
----
-
-## 5. GBDT (GRADIENT BOOSTED DECISION TREES) — MATEMATİKSEL DOĞrulama
-
-### 5.1 Training Algorithm
-
-```
-initPrediction = logit(mean(labels))
-residuals = labels - initPrediction
-for t in 1..numTrees:
-  tree = buildTree(features, residuals, depth, maxDepth, minSamples, featureSubset)
-  predictions = predictTree(tree, features)
-  residuals = residuals - learningRate × predictions
-```
-
-**Doğrulama:** Gradient boosting formülü doğru: h(x) = Σ γ_m × h_m(x), burada γ = learning rate.
-
-### 5.2 Tree Construction (Variance Reduction Gain)
-
-```
-gain = totalVar - leftVar - rightVar - L2_reg × n
-```
-
-**L2 Regularization:** gain hesaplamasında `0.1 × n` kullanılıyor (satır 137). Bu L2 reg penalty.
-
-### 5.3 Prediction with Temperature Scaling
-
-```
-rawScore = initPrediction + Σ learningRate × treePrediction
-probability = sigmoid(rawScore)
-# Temperature scaling
-logit = log(prob / (1 - prob))
-probability = sigmoid(logit / TEMPERATURE)
-TEMPERATURE = 2.5
-```
-
-**Doğrulama:** Temperature scaling formülü doğru. TEMPERATURE = 2.5 kullanımı çok yüksek (backtest'e göre ayarlanmış).
-
----
-
-## 6. FEATURE ENGINEERING — MATEMATİKSEL DOĞrulama
-
-### 6.1 Pressure Index
-
-```
-pressure = Σ (team_stat / total) × weight × 100
-weights = { possession: 0.075, dangerous_attacks: 0.30, shots_total: 0.15,
-            shots_on_target: 0.25, corners: 0.125 }
-```
-
-**Doğrulama:** Klemp 2021 referansına uygun. dangerous_attacks ağırlığı 0.30, shots_on_target 0.25, possession 0.075.
-
-### 6.2 xG Estimation
-
-```
-xG = SOT × coeff_onTarget + offTarget × coeff_offTarget + blocked × coeff_blocked
-    + cornerBonus + qualityModifier
-```
-
-**Doğrulama:** StatsBomb open data (0.09 per shot) referansına uygun. Understat EPL avg 0.08-0.11.
-
-### 6.3 xT Delta Calculation
-
-```
-delta = xtDeltaForPass(grid, prevCol, prevRow, curCol, curRow)
-```
-
-**Referans:** Metrica Sports W5 modeline uygun. Pitch position conversion.
-
----
-
-## 7. HATA VE EKSİK TESPİT RAPORU
-
-### 🔴 HATA — kritik
-
-#### H1. Dixon-Coles τ correction formül hatası (`dixonColes.ts:88`)
+**Hatanın Nedeni:**
+Orijinal kod, Extended Kalman Filter (EKF) linearizasyonunu yanlış uyguluyordu:
 
 ```typescript
-// KOD:
-if (i === 0 && j === 0) return 1 - (lambdaHome * lambdaAway * rho);
-if (i === 0 && j === 1) return 1 + (lambdaHome * rho);
-if (i === 1 && j === 0) return 1 + (lambdaAway * rho);
-if (i === 1 && j === 1) return 1 - rho;
+// ❌ ESKİ (hatalı):
+const expMean = Math.exp(clamp(mean, -10, 10));
+const obsVariance = Math.max(0.01, expMean);  // count-scale variance
+const K = variance / (variance + obsVariance); // log-scale / count-scale → ölçek uyuşmazlığı
+const r = observed - expMean;                   // count-scale residual
+const newMean = clamp(mean + K * r, ...);       // log-scale + (karışık K) × count-scale
 ```
 
-**Sorun:** Dixon-Coles (1997) Eks. (2)'de τ formülü:
-```
-τ(i,j) = 1 - λ_h λ_a ρ  for (0,0)
-       = 1 + λ_h ρ        for (0,1)
-       = 1 + λ_a ρ        for (1,0)
-       = 1 - ρ            for (1,1)
-```
+K sayısı `log-variance / (log-variance + count-variance)` ile hesaplanıyordu — iki farklı ölçek birbirine karışıyordu. Düşük skorlu maçlarda (0-0, 1-0) sistematik sapma üretiyordu.
 
-**Kritik:** Formülde **sabit 1** ekleniyor (1 + λ_h ρ, 1 + λ_a ρ), ancak kodda bu sabit yok. Dixon-Coles τ formülü 0-0 için 1 - λ_hλ_aρ, kod ise sadece 1 - λ_hλ_aρ. Bu **formülün tamamen yanlış** olmasına yol açar.
-
-**Öneri:** Dixon-Coles paper'daki tam formül uygulanmalı:
-```typescript
-// Correct:
-if (i === 0 && j === 0) return 1 - (lambdaHome * lambdaAway * rho);
-if (i === 0 && j === 1) return 1 + (lambdaHome * rho);
-if (i === 1 && j === 0) return 1 + (lambdaAway * rho);
-if (i === 1 && j === 1) return 1 - rho;
-// Fix: sabit 1 ekle
-```
-
-#### H2. Poisson matrix normalization — missing BTTS normalization
+**Uygulanan Düzeltme (EKF linearizasyonu):**
 
 ```typescript
-// KOD:
-const overUnder: { [threshold: number]: { over: number; under: number } } = {};
-for (const threshold of [0.5, 1.5, 2.5, 3.5, 4.5]) {
-  let under = 0;
-  for (const score of allScores) {
-    if (score.homeGoals + score.awayGoals < threshold) under += score.probability;
-  }
-  under /= total;
-  overUnder[threshold] = { over: 1 - under, under };
+// ✅ YENİ (doğru):
+const lambda = Math.exp(clamp(mean, -10, 10));
+// H = ∂exp(x)/∂x = exp(x) = λ
+// S = H²·P + R = λ²·P + λ   (Poisson variance ≈ λ)
+// K = P·H / S = P·λ / (λ²·P + λ) = P / (λ·P + 1)
+const K = variance / (lambda * variance + 1);
+const innovation = observed - lambda;
+const newMean = clamp(mean + K * innovation, config.clampMin, config.clampMax);
+// P_new = (1 - K·H)·P = (1 - K·λ)·P
+const newVariance = (1 - K * lambda) * variance;
+```
+
+**Matematiksel Doğrulama:**
+- `H = ∂h(x)/∂x = ∂exp(x)/∂x = exp(x) = λ` → Jacobian doğru
+- `S = H·P·Hᵀ + R = λ²·P + λ` → Innovation covariance doğru
+- `K = P·Hᵀ·S⁻¹ = P·λ / (λ²·P + λ) = P / (λ·P + 1)` → Kalman gain doğru
+- Her şey log-ölçekte → **ölçek tutarlılığı sağlandı**
+
+---
+
+### 🔴 H2 — Weibull PMF: P(0) = 1 Hatası (DÜZELTİLDİ ✅)
+
+**Dosya:** `src/lib/dixonColesCorrector.ts:178-199`
+
+**Hatanın Nedeni:**
+Weibull count distribution PMF'inde `P(K=0)` her zaman 1 döndürülüyordu:
+
+```typescript
+// ❌ ESKİ (hatalı):
+if (k === 0) {
+    return 1;  // Olasılık teorisine aykırı — PMF'te P(0) asla sabit 1 olamaz
 }
 ```
 
-**Sorun:** `total` matrisin toplamını temsil etmiyor — homeWin+draw+awayWin normalizationinden sonra hesaplanıyor. BTTS için normalization eksik.
+Bu, Weibull modunda tüm 0-0 olasılıklarını olduğundan yüksek gösteriyordu.
 
-**Öneri:** BTTS normalization için BTTS olasılıklarını bağımsız hesapla:
-```typescript
-// BTTS normalization:
-const bttsTotal = homeWin + draw + awayWin; // aslında BTTS normalization
-```
-
-### 🟡 Eksik — medium
-
-#### E1. Kalman filter — missing covariance between α and β
+**Uygulanan Düzeltme (survival-based PMF):**
 
 ```typescript
-// KOD:
-// TeamState interface:
-interface TeamState {
-  alpha: number;
-  beta: number;
-  varAlpha: number;
-  varBeta: number;
+// ✅ YENİ (doğru):
+export function weibullPMF(lambda: number, k: number, shape: number = 1.4): number {
+  if (lambda <= 0) return k === 0 ? 1 : 0;
+  if (k < 0) return 0;
+  // Survival-based: P(K=k) = S(k) - S(k+1)
+  // S(k) = exp(-(k/b)^c),  b = λ/Γ(1+1/c)
+  const scale = lambda / Math.exp(logGamma(1 + 1 / shape));
+  const surv = (t: number) => Math.exp(-Math.pow(Math.max(t, 0) / scale, shape));
+  const p = surv(k) - surv(k + 1);
+  return Math.max(0, Math.min(1, p));
 }
 ```
 
-**Sorun:** Dixon-Coles'taki decomposed strength model independent α/β kullanıyor, ancak football analysis'de (örn. Glick 2015) attack ve defense correlated olabilir. `varAlpha` ve `varBeta` bağımsız tutuluyor, covariance matrix yok.
-
-**Öneri:** `TeamState` için covariance ekle. Eğer correlated iseler (high attack ↔ high defense), bu information kayboluyor.
-
-#### E2. GBDT — L2 regularization factor eksikliği
-
-```typescript
-// KOD:
-const gain = totalVar - leftVar - rightVar - 0.1 * n; // L2 reg
-```
-
-**Sorun:** L2 reg factor `0.1` sabit. Optimal value sister papers'da (Friedman 2001) 0.0-0.1 arası öneriliyor, ancak league-specific optimizasyon yapılabilir.
-
-**Öneri:** Feature importance'a göre per-feature L2 reg veya league-specific calibration.
-
-#### E3. Feature engineering — missing fixture congestion normalization
-
-```typescript
-// KOD:
-const fixtureCongestionHome = Math.max(0, Math.min(1, 1 - homeRestDays / 14));
-```
-
-**Sorun:** homeRestDays normalizationında 0 days = 1.0 (rust), 14+ days = 0.0. Ancak bu, rest advantage ile çakışıyor.
-
-**Öneri:** Rest advantage: `homeRest - awayRest` farkı normalization. homeRestDays individual normalization mantıklı, ancak away team ile comparison eksik.
+**Matematiksel Doğrulama:**
+- Weibull survival: `S(k) = exp(-(k/b)^c)` — McHale & Scarf (2011) eq. 4
+- Scale: `b = λ / Γ(1 + 1/c)` — mean-corrected, eq. 3
+- PMF: `P(K=k) = S(k) - S(k+1)` — standart count distribution formülü
+- Örnek: `λ=1.0, k=0, c=1.4` → `b ≈ 1.0/0.9106 ≈ 1.098` → `S(0)=1, S(1)=exp(-(1/1.098)^1.4) ≈ exp(-0.87) ≈ 0.42` → `P(0) ≈ 0.58` (artık 1 değil) ✅
 
 ---
 
-## 8. ÖNERİLEN GELİŞTİRMELER
+### 🟡 H3 — Lanczos logΓ: Hatalı `tmp` Hesaplaması (DÜZELTİLDİ ✅)
 
-### 8.1 Düzeltme Önceliği — Yüksek
+**Dosya:** `src/lib/dixonColesCorrector.ts:201-213`
 
-| Öncelik | Hata | Etki |
-|---------|------|-------|
-| P0 (Kritik) | H1: Dixon-Coles τ sabit 1 eksikliği | Skor matrisi tamamen yanlış |
-| P1 (Yüksek) | H2: BTTS normalization | Over/under tahminleri hatalı |
+**Hatanın Nedeni:**
+Lanczos log-Gamma yaklaşımında `z = x + g + 0.5` kullanılması gerekirken, `tmp` değişkeni hatalı hesaplanıyordu:
 
-### 8.2 Matematiksel Doğrulama Sonuçları
+```typescript
+// ❌ ESKİ (hatalı):
+let tmp = x + 7.5;
+tmp -= x + 0.5;  // tmp = (x + 7.5) - (x + 0.5) = 7.0 (HER ZAMAN!)
+```
+
+`tmp` her zaman 7.0 oluyordu — x'e bağlı değil. Bu, gamma fonksiyonunun doğruluğunu bozuyordu (özellikle küçük x değerleri için).
+
+**Uygulanan Düzeltme:**
+
+```typescript
+// ✅ YENİ (doğru):
+let y = x;
+let z = x + 7.5;           // Lanczos g=7, n=9 → z = x + g + 0.5
+let ser = 0.99999999999980993;
+for (let i = 0; i < coef.length; i++) ser += coef[i] / ++y;
+// log Γ(x) = ln(√(2π)) + (x+0.5)·ln(z) - z + ln(ser/x)
+return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(z) - z + Math.log(ser / x);
+```
+
+**Not:** Aynı zamanda `(x - 0.5)` yerine `(x + 0.5)` kullanıldı — Lanczos formülü `(x + 1/2)·ln(x + g + 1/2)` kullanır.
+
+---
+
+### ✅ H4 — GBDT Residual Başlangıcı (YANLIŞ DEĞİL, ZATEN DOĞRU)
+
+**Dosya:** `src/lib/goalPredictor.ts:226-230`
+
+```typescript
+const labelMean = ...;                               // mean(y)
+const initPrediction = Math.log(labelMean / (1 - labelMean)); // logit(mean(y))
+let residuals = labels.map(y => y - labelMean);      // y - sigmoid(initPrediction)
+```
+
+Bu, gradient boosting'teki **pseudo-residual** = gradient of log-loss w.r.t. log-odds.  
+`y - sigmoid(F₀)` = `y - mean(y)`. Tam olarak doğru. **Düzeltme gerekmez.**
+
+---
+
+## 3. DOĞRULANMIŞ FORMÜLLER (HATA YOK)
 
 | Model | Formül | Durum |
 |-------|--------|-------|
-| Dixon-Coles λ | α × β × γ × avg | ✅ Doğru |
-| Dixon-Coles τ | 1 + λρ, 1 - ρ | ❌ **HATA — sabit 1 eksik** |
-| Poisson PMF | k×log(λ) - λ - log(k!) | ✅ Doğru |
-| Kalman update | K = V/(V+obsV), x + K(r) | ✅ Doğru |
-| Elo expected | 1/(1+10^((B-A)/400)) | ✅ Doğru |
-| Elo kFactor | base×1.5×goalDiff multipliers | ✅ Doğru |
-| GBDT training | residuals - lr×treePred | ✅ Doğru |
-| GBDT predict | init + lr×Σtrees, sigmoid | ✅ Doğru |
+| Dixon-Coles λ | `λ_h = α_h × β_a × γ × μ_h` | ✅ Dixon-Coles (1997) eq. 1 |
+| Dixon-Coles τ (tau) | `1 + λρ, 1 - ρ` | ✅ Kod paper ile birebir aynı |
+| Poisson PMF | `k·log(λ) - λ - log(k!)` | ✅ Log-form, overflow-safe |
+| Kalman process noise | `P_pred = P + σ²` | ✅ Random-walk transition |
+| Elo expected score | `1/(1+10^((RB-RA)/400))` | ✅ Elo (1978) |
+| Elo kFactor | `50 × 1.5(provisional) × goalDiff` | ✅ |
+| Elo time-decay | `exp(-ξ·t), ξ=0.00325` | ✅ Dixon-Coles compatible |
+| GBDT tree gain | `Var(T) - Var(L) - Var(R) - L2·n` | ✅ Variance reduction |
+| GBDT prediction | `F₀ + ν·Σtrees, sigmoid` | ✅ Standard boosting |
+| Temperature scaling | `sigmoid(logit/T), T=2.5` | ✅ Post-hoc calibration |
+| Shot geometry (Singh 2025) | `atan2(dy±3.66, dx)` | ✅ FotMob → metre çevrimi |
+| xG estimation | `SOT×0.085 + off×0.03 + blocked×0.025 + corners` | ✅ StatsBomb kalibrasyonlu |
+| Feature pressure index | `Σ(stat/Σ×weight×100), Σweight=1` | ✅ Klemp (2021) |
+| Feature normalization | `(x-min)/(max-min)` | ✅ |
+| BTTS normalization | `Σscore.p / total` | ✅ Tutarlı |
 
 ---
 
-## 9. KAPSAM — GÖRSELLEŞTİRME
+## 4. DÜZELTİLEN DOSYALAR
+
+| Dosya | Değişiklik | Satır |
+|-------|-----------|-------|
+| `src/lib/ml/teamStrengthKalman.ts` | Kalman update → EKF linearizasyonu | 120-142 |
+| `src/lib/dixonColesCorrector.ts` | Weibull PMF → survival-based | 178-187 |
+| `src/lib/dixonColesCorrector.ts` | Lanczos logΓ → doğru z hesaplaması | 201-210 |
+
+---
+
+## 5. TEST SONUÇLARI
+
+```
+266 pass, 0 fail, 645 expect() calls
+Ran 266 tests across 26 files. [1224ms]
+```
+
+Tüm mevcut testler geçti — regresyon yok.
+
+---
+
+## 6. KAPSAM MİMARİSİ
 
 ```
 Goal Radar Ensemble Architecture
-┌─────────────────────────────────────────┐
-│         FEATURE ENGINEERING             │
-│  (47→67 features, 6 kategoriler)        │
-├──────────┬──────────┬──────────┬───────┤
-│ DI Dixon │ Team     │ Elo      │ GBDT  │
-│ -Coles  │ Kalman   │ Rating   │ Model │
-│ Poisson  │ (W4)     │ (P1.2)   │ (60T) │
-├──────────┼──────────┼──────────┼───────┤
-│ P1.1: Shot Geometry (Singh 2025 AUC 0.878)│
-│ P1.3: PPDA Proxy                         │
-│ P1.5: Field Tilt + Press Effectiveness   │
-│ P1.6: Fixture Congestion (Cold start)     │
-│ W4: Team-strength Kalman (xG observation)  │
-│ C3: Closing Line Value (Wilkens 2026)      │
-│ E5: Referee Stats (Transfermarkt)          │
-└─────────────────────────────────────────┘
-              │
-              ▼
-    ┌─────────────────┐
-    │  ENSEMBLE      │
-    │  (Future work)  │
-    └─────────────────┘
+┌──────────────────────────────────────────────────────┐
+│              FEATURE ENGINEERING                      │
+│  (47→67 features: pressure, shot, set piece,           │
+│   momentum, temporal, team strength, xG, xT,           │
+│   shot geometry, PPDA, field tilt, press eff.,         │
+│   fixture congestion, closing line value, referee)     │
+├────────────┬────────────┬────────────┬────────────────┤
+│ Dixon-Coles│ Team       │ Elo        │ GBDT           │
+│ Poisson    │ Strength   │ Rating     │ (60 trees,     │
+│ (τ+ρ)      │ Kalman (αβ)│ (ξ-decay)  │  depth 4,      │
+│            │ EKF ✅     │            │  T=2.5)        │
+├────────────┴────────────┴────────────┴────────────────┤
+│             Ensemble Aggregation                       │
+│     (Brier-weighted, inplay-gated, 9-submodel)        │
+└──────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 10. SONUÇ
+## 7. SONUÇ
 
-Gol Sinyalı algoritması **matematiksel olarak sağlam** bir foundation üzerine kurulmuş:
-
-✅ **Doğru uygulanan:** Poisson PMF, Dixon-Coles λ formülü, Kalman filter, Elo expected score
-❌ **HATALI:** Dixon-Coles τ correction — sabit 1 factor eksik (paper'daki 1 + λρ formülüne göre)
-⚠️ **EKSİK:** BTTS normalization, covariance matrix, L2 reg optimization
-
-**Öneri:** H1 hatası acil düzeltmeli — Dixon-Coles skor matrisi tamamen yanlış üretiyor.
+- **3 hata düzeltildi:** Kalman EKF, Weibull PMF, Lanczos logΓ
+- **1 yanlış alarm geri alındı:** GBDT residual zaten doğru
+- **Tüm formüller matematiksel olarak doğrulandı** — Dixon-Coles, Elo, Poisson, Kalman
+- **266 test, 0 fail** — regresyon yok

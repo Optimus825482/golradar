@@ -97,10 +97,14 @@ function updatePressureHistory(match: ParsedMatch) {
     league: match.league,
     country: match.country,
   });
-  // Hydrate from DB on first access — fills missing snapshots from before server start
+  // ponytail: DB hydration fire-and-forget — blocking await inside the
+  // per-match loop adds 3-5s sequential latency. The current snapshot
+  // goes through regardless; historical backfill is best-effort.
   if (!isHydrated(match.code)) {
-    hydrateFromDB(match.code, history);
     markHydrated(match.code);
+    void hydrateFromDB(match.code, history).catch((e) => {
+      logError('route', 'hydrateFromDB bg error:', e);
+    });
   }
 
   const pressure = calculatePressure(match.stats);
@@ -183,10 +187,11 @@ export async function GET(request: Request) {
     resp = await fetch(`${LIVESCORE_API}?sportType=1&v=${version}`, {
       headers: HEADERS,
       cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(isWriter ? 25_000 : 10_000),
     });
-    // Retry once on non-ok (Nesine API bazen 502/503 döner)
-    if (!resp.ok) {
+    // Retry once on non-ok (Nesine API bazen 502/503 döner).
+    // Writer path skips retry — the cron retries in 5s anyway.
+    if (!resp.ok && !isWriter) {
       await new Promise(r => setTimeout(r, 1000));
       resp = await fetch(`${LIVESCORE_API}?sportType=1&v=${version}`, {
         headers: HEADERS,

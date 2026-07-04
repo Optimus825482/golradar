@@ -26,7 +26,7 @@ import { logError, logInfo, logDev } from "@/lib/devLog";
 export const dynamic = "force-dynamic";
 
 const POLL_INTERVAL_MS = 5_000;
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = 35_000; // writer path: Nestine 25s + processing margin
 
 // Concurrency lock: only one writer can be in flight at a time.
 // If a second writer is triggered while the first is still running,
@@ -39,8 +39,8 @@ let lastSuccessAt = 0;
 export async function POST(request: Request) {
   const startedAt = Date.now();
 
-  // Stale lock guard: eğer 30s+ stuck kaldıysa zorla resetle
-  if (inFlight && startedAt - inFlightSince > 30_000) {
+  // Stale lock guard: eğer 40s+ stuck kaldıysa zorla resetle
+  if (inFlight && startedAt - inFlightSince > 40_000) {
     inFlight = false;
   }
 

@@ -101,8 +101,9 @@ export function useGoalDetection(): UseGoalDetectionResult {
           playGoalSound();
         } catch {
           playSoundEnabled.current = false;
-          setTimeout(() => {
+          soundRecoveryTimer.current = setTimeout(() => {
             playSoundEnabled.current = true;
+            soundRecoveryTimer.current = null;
           }, SOUND_RECOVERY_DELAY);
         }
       }

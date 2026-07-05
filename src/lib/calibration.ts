@@ -156,14 +156,17 @@ function poolAdjacentViolators(xIn: number[], yIn: number[]): { x: number[]; y: 
 }
 
 // ── SystemConfig hydrate / persist ───────────────────────────────
-/** DB'den calibration params + isotonic + beta çekip in-memory cache'i doldurur. */
+/** DB'den calibration params + isotonic + beta çekip in-memory cache'i doldurur.
+ *  İlk boot'ta DB'de kayıt yoksa DEFAULT_CALIBRATION_PARAMS ile seed eder. */
 export async function hydrateCalibrationFromDB(): Promise<void> {
   try {
     const rows = await db.systemConfig.findMany({
       where: { key: { in: [SYSTEM_KEY_PARAMS, SYSTEM_KEY_ISOTONIC, SYSTEM_KEY_BETA] } },
     });
+    let hasParams = false;
     for (const row of rows) {
       if (row.key === SYSTEM_KEY_PARAMS) {
+        hasParams = true;
         // ponytail: strict type guard via Zod instead of loose cast
         const parsed = CalibrationParamsSchema.safeParse(row.value);
         if (parsed.success) {
@@ -175,16 +178,18 @@ export async function hydrateCalibrationFromDB(): Promise<void> {
           logError('calibration', `Invalid calibration params in DB: ${parsed.error.message}`);
         }
       } else if (row.key === SYSTEM_KEY_ISOTONIC) {
-        // ponytail: type guard similar to params above
         const isoParsed = IsotonicTableSchema.safeParse(row.value);
         if (isoParsed.success) cachedIsotonic = isoParsed.data;
         else logError('calibration', `Invalid isotonic table in DB: ${isoParsed.error.message}`);
       } else if (row.key === SYSTEM_KEY_BETA) {
-        // ponytail: type guard
         const betaParsed = BetaParamsSchema.safeParse(row.value);
         if (betaParsed.success) cachedBeta = betaParsed.data;
         else logError('calibration', `Invalid beta params in DB: ${betaParsed.error.message}`);
       }
+    }
+    // P3: Seed defaults on first boot if no params exist in DB
+    if (!hasParams) {
+      await persistParamsToDB('seed');
     }
   } catch (e) {
     logError('calibration', 'hydrateFromDB failed:', e);

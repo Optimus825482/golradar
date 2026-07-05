@@ -34,20 +34,28 @@ export default function AdminSignalsPage() {
   const [error, setError] = useState<string | null>(null);
   const [logos, setLogos] = useState<Record<string, string>>({});
 
+  // P4: Pagination
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
+  const [total, setTotal] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
   // Filters
   const [filterLeague, setFilterLeague] = useState('');
   const [filterLevel, setFilterLevel] = useState('');
   const [filterResult, setFilterResult] = useState('');
 
-  const load = useCallback(async (date: string) => {
+  const load = useCallback(async (date: string, pageNum: number = 1) => {
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch(`/api/goal-signals?action=records&date=${date}`);
+      const resp = await fetch(`/api/goal-signals?action=records&date=${date}&page=${pageNum}&limit=${limit}`);
       if (!resp.ok) { setError('Veri alinamadi'); setSignals([]); return; }
       const data = await resp.json();
       const records = data.records ?? [];
       setSignals(records);
+      setTotal(data.total ?? records.length);
+      setPage(data.page ?? pageNum);
 
       // Fetch logos for all teams
       if (records.length > 0) {
@@ -67,7 +75,7 @@ export default function AdminSignalsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(selectedDate); }, [selectedDate, load]);
+  useEffect(() => { load(selectedDate, 1); }, [selectedDate, limit, load]);
 
   // Sort: en yeni sinyal en ustte (signalTimestamp DESC)
   // Filter: lig, level, sonuc
@@ -95,7 +103,7 @@ export default function AdminSignalsPage() {
   const levels = useMemo(() => [...new Set(signals.map(s => s.signalLevel))].sort(), [signals]);
 
   // Stats
-  const total = filtered.length;
+  const filteredTotal = filtered.length;
   const withGoal = filtered.filter(s => s.goalHappened === true).length;
   const withoutGoal = filtered.filter(s => s.goalHappened === false).length;
   const pending = filtered.filter(s => s.goalHappened == null).length;
@@ -403,10 +411,28 @@ export default function AdminSignalsPage() {
               </table>
             </div>
             <div className="flex items-center justify-between px-4 py-2.5 text-[10px] text-gray-400 border-t border-gray-100 bg-gray-50">
-              <span>Toplam {filtered.length} sinyal &middot; {withGoal} gol &middot; {withoutGoal} basarisiz &middot; {pending} bekleyen</span>
-              <span className="flex items-center gap-1">
-                <ExternalLink className="size-3" /> Satira tiklayarak mac detayini acin
-              </span>
+              <span>Toplam {total} sinyal · Sayfa {page}/{totalPages}</span>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={limit}
+                  onChange={e => { const v = parseInt(e.target.value, 10); setLimit(v); setPage(1); }}
+                  className="text-[10px] border border-gray-200 rounded px-1.5 py-0.5"
+                >
+                  <option value={25}>25/sayfa</option>
+                  <option value={50}>50/sayfa</option>
+                  <option value={100}>100/sayfa</option>
+                  <option value={200}>200/sayfa</option>
+                </select>
+                <button onClick={() => load(selectedDate, page - 1)} disabled={page <= 1}
+                  className="px-1.5 py-0.5 rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed">
+                  <ChevronLeft className="size-3 inline" /> Önceki
+                </button>
+                <button onClick={() => load(selectedDate, page + 1)} disabled={page >= totalPages}
+                  className="px-1.5 py-0.5 rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed">
+                  Sonraki <ChevronRight className="size-3 inline" />
+                </button>
+                <ExternalLink className="size-3 ml-2" /> Satira tıkla
+              </div>
             </div>
           </div>
         </>

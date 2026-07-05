@@ -9,6 +9,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { loadFlags, setFlag, getAllOverrides } from '@/lib/flags';
+import { CALIBRATION_PARAMS } from '@/lib/calibration';
+import { db } from '@/lib/db';
 
 interface FeatureFlag {
   key: string;
@@ -129,7 +131,7 @@ export async function GET() {
   const overrides = await getAllOverrides();
 
   const flags: FeatureFlag[] = FLAGS.map(f => {
-    // Öncelik: DB override → process.env → default
+    // Priorite: DB override → process.env → default
     const raw = overrides[f.key] ?? process.env[f.key];
     const effectiveValue = raw ?? f.default;
     const overridden = f.key in overrides;
@@ -142,26 +144,64 @@ export async function GET() {
     };
   });
 
+  // P3: Include current calibration params from live memory
   return NextResponse.json({
     flags,
+    calibration: {
+      L: CALIBRATION_PARAMS.L,
+      k: CALIBRATION_PARAMS.k,
+      x0: CALIBRATION_PARAMS.x0,
+      T: CALIBRATION_PARAMS.T,
+    },
     docs: '/docs/FEATURE_FLAGS.md',
   });
 }
 
-// ── PATCH: runtime flag override ─────────────────────────────────
+// ── PATCH: runtime flag override veya calibration params ─────────────────────────────────
 export async function PATCH(request: NextRequest) {
   await loadFlags();
 
-  let body: { key?: string; value?: string | null };
+  let body: { key?: string; value?: string | null; calibration?: { L?: number; k?: number; x0?: number; T?: number }; updatedBy?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
   }
 
+  // P3: Handle calibration param updates
+  if (body.calibration) {
+    const { L, k, x0, T } = body.calibration;
+    if (L != null) CALIBRATION_PARAMS.L = L;
+    if (k != null) CALIBRATION_PARAMS.k = k;
+    if (x0 != null) CALIBRATION_PARAMS.x0 = x0;
+    if (T != null) CALIBRATION_PARAMS.T = T;
+    // Persist to DB
+    await db.systemConfig.upsert({
+      where: { key: 'calibration.params' },
+      create: {
+        key: 'calibration.params',
+        value: { L: CALIBRATION_PARAMS.L, k: CALIBRATION_PARAMS.k, x0: CALIBRATION_PARAMS.x0, T: CALIBRATION_PARAMS.T },
+        updatedBy: body.updatedBy ?? 'admin',
+      },
+      update: {
+        value: { L: CALIBRATION_PARAMS.L, k: CALIBRATION_PARAMS.k, x0: CALIBRATION_PARAMS.x0, T: CALIBRATION_PARAMS.T },
+        updatedBy: body.updatedBy ?? 'admin',
+      },
+    });
+    return NextResponse.json({
+      ok: true,
+      calibration: {
+        L: CALIBRATION_PARAMS.L,
+        k: CALIBRATION_PARAMS.k,
+        x0: CALIBRATION_PARAMS.x0,
+        T: CALIBRATION_PARAMS.T,
+      },
+    });
+  }
+
   if (!body.key || !ALLOWED_KEYS.has(body.key)) {
     return NextResponse.json(
-      { error: `Geçersiz flag key. İzin verilenler: ${[...ALLOWED_KEYS].join(', ')}` },
+      { error: `Invalid flag key. Allowed: ${[...ALLOWED_KEYS].join(', ')}` },
       { status: 400 },
     );
   }

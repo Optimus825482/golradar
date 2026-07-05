@@ -11,6 +11,7 @@ import {
   expireSignalsForHalftime,
   checkPendingSignals,
   startExpiryChecker,
+  getSignalCountForDate,
 } from "@/lib/goalSignalTracker";
 import { rateLimit, RATE_LIMIT_DEFAULTS } from "@/lib/rateLimit";
 import { getClientIp, isSameOrigin, requireAdmin } from "@/lib/securityHelpers";
@@ -145,8 +146,21 @@ export async function GET(request: Request) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return NextResponse.json({ error: "date must be YYYY-MM-DD" }, { status: 400 });
       }
-      const records = await getSignalRecordsForDate(date);
-      return NextResponse.json({ date, count: records.length, records });
+      // P4: Server-side pagination
+      const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+      const limit = Math.min(200, Math.max(10, parseInt(searchParams.get("limit") ?? "50", 10) || 50));
+      const [records, total] = await Promise.all([
+        getSignalRecordsForDate(date, page, limit),
+        getSignalCountForDate(date),
+      ]);
+      return NextResponse.json({
+        date,
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        records,
+      });
     }
 
     if (action === "match") {

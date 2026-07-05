@@ -136,12 +136,23 @@ function fromGoalSignalRecord(record: GoalSignalRecord) {
 /**
  * All signals for a single date. Ordered by signalTimestamp ASC.
  */
-export async function findByDate(date: string): Promise<GoalSignalRecord[]> {
+export async function findByDate(date: string, page?: number, limit?: number): Promise<GoalSignalRecord[]> {
+  const skip = page != null && limit != null ? (page - 1) * limit : undefined;
+  const take = limit ?? undefined;
   const rows = await db.signal.findMany({
     where: { date },
     orderBy: { signalTimestamp: 'asc' },
+    skip,
+    take,
   });
   return rows.map(toGoalSignalRecord);
+}
+
+/**
+ * Count signals for a given date. Used with findByDate for pagination.
+ */
+export async function countByDate(date: string): Promise<number> {
+  return db.signal.count({ where: { date } });
 }
 
 /**
@@ -230,7 +241,7 @@ export async function findRecent(days: number): Promise<GoalSignalRecord[]> {
 export async function findExisting(
   matchCode: number,
   date: string,
-  signalSide: string,
+  signalSide: 'home' | 'away' | 'both',
 ): Promise<(GoalSignalRecord & { id: string }) | null> {
   const row = await db.signal.findFirst({
     where: { matchCode, date, signalSide, goalHappened: null }, // only pending

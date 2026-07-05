@@ -38,7 +38,7 @@ interface PipelineConfig {
 
 export async function updatePipelineProgress(
   runId: string,
-  status: string,
+  status: 'pending' | 'extracting' | 'training' | 'comparing' | 'done' | 'failed',
   progressPct: number,
   step: string,
 ): Promise<void> {

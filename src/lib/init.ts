@@ -15,6 +15,16 @@ if (typeof window === "undefined") {
     for (let attempt = 1; attempt <= retriesLeft; attempt++) {
       try {
         await seedDefaultAdmin();
+        // P2: Pre-load Elo ratings cache from DB
+        const { initEloCache: initElo } = await import("./eloRating");
+        await initElo().catch((e: unknown) => {
+          logError("Init", "initEloCache failed:", e);
+        });
+        // P3: Seed calibration defaults to SystemConfig on first boot
+        const { hydrateCalibrationFromDB } = await import("./calibration");
+        await hydrateCalibrationFromDB().catch((e: unknown) => {
+          logError("Init", "hydrateCalibrationFromDB failed:", e);
+        });
         // Dynamic import — build'ta Prisma tetiklenmesin
         const { refreshProfileCache } = await import("./smartCalibration");
         await refreshProfileCache().catch(() => {});

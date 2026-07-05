@@ -1,5 +1,11 @@
 // ── Elo Rating System for Football ───────────────────────────────
 // Reference: Elo, A.E. (1978). "The Rating of Chessplayers, Past and Present"
+//
+// P2 (2026-07-05): Migrated from filesystem JSON to PostgreSQL + cache.
+// Default source is now the TeamRating table with JSON file fallback.
+
+import { db } from "./db";
+import { logError } from "./devLog";
 
 export interface EloRating {
   rating: number;
@@ -17,17 +23,38 @@ export interface EloPrediction {
   ratingDiff: number;
 }
 
-function getServerFs(): { fs: any; path: any } | null {
+// P2: JSON backup path — keep for resilience, DB is primary
+function getJSONPath(): string | null {
   if (typeof window !== 'undefined') return null;
   try {
-    return { fs: require('fs'), path: require('path') };
+    const { join } = require('path');
+    const dir = join(process.cwd(), 'data', 'elo-ratings');
+    require('fs').mkdirSync(dir, { recursive: true });
+    return join(dir, 'ratings.json');
   } catch { return null; }
 }
 
-const s = getServerFs();
-const path = s?.path;
-const DATA_DIR = path ? path.join(process.cwd(), 'data', 'elo-ratings') : '';
-const RATINGS_FILE = DATA_DIR && path ? path.join(DATA_DIR, 'ratings.json') : '';
+function readJSONBackup(): Map<string, EloRating> {
+  const p = getJSONPath();
+  if (!p) return new Map();
+  try {
+    if (require('fs').existsSync(p)) {
+      const data: Record<string, EloRating> = JSON.parse(require('fs').readFileSync(p, 'utf-8'));
+      return new Map(Object.entries(data));
+    }
+  } catch { /* ignore */ }
+  return new Map();
+}
+
+function writeJSONBackup(cache: Map<string, EloRating>): void {
+  const p = getJSONPath();
+  if (!p) return;
+  try {
+    const obj: Record<string, EloRating> = {};
+    cache.forEach((v, k) => { obj[k] = v; });
+    require('fs').writeFileSync(p!, JSON.stringify(obj, null, 2));
+  } catch { /* ignore */ }
+}
 
 const K_BASE = 50;
 const HOME_ADVANTAGE = 50;
@@ -37,45 +64,63 @@ const PROVISIONAL_THRESHOLD = 10;
 let ratingsCache: Map<string, EloRating> | null = null;
 let cacheLoaded = false;
 
-function ensureDataDir(): void {
-  const s2 = getServerFs();
-  if (!s2) return;
-  if (!s2.fs.existsSync(DATA_DIR)) {
-    s2.fs.mkdirSync(DATA_DIR, { recursive: true });
+/** P2: Pre-load cache from DB. Call once at boot (init.ts). */
+export async function initEloCache(): Promise<void> {
+  try {
+    const rows = await db.teamRating.findMany({
+      select: { teamName: true, elo: true, matchesPlayed: true, formJson: true, lastUpdated: true },
+    });
+    if (rows.length > 0) {
+      ratingsCache = new Map();
+      for (const r of rows) {
+        let recentResults: ('W' | 'D' | 'L')[] = [];
+        try { recentResults = JSON.parse(r.formJson || '[]'); } catch { /* keep empty */ }
+        ratingsCache.set(r.teamName, {
+          rating: r.elo,
+          matchesPlayed: r.matchesPlayed,
+          lastUpdated: r.lastUpdated.getTime(),
+          recentResults,
+        });
+      }
+      cacheLoaded = true;
+      return;
+    }
+  } catch (e) {
+    logError('eloRating', 'initEloCache DB read failed, falling back to JSON:', e);
   }
+  // Fallback: load from JSON backup
+  ratingsCache = readJSONBackup();
+  cacheLoaded = true;
+}
+
+/** P2: Fire-and-forget DB write. JSON backup kept for resilience. */
+function persistToDB(key: string, r: EloRating): void {
+  db.teamRating.upsert({
+    where: { teamName: key },
+    create: {
+      teamName: key, elo: r.rating, matchesPlayed: r.matchesPlayed,
+      formJson: JSON.stringify(r.recentResults), lastUpdated: new Date(r.lastUpdated),
+    },
+    update: {
+      elo: r.rating, matchesPlayed: r.matchesPlayed,
+      formJson: JSON.stringify(r.recentResults), lastUpdated: new Date(r.lastUpdated),
+    },
+  }).catch((e) => logError('eloRating', 'DB persist failed:', e));
 }
 
 function loadRatings(): Map<string, EloRating> {
   if (cacheLoaded && ratingsCache) return ratingsCache;
-  try {
-    const s2 = getServerFs();
-    if (!s2) { ratingsCache = new Map(); cacheLoaded = true; return ratingsCache; }
-    ensureDataDir();
-    if (s2.fs.existsSync(RATINGS_FILE)) {
-      const data: Record<string, EloRating> = JSON.parse(s2.fs.readFileSync(RATINGS_FILE, 'utf-8'));
-      ratingsCache = new Map(Object.entries(data));
-    } else {
-      ratingsCache = new Map();
-    }
-  } catch {
-    ratingsCache = new Map();
-  }
+  // Sync fallback: JSON file (boot will have called initEloCache already for DB)
+  ratingsCache = readJSONBackup();
   cacheLoaded = true;
   return ratingsCache;
 }
 
 function saveRatings(): void {
   if (!ratingsCache) return;
-  try {
-    const s2 = getServerFs();
-    if (!s2) return;
-    ensureDataDir();
-    const obj: Record<string, EloRating> = {};
-    ratingsCache.forEach((v, k) => { obj[k] = v; });
-    s2.fs.writeFileSync(RATINGS_FILE, JSON.stringify(obj, null, 2));
-  } catch (e) {
-    console.error('[Elo] Failed to save ratings:', e);
-  }
+  writeJSONBackup(ratingsCache);
+  // P2: Also persist latest write to DB as fire-and-forget
+  // We write the changed entries via the caller functions directly
 }
 
 function normalizeTeamName(name: string): string {
@@ -166,6 +211,9 @@ export function updateRatings(home: string, away: string, homeGoals: number, awa
   ratings.set(awayKey, awayRating);
   ratingsCache = ratings;
   saveRatings();
+  // P2: Fire-and-forget DB persist
+  persistToDB(homeKey, homeRating);
+  persistToDB(awayKey, awayRating);
   return { home: homeRating, away: awayRating };
 }
 
@@ -263,6 +311,8 @@ export function setRating(team: string, rating: number, matchesPlayed?: number):
   ratings.set(key, entry);
   ratingsCache = ratings;
   saveRatings();
+  // P2: Fire-and-forget DB persist
+  persistToDB(key, entry);
   return entry;
 }
 
@@ -283,6 +333,8 @@ export function bulkSetRatings(entries: Array<{ team: string; rating: number; ma
       lastUpdated: Date.now(),
       recentResults: existing?.recentResults ?? [],
     });
+    // P2: Fire-and-forget DB persist
+    persistToDB(key, ratings.get(key)!);
     count++;
   }
   ratingsCache = ratings;

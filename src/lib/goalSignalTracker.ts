@@ -26,6 +26,7 @@ import {
   findExisting as repoFindExisting,
   updateLastValues as repoUpdateLastValues,
   findByDate as repoFindByDate,
+  countByDate as repoCountByDate,
   findByMatch as repoFindByMatch,
   findAllPendingForMatch as repoFindAllPending,
   getAvailableDates as repoGetDates,
@@ -807,8 +808,15 @@ export async function calculateSignalStats(
 
 export async function getSignalRecordsForDate(
   date: string,
+  page?: number,
+  limit?: number,
 ): Promise<GoalSignalRecord[]> {
-  return repoFindByDate(date);
+  return repoFindByDate(date, page, limit);
+}
+
+/** P4: Count signals for a date (used with pagination). */
+export async function getSignalCountForDate(date: string): Promise<number> {
+  return repoCountByDate(date);
 }
 
 export async function getSignalForMatch(

@@ -10,7 +10,85 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ── Gol Radarı: Admin User ───────────────────────────────────────
+// ── PostgreSQL Enums ─────────────────────────────────────────────
+// Native DB-level enum types for type safety and query performance.
+// 2026-07-05: Migrated from String fields per PLANNED.md P1.
+
+enum SignalSide {
+  home
+  away
+  both
+}
+
+enum SignalLevel {
+  low
+  medium
+  high
+  critical
+}
+
+enum SignalTier {
+  elite
+  confirmed
+  watch
+  radar
+}
+
+enum GoalSide {
+  home
+  away
+}
+
+enum PredictionSide {
+  home
+  away
+  both
+  none
+}
+
+enum PredictionLevel {
+  low
+  medium
+  high
+  critical
+}
+
+enum TrainingDatasetStatus {
+  ready
+  consumed
+  failed
+}
+
+enum FeatureSetStatus {
+  generating
+  ready
+  failed
+}
+
+enum PipelineRunStatus {
+  pending
+  extracting
+  training
+  comparing
+  done
+  failed
+}
+
+enum MatchEventType {
+  goal
+  shot_on_target
+  shot_off_target
+  yellow_card
+  red_card
+  substitution
+  penalty_missed
+  halftime
+  fulltime
+}
+
+// NOTE: ModelArtifact.name and PredictionLog.modelVariant stay String (dynamic values)
+// "champion", "shadow:gbdt@1.0.0", "team-strength", "xt-grid", etc.
+
 model User {
   id                 String    @id @default(cuid())
   username           String    @unique
@@ -79,7 +157,7 @@ model MatchSnapshot {
 model MatchEvent {
   id        String   @id @default(cuid())
   matchCode Int
-  eventType String // "goal", "shot_on_target", "red_card", "yellow_card", etc.
+  eventType MatchEventType
   side      String // "home" or "away"
   minute    Int
   player    String? // Player name if available
@@ -100,8 +178,8 @@ model PredictionLog {
   homeScore     Int // Home team threat score
   awayScore     Int // Away team threat score
   calibratedP   Float // Calibrated probability (0-1)
-  side          String // "home", "away", "both", "none"
-  level         String // "low", "medium", "high", "critical"
+  side          PredictionSide // "home", "away", "both", "none"
+  level         PredictionLevel // "low", "medium", "high", "critical"
   factorsJson   String // JSON array of active factors
   goalScored    Boolean? // null until match ends and we check
   minutesToGoal Int? // How many minutes after this prediction a goal was scored
@@ -246,11 +324,11 @@ model Signal {
   date      String // YYYY-MM-DD (local match date)
 
   signalMinute  Int
-  signalSide    String // "home" | "away" | "both"
+  signalSide    SignalSide // "home" | "away" | "both"
   signalScore   Int // Raw Goal Radar score 0-100 (first signal)
   calibratedP   Float // Calibrated probability 0-1 (first signal)
   poissonP      Float // Dixon-Coles Poisson probability (first signal)
-  signalLevel   String // "low" | "medium" | "high" | "critical"
+  signalLevel   SignalLevel // "low" | "medium" | "high" | "critical"
   activeFactors Json // string[]
 
   // Updated every poll while signal is active (score keeps changing)
@@ -270,7 +348,7 @@ model Signal {
   // Goal verification (filled later by checkForGoals / expire)
   goalHappened       Boolean?
   goalMinute         Int?
-  goalSide           String? // "home" | "away"
+  goalSide           GoalSide? // "home" | "away"
   correctPrediction  Boolean?
   minutesAfterSignal Int?
   goalTimestamp      DateTime?
@@ -283,7 +361,7 @@ model Signal {
   escalated Boolean @default(false) // True when lastScore >= signalScore + 10
 
   // Multi-Tier N-of-M confirmation (Faz A P0)
-  signalTier String? // "elite" | "confirmed" | "watch" | "radar"
+  signalTier SignalTier? // "elite" | "confirmed" | "watch" | "radar"
 
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
@@ -359,7 +437,7 @@ model TrainingDataset {
   logLoss    Float?
   path       String // data/ml-training/5min-20260613.jsonl
   sha256     String
-  status     String    @default("ready") // "ready" | "consumed" | "failed"
+  status     TrainingDatasetStatus    @default(ready) // "ready" | "consumed" | "failed"
   errorMsg   String?
   // Bounding the export — old data may be dropped, recent data always kept.
   dataStart  DateTime? // Earliest createdAt included in this export
@@ -377,7 +455,7 @@ model TrainingDataset {
 // for A/B comparison in the backtest pipeline.
 model ModelArtifact {
   id           String    @id @default(cuid())
-  name         String // "gbdt" | "xgb" | "inplay" | "team-strength" | "xt-grid"
+  name         String // "gbdt" | "xgb" | "inplay" | "team-strength" | "xt-grid" | "lightgbm" | "gap" | "pi" | "glicko2"
   version      String // semver: "1.0.0"
   createdAt    DateTime  @default(now())
   metricsJson  String // {brier, logLoss, accuracy, calibrationError, n, trainRows, trainHorizon}
@@ -428,7 +506,7 @@ model FeatureSet {
   featureCount Int
   sha256       String
   path         String
-  status       String    @default("generating")
+  status       FeatureSetStatus    @default(generating) // "generating" | "ready" | "failed"
   errorMsg     String?
   dataStart    DateTime?
   dataEnd      DateTime?
@@ -445,7 +523,7 @@ model PipelineRun {
   completedAt            DateTime?
   modelName              String
   horizonMin             Int
-  status                 String    @default("pending")
+  status                 PipelineRunStatus    @default(pending)
   progressPct            Int       @default(0)
   step                   String    @default("")
   errorMsg               String?

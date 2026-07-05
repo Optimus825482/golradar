@@ -2,13 +2,15 @@
 FROM oven/bun:1-alpine AS builder
 WORKDIR /app
 
-RUN apk add --no-cache openssl-dev
+RUN apk add --no-cache openssl-dev nodejs
 
 COPY package.json bun.lock ./
 # --frozen-lockfile kaldırıldı çünkü lockfile repo'da güncel olmayabilir
 RUN bun install
 
 COPY prisma ./prisma
+# Bun's WASM validation sometimes fails on Alpine; use Node.js runtime
+ENV PRISMA_CLIENT_ENGINE_TYPE=binary
 RUN bunx prisma generate
 
 COPY . .
@@ -23,6 +25,7 @@ LABEL description="Optimus Gol Radari"
 ENV NODE_ENV=production
 ENV PORT=3012
 ENV HOSTNAME=0.0.0.0
+ENV PRISMA_CLIENT_ENGINE_TYPE=binary
 
 # Python + Node + Prisma için gerekli paketler
 # libstdc++: curl_cffi prebuilt wheels için gerekli

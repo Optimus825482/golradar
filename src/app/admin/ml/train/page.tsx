@@ -110,23 +110,9 @@ export default function AdminMLTrainPage() {
     setError(null);
     setSuccess(null);
     try {
-      // In-memory models: use their own fit endpoint
+      // In-memory models: no API call needed. Show info message.
       if (!SIDECAR_MODELS.has(modelName)) {
-        const res = await authFetch(`/api/admin/ml/train`, {
-          method: 'POST',
-          body: JSON.stringify({
-            name: modelName,
-            version,
-            horizon_min: horizonMin,
-          }),
-        });
-        const data = await res.json();
-        if (data.ok || data.status === 'queued') {
-          setSuccess(`✓ ${modelName} fit başlatıldı. Model in-memory olarak güncellenecek.`);
-          load();
-        } else {
-          setError(data.error || 'Fit başlatılamadı');
-        }
+        setSuccess(`ℹ ${modelName.toUpperCase()}: In-memory rating modeli — maç sonuçlarıyla otomatik güncellenir. Sidecar eğitimi gerekmez.`);
         setLoading(false);
         return;
       }
@@ -151,6 +137,11 @@ export default function AdminMLTrainPage() {
   };
 
   const startPipeline = async () => {
+    // In-memory models don't use the pipeline
+    if (!SIDECAR_MODELS.has(modelName)) {
+      setSuccess(`ℹ ${modelName.toUpperCase()}: In-memory model — pipeline gerekmez.`);
+      return;
+    }
     setPipelineLoading(true);
     setError(null);
     setSuccess(null);

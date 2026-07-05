@@ -62,6 +62,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: "ml", href: "/admin/ml", label: "ML Modelleri", icon: Brain, description: "Artifactlar, champions, performans" },
       { key: "ml-train", href: "/admin/ml/train", label: "ML Eğitimi", icon: FlaskConical, description: "Manuel eğitim + pipeline" },
+      { key: "ml-datasets", href: "/admin/ml/datasets", label: "Datasetler", icon: Database, description: "Dataset analizi, label dağılımı" },
+      { key: "ml-labeling", href: "/admin/ml/labeling", label: "Label'leme", icon: FileJson, description: "Maç etiketleme, dataset üret" },
       { key: "ml-backtest", href: "/admin/ml/backtest", label: "ML Backtest", icon: BarChart3, description: "Model backtest + A/B karşılaştırma" },
     ],
   },

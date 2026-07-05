@@ -241,14 +241,19 @@
 ## Özet Durum
 
 ```
-Faz 0-5 (Tamamlanan):  47%  ████████████████
-Faz 6A (Kolay):        14 iş  ← BAŞLA
-Faz 6B (Orta):         11 iş
-Faz 6C (Zor):          18 iş
-                        ────
-Toplam kalan:           43 iş
+Faz 0 (Acil):       ████████████████ 100%   ✅ 3/3 fix + 2 skip
+Faz 1 (ML):         ████████████████ 100%   ✅ 12/14 + 2 skip
+Faz 2 (Entegr.):    ██████████████░░  55%   ✅ 12/24 + 3 skip
+Faz 3 (DB):         ███████████████░  70%   ✅ 8/11 + 1 skip
+Faz 4 (Frontend):   ██████████████░░  62%   ✅ 10/16 + 1 skip  
+Faz 5 (İyileş.):    ████████████████ 100%   ✅ hepsi → Faz 6
+Faz 6A (Kolay):     ██████████████░░  57%   ✅ 10/16 (+2 yeni)
+Faz 6B (Orta):      ░░░░░░░░░░░░░░░░   0%
+Faz 6C (Zor):       ░░░░░░░░░░░░░░░░   0%
+                    ────────────────
+Toplam tamamlanan:   55 fix | Kalan: 35 fix
 ```
 
-## Sıradaki Adım
+**Deploy:** ✅ Başarılı — `ModelArtifact.updatedAt` rollback + heap 1024MB
 
-**Faz 6A** — kolay fix'ler. Başlıyoruz.
+**Sıradaki:** Faz 6B (11 orta zorlukta fix)

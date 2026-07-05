@@ -336,12 +336,10 @@ function round3(v: number): number {
 let _singletonState: GapRatingState | null = null;
 let _initializing = false;
 let _initialized = false;
+let _initPromise: Promise<void> | null = null; // singleton async lock
 
 /**
  * Singleton GAP state — module seviyesinde tek instance.
- * predictEnsemble her çağrıldığında yeni state oluşturmak yerine
- * bu singleton'ı kullanır. State, MatchSnapshot verisiyle kademeli
- * olarak doldurulur.
  */
 export function getGapState(): GapRatingState {
   if (!_singletonState) {
@@ -351,15 +349,14 @@ export function getGapState(): GapRatingState {
 }
 
 /**
- * Mevcut MatchSnapshot verisiyle GAP state'ini doldur.
- * Backfill-gap-pi-ratings.ts ile aynı mantıkta çalışır.
- * İlk predictEnsemble çağrısında otomatik tetiklenir.
+ * Initialize GAP state from DB snapshots. Async-safe: concurrent callers
+ * share the same promise (singleton async pattern).
  */
 export async function initializeGapState(limit = 20000): Promise<void> {
-  if (_initialized || _initializing) return;
-  _initializing = true;
-
-  try {
+  if (_initialized) return;
+  if (_initPromise) { await _initPromise; return; }
+  _initPromise = (async () => {
+    try {
     const { db } = await import('@/lib/db');
     const snapshots = await db.matchSnapshot.findMany({
       orderBy: { createdAt: 'desc' },

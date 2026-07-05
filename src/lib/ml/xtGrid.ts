@@ -80,6 +80,11 @@ function parseGridFile(path: string): XtGrid | null {
   }
 }
 
+// Note: existsSync + readdirSync + readFileSync are synchronous by design
+// because loadXtGrid is called synchronously in hot-path model loading.
+// Async versions would require restructuring callers across 12+ files.
+// For now, these are cached (1h TTL) so they only hit disk once per hour.
+
 export function loadXtGrid(version?: string): XtGrid {
   if (cachedGrid && Date.now() - cachedAt < CACHE_TTL_MS) return cachedGrid;
   const path = findGridFile(version);

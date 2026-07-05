@@ -67,14 +67,19 @@ export async function fetchHistoricalMatchesRange(
   const end = new Date(endDate);
   const allMatches: NesineHistoricalMatch[] = [];
 
-  // Nesine API'si günde ~100 maç döndürür, rate limit yok
-  // Günde 1 istek = 365 gün için 365 istek
+  // Batch 7 days at a time for speed
+  const BATCH_SIZE = 7;
+  const dates: string[] = [];
   const current = new Date(start);
   while (current <= end) {
-    const dateStr = current.toISOString().slice(0, 10);
-    const matches = await fetchHistoricalMatches(dateStr);
-    allMatches.push(...matches);
+    dates.push(current.toISOString().slice(0, 10));
     current.setDate(current.getDate() + 1);
+  }
+
+  for (let i = 0; i < dates.length; i += BATCH_SIZE) {
+    const batch = dates.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(batch.map(d => fetchHistoricalMatches(d).catch(() => [] as NesineHistoricalMatch[])));
+    for (const r of results) allMatches.push(...r);
   }
 
   return allMatches;

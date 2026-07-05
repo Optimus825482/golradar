@@ -57,6 +57,40 @@ type RawMatch = Record<string, unknown> & {
 // idempotent olduğundan Map temizliği gerekmez (no-op yapılır).
 const lastSeenGoals = new Map<number, { home: number; away: number }>();
 
+// ── Bounded prediction-write queue (OOM guard) ──────────────────
+// Prevents unbounded promise accumulation when DB writes lag.
+// Drops oldest pending write when queue exceeds max depth.
+const PREDICTION_QUEUE_MAX = 50;
+const predictionQueue: Array<() => Promise<void>> = [];
+let predictionWritesInFlight = 0;
+let isDraining = false;
+
+async function drainPredictionQueue(): Promise<void> {
+  if (isDraining) return;
+  isDraining = true;
+  try {
+    while (predictionQueue.length > 0 && predictionWritesInFlight < 5) {
+      const fn = predictionQueue.shift()!;
+      predictionWritesInFlight++;
+      try { await fn(); } catch { /* caught inside fn */ }
+      finally { predictionWritesInFlight--; }
+    }
+  } finally {
+    isDraining = false;
+  }
+}
+
+function enqueuePredictionWrite(fn: () => Promise<void>): void {
+  predictionQueue.push(fn);
+  if (predictionQueue.length > PREDICTION_QUEUE_MAX) {
+    predictionQueue.shift(); // drop oldest pending
+  }
+  // Fire-and-forget drain — await not needed, concurrency bounded by
+  // the in-flight counter. Sequential execution within the drain loop
+  // is fine because each write is independent (DB insert).
+  void drainPredictionQueue();
+}
+
 const emptyResponse = () => NextResponse.json({
   matches: [], byLeague: {}, version: 0, count: 0, pressureData: {}, goalRadarData: {},
 });
@@ -351,125 +385,127 @@ export async function GET(request: Request) {
       // accumulate so the calibration + backtest systems see the full
       // distribution.
       if (goalRadar && parsed.isLive) {
-        const homeElo = getRating(parsed.home)?.rating ?? null;
-        const awayElo = getRating(parsed.away)?.rating ?? null;
-        const matchMinute = parseInt(parsed.minute) || 0;
-        void (async () => {
-          let featuresJson: string | null = null;
-          let championP: number | null = null;
-          try {
-	            const features = await extractFeatures({
-              stats: parsed.stats,
-              minute: parsed.minute,
-              isLive: true,
-              homeGoals: parsed.homeGoals,
-              awayGoals: parsed.awayGoals,
-              homeTeam: parsed.home,
-              awayTeam: parsed.away,
-              pressureHistory: hist.length > 0 ? hist.map((s: PressureSnapshot) => ({
-                homePressure: s.homePressure,
-                awayPressure: s.awayPressure,
-                stats: s.stats,
-                homeGoals: s.homeGoals,
-                awayGoals: s.awayGoals,
-              })) : undefined,
-              // E5: referee name from FotMob infobox → RefereeStats DB
-              // lookup. With a 5-min in-memory cache (refereeStats.ts)
-              // this is one query per unique active referee per 5 min,
-              // regardless of how many matches they officiate.
-              refereeName: fotmobData?.infoBox?.referee ?? null,
-              // E1: FotMob shotmap → shot geometry features (angle, distance, GK proxy)
-              shotmap: fotmobData?.shotmap ?? undefined,
-              fotmobHomeTeamId: fotmobData?.homeTeam?.id ?? null,
-              fotmobAwayTeamId: fotmobData?.awayTeam?.id ?? null,
-              // E2: Closing line value from Goaloo initial odds (Wilkens 2026)
-              closingOdds: closingOddsProxy ? {
-                over25: closingOddsProxy.over25Implied,
-                btts: closingOddsProxy.bttsYesImplied,
-                homeWin: closingOddsProxy.homeImplied,
-                draw: closingOddsProxy.drawImplied,
-                awayWin: closingOddsProxy.awayImplied,
-              } : undefined,
-              skipXtGrid: true,
-            });
-            const fa = featuresToArray(features);
-            featuresJson = JSON.stringify(fa);
-            // P1.4: feed drift monitor — async-safe, no backpressure impact
-            try { pushFeatureSample(features); } catch { /* best-effort */ }
-            // Run champion XGB/GBDT model on the same features for ensemble-calibratedP
-            for (const championName of ["xgb", "gbdt"] as const) {
-              try {
-                const champ = await loadXgbChampion(championName);
-                if (champ) {
-                  championP = predictXgb(champ.model, fa);
-                  break;
-                }
-              } catch (e) { logError('route', e); /* try next */ }
-            }
-            // Faz A4 N-of-M: count how many models in the ensemble
-            // predict >0.5 for the current match. Tier determination
-            // in goalSignalTracker uses this count. predictEnsemble is
-            // best-effort — failure leaves the count at 0 (treated
-            // as "no tier" → 'radar' fallback for backward compat).
-            try {
-              const ensemble = await predictEnsemble({
-                stats: parsed.stats,
-                minute: String(matchMinute),
-                isLive: true,
-                homeGoals: parsed.homeGoals ?? 0,
-                awayGoals: parsed.awayGoals ?? 0,
-                homeTeam: parsed.home,
-                awayTeam: parsed.away,
-                // E1+E2: shot geometry + closing odds → ensemble ML inference
-                shotmap: fotmobData?.shotmap ?? undefined,
-                fotmobHomeTeamId: fotmobData?.homeTeam?.id ?? null,
-                fotmobAwayTeamId: fotmobData?.awayTeam?.id ?? null,
-                closingOdds: closingOddsProxy ? {
-                  over25: closingOddsProxy.over25Implied,
-                  btts: closingOddsProxy.bttsYesImplied,
-                  homeWin: closingOddsProxy.homeImplied,
-                  draw: closingOddsProxy.drawImplied,
-                  awayWin: closingOddsProxy.awayImplied,
-                } : undefined,
-                refereeName: fotmobData?.infoBox?.referee ?? null,
-              });
-              if (typeof ensemble.modelAgreementCount === 'number') {
-                goalRadar.modelAgreementCount = ensemble.modelAgreementCount;
-              }
-            } catch (e) { logError('route-ensemble', e); /* best-effort */ }
-          } catch {
-            // features not available — log without featuresJson
-          }
-          // P0.3: Unified calibration path — route through isotonic/sigmoid
-          // regardless of source. ML raw championP no longer bypasses calibration.
-          const finalCalibratedP =
-            championP != null
-              ? applyCalibration(championP)
-              : applyCalibration(goalRadar.score / 100);
-          await db.predictionLog
-            .create({
-              data: {
-                matchCode: parsed.code,
-                minute: matchMinute,
-                rawScore: goalRadar.score,
-                homeScore: goalRadar.homeScore,
-                awayScore: goalRadar.awayScore,
-                calibratedP: finalCalibratedP,
-                side: goalRadar.side ?? "none",
-                level: goalRadar.level,
-                factorsJson: JSON.stringify(goalRadar.factors),
-                featuresJson,
-                homeTeam: parsed.home,
-                awayTeam: parsed.away,
-                league: parsed.league,
-                homeElo: homeElo ? Math.round(homeElo) : null,
-                awayElo: awayElo ? Math.round(awayElo) : null,
-                modelVariant: "champion",
-              },
-            })
-            .catch((e) => { logError('route', e); });
-        })();
-      }
+	        const homeElo = getRating(parsed.home)?.rating ?? null;
+	        const awayElo = getRating(parsed.away)?.rating ?? null;
+	        const matchMinute = parseInt(parsed.minute) || 0;
+	        // ponytail: bounded async queue — drops oldest pending if over capacity.
+	        // Prevents OOM from unbounded promise accumulation when DB writes lag.
+	        enqueuePredictionWrite(async () => {
+	          let featuresJson: string | null = null;
+	          let championP: number | null = null;
+	          try {
+		            const features = await extractFeatures({
+	              stats: parsed.stats,
+	              minute: parsed.minute,
+	              isLive: true,
+	              homeGoals: parsed.homeGoals,
+	              awayGoals: parsed.awayGoals,
+	              homeTeam: parsed.home,
+	              awayTeam: parsed.away,
+	              pressureHistory: hist.length > 0 ? hist.map((s: PressureSnapshot) => ({
+	                homePressure: s.homePressure,
+	                awayPressure: s.awayPressure,
+	                stats: s.stats,
+	                homeGoals: s.homeGoals,
+	                awayGoals: s.awayGoals,
+	              })) : undefined,
+	              // E5: referee name from FotMob infobox → RefereeStats DB
+	              // lookup. With a 5-min in-memory cache (refereeStats.ts)
+	              // this is one query per unique active referee per 5 min,
+	              // regardless of how many matches they officiate.
+	              refereeName: fotmobData?.infoBox?.referee ?? null,
+	              // E1: FotMob shotmap → shot geometry features (angle, distance, GK proxy)
+	              shotmap: fotmobData?.shotmap ?? undefined,
+	              fotmobHomeTeamId: fotmobData?.homeTeam?.id ?? null,
+	              fotmobAwayTeamId: fotmobData?.awayTeam?.id ?? null,
+	              // E2: Closing line value from Goaloo initial odds (Wilkens 2026)
+	              closingOdds: closingOddsProxy ? {
+	                over25: closingOddsProxy.over25Implied,
+	                btts: closingOddsProxy.bttsYesImplied,
+	                homeWin: closingOddsProxy.homeImplied,
+	                draw: closingOddsProxy.drawImplied,
+	                awayWin: closingOddsProxy.awayImplied,
+	              } : undefined,
+	              skipXtGrid: true,
+	            });
+	            const fa = featuresToArray(features);
+	            featuresJson = JSON.stringify(fa);
+	            // P1.4: feed drift monitor — async-safe, no backpressure impact
+	            try { pushFeatureSample(features); } catch { /* best-effort */ }
+	            // Run champion XGB/GBDT model on the same features for ensemble-calibratedP
+	            for (const championName of ["xgb", "gbdt"] as const) {
+	              try {
+	                const champ = await loadXgbChampion(championName);
+	                if (champ) {
+	                  championP = predictXgb(champ.model, fa);
+	                  break;
+	                }
+	              } catch (e) { logError('route', e); /* try next */ }
+	            }
+	            // Faz A4 N-of-M: count how many models in the ensemble
+	            // predict >0.5 for the current match. Tier determination
+	            // in goalSignalTracker uses this count. predictEnsemble is
+	            // best-effort — failure leaves the count at 0 (treated
+	            // as "no tier" → 'radar' fallback for backward compat).
+	            try {
+	              const ensemble = await predictEnsemble({
+	                stats: parsed.stats,
+	                minute: String(matchMinute),
+	                isLive: true,
+	                homeGoals: parsed.homeGoals ?? 0,
+	                awayGoals: parsed.awayGoals ?? 0,
+	                homeTeam: parsed.home,
+	                awayTeam: parsed.away,
+	                // E1+E2: shot geometry + closing odds → ensemble ML inference
+	                shotmap: fotmobData?.shotmap ?? undefined,
+	                fotmobHomeTeamId: fotmobData?.homeTeam?.id ?? null,
+	                fotmobAwayTeamId: fotmobData?.awayTeam?.id ?? null,
+	                closingOdds: closingOddsProxy ? {
+	                  over25: closingOddsProxy.over25Implied,
+	                  btts: closingOddsProxy.bttsYesImplied,
+	                  homeWin: closingOddsProxy.homeImplied,
+	                  draw: closingOddsProxy.drawImplied,
+	                  awayWin: closingOddsProxy.awayImplied,
+	                } : undefined,
+	                refereeName: fotmobData?.infoBox?.referee ?? null,
+	              });
+	              if (typeof ensemble.modelAgreementCount === 'number') {
+	                goalRadar.modelAgreementCount = ensemble.modelAgreementCount;
+	              }
+	            } catch (e) { logError('route-ensemble', e); /* best-effort */ }
+	          } catch {
+	            // features not available — log without featuresJson
+	          }
+	          // P0.3: Unified calibration path — route through isotonic/sigmoid
+	          // regardless of source. ML raw championP no longer bypasses calibration.
+	          const finalCalibratedP =
+	            championP != null
+	              ? applyCalibration(championP)
+	              : applyCalibration(goalRadar.score / 100);
+	          await db.predictionLog
+	            .create({
+	              data: {
+	                matchCode: parsed.code,
+	                minute: matchMinute,
+	                rawScore: goalRadar.score,
+	                homeScore: goalRadar.homeScore,
+	                awayScore: goalRadar.awayScore,
+	                calibratedP: finalCalibratedP,
+	                side: goalRadar.side ?? "none",
+	                level: goalRadar.level,
+	                factorsJson: JSON.stringify(goalRadar.factors),
+	                featuresJson,
+	                homeTeam: parsed.home,
+	                awayTeam: parsed.away,
+	                league: parsed.league,
+	                homeElo: homeElo ? Math.round(homeElo) : null,
+	                awayElo: awayElo ? Math.round(awayElo) : null,
+	                modelVariant: "champion",
+	              },
+	            })
+	            .catch((e) => { logError('route', e); });
+	        });
+	      }
     matches.push({ ...parsed, goalRadar });
   }
 
@@ -505,8 +541,8 @@ export async function GET(request: Request) {
     void autoFetchMissingRatings(teamNames).catch((e) => { logError('route', e); });
   }
 
-  // Prune stale entries from in-memory pressure history (older than 4h)
-  pruneStale(4 * 60 * 60 * 1000);
+  // Prune stale entries from in-memory pressure history (older than 1h)
+  pruneStale(60 * 60 * 1000);
 
   // Resolve FotMob logo URLs from TeamMapping + CSV fallback
   const teamLogos: Record<string, string> = {};

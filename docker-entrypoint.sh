@@ -179,4 +179,4 @@ echo "  Login:  admin / admin123"
 echo "═══════════════════════════════════════════════"
 echo ""
 
-exec node server.js
+exec node --max-old-space-size=512 server.js

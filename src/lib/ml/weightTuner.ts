@@ -228,7 +228,7 @@ interface ModelPredictionRecord {
   timestamp: number;
 }
 
-// Rolling window of recent predictions per model
+// Rolling window of recent predictions per model (process-local, best-effort)
 const MAX_RECORDS = 500;
 const recentRecords: ModelPredictionRecord[] = [];
 

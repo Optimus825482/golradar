@@ -348,24 +348,19 @@ export async function fetchTeamRating(
   teamName: string,
 ): Promise<EloFetchResult | null> {
 
-  // 1. FootballDatabase scraping (ana kaynak — rate limit sorunu yok)
-  const footballdb = await fetchFootballDB(teamName);
-  if (footballdb !== null) {
-    return { rating: footballdb, source: "footballdb", team: teamName };
-  }
+  // Fire all 3 sources concurrently — fastest wins
+  const results = await Promise.allSettled([
+    fetchFootballDB(teamName),
+    fetchClubElo(teamName),
+    estimateFromMatchHistory(teamName),
+  ]);
 
-  // 2. ClubElo API (rate limitli, yedek kaynak)
-  const clubelo = await fetchClubElo(teamName);
-  if (clubelo !== null) {
-    return { rating: clubelo, source: "clubelo", team: teamName };
+  for (const r of results) {
+    if (r.status === 'fulfilled' && r.value !== null) {
+      const source = results.indexOf(r) === 0 ? 'footballdb' : results.indexOf(r) === 1 ? 'clubelo' : 'estimate';
+      return { rating: r.value, source, team: teamName };
+    }
   }
-
-  // 3. Static estimation (conservative fallback)
-  const estimate = estimateFromMatchHistory(teamName);
-  if (estimate !== null) {
-    return { rating: estimate, source: "estimate", team: teamName };
-  }
-
   return null;
 }
 

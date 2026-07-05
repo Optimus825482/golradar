@@ -86,14 +86,23 @@ export function loadXtGrid(version?: string): XtGrid {
   if (!path) { cachedGrid = DEFAULT_GRID; cachedAt = Date.now(); return cachedGrid; }
   const parsed = parseGridFile(path);
   if (!parsed) { cachedGrid = DEFAULT_GRID; cachedAt = Date.now(); return cachedGrid; }
+  // Track path in cache key so retrained artifact invalidates automatically
   cachedGrid = parsed;
   cachedAt = Date.now();
+  cachedGrid.source = path;
   return cachedGrid;
 }
 
 export function invalidateXtGridCache(): void {
   cachedGrid = null;
   cachedAt = 0;
+}
+
+export function invalidateXtGridIfFrom(path: string): void {
+  if (cachedGrid && cachedGrid.source === path) {
+    cachedGrid = null;
+    cachedAt = 0;
+  }
 }
 
 export function xtGridDiagnostics(version?: string): {

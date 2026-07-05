@@ -429,7 +429,8 @@ export async function initializeGapState(limit = 20000): Promise<void> {
   }
 
   _initialized = true;
-  _initializing = false;
+  })();
+  await _initPromise;
 }
 
 /**

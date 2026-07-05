@@ -572,13 +572,14 @@ function extractGameDataFromPayload(payload: any[]): NetScoresGameDetail | null 
     // status=0). To disambiguate: only resolve when the indexed
     // value exists AND is an object/array (references are always
     // objects in Nuxt's serialization). Primitives pass through.
-    const resolve = (val: any, depth = 0): any => {
+    const resolve = (val: any, depth = 0, visited = new Set<number>()): any => {
       if (depth > 15) return val;
       if (typeof val === "number" && val >= 0 && val < payload.length) {
+        if (visited.has(val)) return val; // cycle guard
         const resolved = lookup.get(val);
-        // Only follow reference if target is an object/array (not a primitive)
         if (resolved !== undefined && (typeof resolved === "object" || Array.isArray(resolved))) {
-          return resolve(resolved, depth + 1);
+          visited.add(val);
+          return resolve(resolved, depth + 1, visited);
         }
       }
       if (Array.isArray(val)) return val.map(v => resolve(v, depth + 1));

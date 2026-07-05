@@ -25,6 +25,22 @@ model User {
   @@index([username])
 }
 
+// ── Admin Audit Log ──────────────────────────────────────────────
+// Tracks all state-changing admin operations for accountability.
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String   // "promote" | "reset" | "train" | "settings.change" | "clear.signals" | etc.
+  entity    String   // "ModelArtifact" | "Signal" | "PredictionLog" | "SystemConfig" | etc.
+  details   String?  // Free-form: "promoted xgb@1.2.3 Brier 0.21->0.19"
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([action])
+}
+
 // ── Gol Radarı: Elo Import Job ───────────────────────────────────
 model EloImportJob {
   id            String   @id @default(cuid())
@@ -362,6 +378,7 @@ model ModelArtifact {
   name          String   // "gbdt" | "xgb" | "inplay" | "team-strength" | "xt-grid"
   version       String   // semver: "1.0.0"
   createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
   metricsJson   String   // {brier, logLoss, accuracy, calibrationError, n, trainRows, trainHorizon}
   artifactPath  String   // data/ml-models/<name>-v<version>.json
   sha256        String

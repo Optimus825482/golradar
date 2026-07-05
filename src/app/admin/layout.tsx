@@ -1,6 +1,15 @@
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+
+function SidebarFallback() {
+  return (
+    <aside className="w-64 shrink-0 border-r bg-white p-4">
+      <div className="h-8 w-32 bg-gray-200 rounded animate-pulse" />
+    </aside>
+  );
+}
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
   const cookieStore = await cookies();
@@ -13,7 +22,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
-      <AdminSidebar />
+      <Suspense fallback={<SidebarFallback />}>
+        <AdminSidebar />
+      </Suspense>
       <main className="flex-1 overflow-x-auto">
         <div className="max-w-7xl mx-auto px-3 py-3 md:px-6 md:py-6 animate-in fade-in slide-in-from-bottom-2 duration-300 ease-out">
           {children}

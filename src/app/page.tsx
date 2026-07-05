@@ -277,6 +277,9 @@ export default function OptimusGolRadariPage() {
   useEffect(() => {
     if (!wsData?.matches || !Array.isArray(wsData.matches)) return;
 
+    // Timestamp guard: WS verisi poll verisinden daha eskiyse uygulama
+    if (wsData.timestamp && lastUpdate && wsData.timestamp <= lastUpdate.getTime()) return;
+
     setMatches(prev => {
       if (!prev || prev.length === 0) return prev;
       const wsMap = new Map(wsData.matches.map((m: any) => [m.code, m]));

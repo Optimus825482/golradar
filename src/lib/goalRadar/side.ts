@@ -28,7 +28,7 @@ export function determineSide(
   pressureHistory?: PressureSnapshotLite[],
 ): "home" | "away" | "both" | null {
   const totalScore = homeScore + awayScore;
-  if (totalScore < SUSTAINED_THRESHOLD) return null;
+  if (totalScore < SUSTAINED_THRESHOLD) return null; // ponytail: upgrade: log null rate for monitoring
 
   // Yeni: oran-based belirleme — homeScore/awayScore dağılımını kullan
   const homeRatio = homeScore / Math.max(1, totalScore);

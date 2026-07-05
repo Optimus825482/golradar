@@ -255,18 +255,23 @@ export async function exportTrainingData(
       const extracted = await extractFeatures(input);
       features = featuresToArray(extracted);
     }
-    // NaN/Inf temizleme (Fix D1): XGBoost NaN değerleri tolere etmez
-    features = features.map(v => Number.isFinite(v) ? v : 0);
+	    // NaN/Inf temizleme (Fix D1): XGBoost NaN değerleri tolere etmez
+	    features = features.map(v => Number.isFinite(v) ? v : 0);
 
-    // Feature boyutunu FEATURE_NAMES'e sabitle
-    const TARGET_FEATURE_COUNT = FEATURE_NAMES.length;
-    if (features.length !== TARGET_FEATURE_COUNT) {
-      if (features.length > TARGET_FEATURE_COUNT) {
-        features = features.slice(0, TARGET_FEATURE_COUNT);
-      } else {
-        features = [...features, ...Array(TARGET_FEATURE_COUNT - features.length).fill(0.5)];
-      }
-    }
+	    // Feature boyutunu FEATURE_NAMES'e sabitle + sapma alarmı
+	    const TARGET_FEATURE_COUNT = FEATURE_NAMES.length;
+	    if (features.length !== TARGET_FEATURE_COUNT) {
+	      console.warn(
+	        `[Export] WARNING: feature count mismatch ${features.length} vs expected ${TARGET_FEATURE_COUNT} ` +
+	        `for matchCode=${log.matchCode} minute=${log.minute}. ` +
+	        `Pad/trim applied but investigate featuresJson source.`,
+	      );
+	      if (features.length > TARGET_FEATURE_COUNT) {
+	        features = features.slice(0, TARGET_FEATURE_COUNT);
+	      } else {
+	        features = [...features, ...Array(TARGET_FEATURE_COUNT - features.length).fill(0.5)];
+	      }
+	    }
 
 	    // Primary label: PredictionLog.goalScored + minutesToGoal (backfill).
 	    // FIX (2026-07-05): backfillPredictionLogLabels uses a 15-min horizon
@@ -315,6 +320,18 @@ export async function exportTrainingData(
   // Label distribution sanity check
   const positives = rows.filter((r) => r.label === 1).length;
   const negatives = rows.length - positives;
+  const nullRate = predictionLogs.length > 0
+    ? predictionLogs.filter(l => l.goalScored === null).length / predictionLogs.length
+    : 0;
+
+  // P2 alarm: >50% null goalScored means backfill pipeline is broken
+  if (nullRate > 0.5) {
+    console.warn(
+      `[Export] ALERT: ${(nullRate * 100).toFixed(0)}% of PredictionLog rows have goalScored=null. ` +
+      `Backfill may be stalled. Check finalizeMatchSignals and backfill-labels cron.`,
+    );
+  }
+
   console.log(
     `[Export] ${rows.length} rows, ${positives} positives (${((positives / rows.length) * 100).toFixed(1)}%), ` +
       `${negatives} negatives for horizon=${horizon}min` +

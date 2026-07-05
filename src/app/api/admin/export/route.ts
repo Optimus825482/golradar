@@ -1,6 +1,8 @@
-import { NextResponse } from 'next/server'; import { db } from '@/lib/db';
+import { NextResponse } from 'next/server';
+import { adminRoute } from '@/lib/adminRoute';
+import { db } from '@/lib/db';
 export const dynamic = 'force-dynamic';
-export async function GET(request: Request) {
+export const GET = adminRoute(async (request: Request) => {
   const { searchParams } = new URL(request.url);
   const format = searchParams.get('format') ?? 'json';
   const entity = searchParams.get('entity') ?? 'signals';
@@ -19,4 +21,4 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({ entity, count: rows.length, rows });
   } catch (e) { return NextResponse.json({ error: String(e) }, { status: 500 }); }
-}
+});

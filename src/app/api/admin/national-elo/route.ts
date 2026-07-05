@@ -1,5 +1,6 @@
 // ── Admin: National Team Elo Ratings API ─────────────────────────
 import { NextResponse } from 'next/server';
+import { adminRoute } from '@/lib/adminRoute';
 import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -47,7 +48,7 @@ const COUNTRY_NAMES: Record<string, string> = {
   BS: 'Bahamas', BT: 'Bhutan', BN: 'Brunei',
 };
 
-export async function GET(request: Request) {
+export const GET = adminRoute(async (request: Request) => {
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1'));
   const limit = Math.min(200, parseInt(searchParams.get('limit') ?? '50'));
@@ -71,9 +72,9 @@ export async function GET(request: Request) {
   ]);
 
   return NextResponse.json({ rows, total, page, totalPages: Math.ceil(total / limit) });
-}
+});
 
-export async function POST() {
+export const POST = adminRoute(async () => {
   try {
     const resp = await fetch('https://www.eloratings.net/World.tsv', { cache: 'no-store', signal: AbortSignal.timeout(15_000) });
     if (!resp.ok) {
@@ -107,4 +108,4 @@ export async function POST() {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
-}
+});

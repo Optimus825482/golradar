@@ -1,10 +1,11 @@
 // ── Admin: Elo Ratings API (paginated + searchable) ─────────────
 import { NextResponse } from 'next/server';
+import { adminRoute } from '@/lib/adminRoute';
 import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: Request) {
+export const GET = adminRoute(async (request: Request) => {
   const { searchParams } = new URL(request.url);
   const page = parseInt(searchParams.get('page') ?? '1', 10);
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '50', 10), 200);
@@ -40,4 +41,4 @@ export async function GET(request: Request) {
     page,
     totalPages: Math.ceil(total / limit),
   });
-}
+});

@@ -72,11 +72,11 @@ export async function validateSession(
     });
     return { ok: false, reason: "session expired" };
   }
-  // FIX: Auto-refresh — session 1 saatten eskiyse token yenile
-  const sessionAge = user.sessionExpiresAt
+  // Auto-refresh if > SESSION_REFRESH_MS (1h) since last refresh
+  const lastRefresh = user.sessionExpiresAt
     ? user.sessionExpiresAt.getTime() - SESSION_TTL_MS
     : 0;
-  const needsRefresh = user.sessionExpiresAt && (Date.now() - sessionAge) > SESSION_REFRESH_MS;
+  const needsRefresh = user.sessionExpiresAt && (Date.now() - lastRefresh) > SESSION_REFRESH_MS;
   if (needsRefresh) {
     const newExpiry = new Date(Date.now() + SESSION_TTL_MS);
     await db.user.update({

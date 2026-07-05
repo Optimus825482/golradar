@@ -8,6 +8,7 @@
 // sabitleri restart gerektirebilir).
 
 import { NextRequest, NextResponse } from 'next/server';
+import { adminRoute } from '@/lib/adminRoute';
 import { loadFlags, setFlag, getAllOverrides } from '@/lib/flags';
 import { CALIBRATION_PARAMS } from '@/lib/calibration';
 import { db } from '@/lib/db';
@@ -126,7 +127,7 @@ const FLAGS: Omit<FeatureFlag, 'value' | 'effectiveValue' | 'overridden'>[] = [
 const ALLOWED_KEYS = new Set(FLAGS.map(f => f.key));
 
 // ── GET: tüm flag'leri döndür (DB override varsa onu göster) ─────
-export async function GET() {
+export const GET = adminRoute(async () => {
   await loadFlags();
   const overrides = await getAllOverrides();
 
@@ -155,10 +156,10 @@ export async function GET() {
     },
     docs: '/docs/FEATURE_FLAGS.md',
   });
-}
+});
 
 // ── PATCH: runtime flag override veya calibration params ─────────────────────────────────
-export async function PATCH(request: NextRequest) {
+export const PATCH = adminRoute(async (request: Request) => {
   await loadFlags();
 
   let body: { key?: string; value?: string | null; calibration?: { L?: number; k?: number; x0?: number; T?: number }; updatedBy?: string };
@@ -221,4 +222,4 @@ export async function PATCH(request: NextRequest) {
     effectiveValue,
     overridden: body.key in overrides,
   });
-}
+});

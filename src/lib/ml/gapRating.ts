@@ -240,7 +240,7 @@ export function updateGapRatingFromMatchSnapshot(
 
   // Cross-weight (Constantinou φ)
   home.Aa = clamp(home.Aa + CROSS_WEIGHT_HOME * deltaHa);
-  away.Hd = clamp(away.Hd - CROSS_WEIGHT_HOME * deltaAa);
+  away.Hd = clamp(away.Hd - CROSS_WEIGHT_AWAY * deltaAa);
 
   home.matchesHa += 1;
   away.matchesHd += 1;

@@ -44,15 +44,21 @@ export default function SystemStatusPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [writerRes, mlRes, exportRes] = await Promise.all([
-        authFetch('/api/cron/poll-matches').catch(() => null),
-        authFetch('/api/admin/ml/status').catch(() => null),
-        authFetch('/api/admin/ml/export').catch(() => null),
+      const [writerRes, mlRes, exportRes] = await Promise.allSettled([
+        authFetch('/api/cron/poll-matches'),
+        authFetch('/api/admin/ml/status'),
+        authFetch('/api/admin/ml/export'),
       ]);
-      const writer = writerRes?.ok ? await writerRes.json() : null;
-      const ml = mlRes?.ok ? await mlRes.json() : null;
-      const exportData = exportRes?.ok ? await exportRes.json() : null;
-      setData({ writer, ml, exportData });
+      const writer = writerRes.status === 'fulfilled' && writerRes.value?.ok ? await writerRes.value.json() : null;
+      const ml = mlRes.status === 'fulfilled' && mlRes.value?.ok ? await mlRes.value.json() : null;
+      const exportData = exportRes.status === 'fulfilled' && exportRes.value?.ok ? await exportRes.value.json() : null;
+      // Track which endpoints are down vs still loading
+      const apiErrors = [
+        writerRes.status === 'rejected' ? 'Writer' : null,
+        mlRes.status === 'rejected' ? 'ML Status' : null,
+        exportRes.status === 'rejected' ? 'Export' : null,
+      ].filter(Boolean);
+      setData({ writer, ml, exportData, apiErrors: apiErrors.length > 0 ? apiErrors : undefined });
     } catch {}
     setLoading(false);
   };
@@ -60,7 +66,7 @@ export default function SystemStatusPage() {
   useEffect(() => { load(); }, []);
   useEffect(() => { const i = setInterval(load, 15000); return () => clearInterval(i); }, []);
 
-  const { writer, ml, exportData } = data || {};
+  const { writer, ml, exportData, apiErrors } = data || {};
 
   return (
     <div className="space-y-4">
@@ -81,6 +87,13 @@ export default function SystemStatusPage() {
         </div>
       )}
 
+      {/* API Bağlantı Uyarısı */}
+      {apiErrors && apiErrors.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+          ⚠️ API bağlantısı kesildi: {apiErrors.join(', ')}
+        </div>
+      )}
+
       {/* Writer / Cache */}
       <Card>
         <CardHeader className="pb-2">
@@ -90,8 +103,8 @@ export default function SystemStatusPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {!writer ? (
-            <p className="text-sm text-gray-400">Writer henüz calismadi</p>
+          {!writer && !loading ? (
+            <p className="text-sm text-amber-600">API bağlantısı kurulamadı</p>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatBox label="Durum" value={writer.inFlight ? 'Çalışıyor' : 'Bekliyor'}

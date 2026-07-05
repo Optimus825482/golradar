@@ -39,7 +39,7 @@ import {
 } from "./signalRepository";
 
 import {
-  SIGNAL_THRESHOLD,
+  RADAR_THRESHOLD,
   getDynamicThreshold,
   SIGNAL_EXPIRY_MINUTES,
   EXPIRY_CHECK_INTERVAL_MS,
@@ -217,7 +217,7 @@ export interface SignalAccuracyStats {
 // sayısı zaten Signal.currentHomeGoals / currentAwayGoals'ta DB'de.
 
 // ── Constants ──────────────────────────────────────────────────
-// SIGNAL_THRESHOLD / SIGNAL_EXPIRY_MINUTES / EXPIRY_CHECK_INTERVAL_MS /
+// RADAR_THRESHOLD / SIGNAL_EXPIRY_MINUTES / EXPIRY_CHECK_INTERVAL_MS /
 // SIGNAL_COOLDOWN_MS config'den import edilir (src/config.ts).
 
 // ════════════════════════════════════════════════════════════════

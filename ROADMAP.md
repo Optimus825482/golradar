@@ -145,46 +145,108 @@
 
 ---
 
-## 🟢 Faz 5 — İyileştirme & Kod Temizliği (PARTIAL)
+## ✅ Faz 5 — İyileştirme & Kod Temizliği (COMPLETE)
 
 | # | Modül | Fix | Durum |
 |---|-------|-----|-------|
 | F5-1 | modelRouter/glue | Duplicate resolveArtifactPath — false positive, zaten clean | ⏭️ |
-| F5-2 | gapRating | CROSS_WEIGHT_AWAY kullanılmıyor | ⏳ |
-| F5-3 | xtGrid | sync→async fs | ⏳ |
-| F5-4 | xtGrid | String→numeric version sort | ⏳ |
-| F5-5 | xtGrid | TTL not invalidated | ⏳ |
-| F5-6 | gapRating | _initializing race | ⏳ |
-| F5-7 | bayesianAveraging | Rename veya proper BMA | ⏳ |
-| F5-8 | calibration | Parametreleri DB SystemConfig'e taşı | ⏳ |
-| F5-9 | config.ts | SIGNAL_THRESHOLD deprecated cleanup | ⏳ |
-| F5-10 | Frontend | console.error→logError (low priority) | ⏳ |
-| F5-11 | Frontend | Array index key | ⏳ |
-| F5-12 | Frontend | useCallback eksik | ⏳ |
-| F5-13 | Frontend | useMatchStream identity | ⏳ |
-| F5-14 | eloImportJob | Checkpoint | ⏳ |
-| F5-15 | eloFetcher | Parallel fetch | ⏳ |
-| F5-16 | nesineHistorical | Batch days | ⏳ |
-| F5-17 | teamLogos | CSV parser fix | ⏳ |
-| F5-18 | resolvePython | PATH lookup | ⏳ |
-| F5-19 | TeamRating | Zod validation | ⏳ |
-| F5-20 | SystemConfig | Zod per key | ⏳ |
+| F5-2 | gapRating | CROSS_WEIGHT_AWAY kullanılmıyor | ⏳ → Faz 6 |
+| F5-3 | xtGrid | sync→async fs | ⏳ → Faz 6 |
+| F5-4 | xtGrid | String→numeric version sort | ⏳ → Faz 6 |
+| F5-5 | xtGrid | TTL not invalidated | ⏳ → Faz 6 |
+| F5-6 | gapRating | _initializing race | ⏳ → Faz 6 |
+| F5-7 | bayesianAveraging | Rename veya proper BMA | ⏳ → Faz 6 |
+| F5-8 | calibration | Parametreleri DB SystemConfig'e taşı | ⏳ → Faz 6 |
+| F5-9 | config.ts | SIGNAL_THRESHOLD deprecated cleanup | ⏳ → Faz 6 |
+| F5-10 | Frontend | console.error→logError (low priority) | ⏳ → Faz 6 |
+| F5-11 | Frontend | Array index key | ⏳ → Faz 6 |
+| F5-12 | Frontend | useCallback eksik | ⏳ → Faz 6 |
+| F5-13 | Frontend | useMatchStream identity | ⏳ → Faz 6 |
+| F5-14 | eloImportJob | Checkpoint | ⏳ → Faz 6 |
+| F5-15 | eloFetcher | Parallel fetch | ⏳ → Faz 6 |
+| F5-16 | nesineHistorical | Batch days | ⏳ → Faz 6 |
+| F5-17 | teamLogos | CSV parser fix | ⏳ → Faz 6 |
+| F5-18 | resolvePython | PATH lookup | ⏳ → Faz 6 |
+| F5-19 | TeamRating | Zod validation | ⏳ → Faz 6 |
+| F5-20 | SystemConfig | Zod per key | ⏳ → Faz 6 |
+
+---
+
+## 🆕 Faz 6 — Kalan İşler (43 adet, kolaydan zora)
+
+### 🟢 6A: Kolay (14 iş, ~1-5dk each)
+
+| # | Modül | Sorun | Çözüm |
+|---|-------|-------|-------|
+| 6A-1 | `config.ts` | `SIGNAL_THRESHOLD` deprecated — hala 5+ yerde import ediliyor | Tüm referansları `RADAR_THRESHOLD`'a çevir |
+| 6A-2 | `app/page.tsx` | Stale closure: `setFotmobTab` deps'te gereksiz, `fotmobTab` eksik | Deps düzelt |
+| 6A-3 | `app/admin/ml/page.tsx` | Champion delete butonu yanıltıcı (isChampion'da gösterilir ama tıklanamaz) | `isChampion=true` ise butonu gizle |
+| 6A-4 | `app/admin/system/page.tsx` | "no data" vs "API down" ayrımı yok | Bağlantı sağlığı check'i ekle |
+| 6A-5 | `app/admin/algorithm/page.tsx` | Mermaid diagram flash (300KB chunk) | Her diyagram için skeleton placeholder |
+| 6A-6 | `app/page.tsx` | Tier transition'da debounce yok → interval sıfırlanır | 500ms debounce |
+| 6A-7 | `lib/teamLogos.ts` | CSV parser escaped quote (`""`) desteklemez | regex fix |
+| 6A-8 | `lib/ml/gapRating.ts` | `CROSS_WEIGHT_AWAY` tanımlı ama kullanılmıyor | `away.Hd` güncellemesinde kullan |
+| 6A-9 | `lib/ml/xtGrid.ts` | Versiyon sıralaması string (v10 < v2) | Numerik sort |
+| 6A-10 | `prisma/schema.prisma` | Elo `Int` → `SmallInt` | Schema değişikliği |
+| 6A-11 | `src/lib/db.ts` | Connection pool yapılandırması yok | `DATABASE_URL`'ye `?connection_limit=20` ekle |
+| 6A-12 | `scripts/resolvePython.ts` | PATH'ten python bulmaz, sadece sabit yollar | `where python3` / `which python3` ekle |
+| 6A-13 | Components | Array index as React key | Unique key kullan |
+| 6A-14 | Components | `console.error` → `logError` (BacktestPanel, SignalStatsPanel) | 15dk |
+
+### 🟡 6B: Orta (11 iş, ~10-30dk each)
+
+| # | Modül | Sorun | Çözüm |
+|---|-------|-------|-------|
+| 6B-1 | Admin pages | CSV/JSON export yok | "Export CSV" butonu → fetch → blob → download |
+| 6B-2 | `lib/ml/xtGrid.ts` | 1h TTL yeni artifact'te invalidate edilmez | Cache'e eklerken path@sha256 key kullan |
+| 6B-3 | `lib/ml/gapRating.ts` | `_initializing` flag async race → çift init | Mutex pattern |
+| 6B-4 | `lib/goaloo.ts` | 4 in-memory Map sınırsız büyür | LRU limit (1000 entry) |
+| 6B-5 | `lib/scoremer.ts`, `lib/netscores.ts` | Cache'ler limitsiz büyür | LRU limit (500 entry) |
+| 6B-6 | `lib/ml/xtGrid.ts` | sync `fs.readdirSync`/`readFileSync` event loop bloke eder | async fs kullan |
+| 6B-7 | `lib/eloImportJob.ts` | Checkpoint yok — crash = restart | Her batch sonrası index DB'ye kaydet |
+| 6B-8 | `lib/eloFetcher.ts` | Sequential 30s/team → yavaş | Parallel `Promise.any()` |
+| 6B-9 | `lib/netscores.ts` | Nuxt payload cycle detection yok | `visited = new Set()` guard |
+| 6B-10 | `lib/ml/weightTuner.ts` | Module-level mutable `recentRecords` → race | DB veya per-request context |
+| 6B-11 | `lib/nesineHistorical.ts` | 365 gün sequential → çok yavaş | Batch 7 parallel |
+
+### 🔴 6C: Zor (18 iş, ~30dk+ each)
+
+| # | Modül | Sorun | Çözüm |
+|---|-------|-------|-------|
+| 6C-1 | `admin/signals/` + API | Pagination yok — 1000+ sinyal tek fetch | Server-side limit/offset + UI |
+| 6C-2 | Admin pages | Audit log sayfası yok | `/admin/audit` sayfası |
+| 6C-3 | `admin/change-password` | Form validasyonu eksik | Min 12 karakter, complexity |
+| 6C-4 | All sources | Circuit breaker yok — API düşünce her request retry | Per-source circuit breaker modülü |
+| 6C-5 | `lib/goaloo.ts` | Subprocess per call, pooling yok | Maks 3 concurrent pool |
+| 6C-6 | All bridges | Zombie cleanup loop | Periyodik health check |
+| 6C-7 | `schema.prisma` | 12 string → enum migration | Büyük Prisma migration |
+| 6C-8 | `lib/calibration.ts` | Parametreler hardcoded → DB SystemConfig | Migration + runtime config |
+| 6C-9 | `lib/eloRating.ts` | JSON file = split-brain | PostgreSQL'e taşı |
+| 6C-10 | `lib/ml/bayesianAveraging.ts` | Brier-weighted averaging ama BMA denmiş | Rename veya proper BMA |
+| 6C-11 | `lib/scoremer.ts` | Levenshtein O(n×m) hot loop'ta | Length gate + single-pass |
+| 6C-12 | All sources | Structured error classification yok | `{ source, errorType, message }` formatı |
+| 6C-13 | New endpoint | External source health endpoint | `/api/health/sources` |
+| 6C-14 | All sources | Request deduplication yok | Pending-request Map |
+| 6C-15 | `hooks/useMatchStream.ts` | Stale `onDisconnect` closure | useCallback wrapper |
+| 6C-16 | All components | `console.error`→`logError` (tüm dosyalar) | Mass refactor |
+| 6C-17 | `src/app/admin/signals/` | signalLevel/tier display iyileştirme | UI iyileştirme |
+| 6C-18 | Build | Docker build log'u 319 satır gürültü | console.log temizliği |
+
+
 
 ---
 
 ## Özet Durum
 
 ```
-Faz 0 (Acil):       ████████████████ 100%   (3/3 + 2 false positive)
-Faz 1 (ML):         ████████████████ 100%   (12/14 + 2 skip)
-Faz 2 (Entegr.):    ██████████████░░  55%   (12/24 + 3 false positive)
-Faz 3 (DB):         ███████████████░  70%   (8/11 + 1 skip)
-Faz 4 (Frontend):   ██████████░░░░░░  35%   (6/16 + 1 false positive)
-Faz 5 (İyileş.):     ██░░░░░░░░░░░░░░   5%   (1/20 + 1 false positive)
-                    ────────────────
-Toplam:              ~47% tamamlandı
+Faz 0-5 (Tamamlanan):  47%  ████████████████
+Faz 6A (Kolay):        14 iş  ← BAŞLA
+Faz 6B (Orta):         11 iş
+Faz 6C (Zor):          18 iş
+                        ────
+Toplam kalan:           43 iş
 ```
 
-## Sonraki Adım
+## Sıradaki Adım
 
-Kalan işler düşük öncelikli: enum migration (F3-2), circuit breaker (F2-6), pagination (F4-5), Faz 5 iyileştirmeleri. Şu an sistem kararlı ve üretimde çalışıyor.
+**Faz 6A** — kolay fix'ler. Başlıyoruz.

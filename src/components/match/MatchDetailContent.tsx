@@ -7,7 +7,7 @@ import type { MomentumBarDataPoint, xGFlowPoint, ThreatIndex } from '@/lib/advan
 import type { Match, MatchStats } from './types'
 import { statKeys } from './types'
 import { CountryFlag, MatchStatusBadge, StatBar, RedCardIndicator } from './shared-components'
-import { SIGNAL_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
+import { RADAR_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
 import { DangerousAttacksChart } from '@/components/charts/DangerousAttacksChart'
 import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomentumChart'
 import { FotMobStatsBlock, FotMobEventsBlock, FotMobInfoBlock } from '@/components/fotmob/FotMobSection'

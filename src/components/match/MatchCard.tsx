@@ -4,7 +4,7 @@ import type { GoalProbability } from '@/lib/nesine'
 import type { Match } from './types'
 import { calculatePressure } from './utils'
 import { CountryFlag, GoalRadarIcon, RedCardIndicator } from './shared-components'
-import { SIGNAL_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
+import { RADAR_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
 
 export function MatchCard({ match, onClick, showLeague, goalProb, isSelected, isFavorite, onToggleFavorite, hasGoalFlash }: {
   match: Match
@@ -17,7 +17,7 @@ export function MatchCard({ match, onClick, showLeague, goalProb, isSelected, is
   hasGoalFlash?: boolean
 }) {
   const pressure = match.hasStats ? calculatePressure(match.stats) : null
-  const isRadarAlert = goalProb && goalProb.score >= SIGNAL_THRESHOLD && goalProb.goalProbability5min >= SIGNAL_5MIN_THRESHOLD && match.isLive
+  const isRadarAlert = goalProb && goalProb.score >= RADAR_THRESHOLD && goalProb.goalProbability5min >= SIGNAL_5MIN_THRESHOLD && match.isLive
   const hasGoals = match.homeGoals > 0 || match.awayGoals > 0
 
   return (

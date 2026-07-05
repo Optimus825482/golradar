@@ -343,9 +343,10 @@ export default function AdminMLPage() {
               </div>
               <div className="px-4 pb-3 flex justify-end">
                 <button onClick={() => deleteArtifact(name, champion.version, false)}
-                  className="text-[10px] px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-bold border border-red-200 disabled:opacity-50"
-                  title="Champion silinemez, önce başka bir sürümü champion yapın">
-                  🗑️ Sil (önce promote yap)
+                  disabled={champion.isChampion}
+                  className="text-[10px] px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-bold border border-red-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={champion.isChampion ? "Champion model silinemez — önce başka modeli champion yapın" : "Shadow modeli sil"}>
+                  {champion.isChampion ? '🏆 Champion (silinemez)' : '🗑️ Sil'}
                 </button>
               </div>
               </>

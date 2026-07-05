@@ -29,7 +29,7 @@ import {
   calculateXgFlow,
   generateSyntheticSnapshots,
 } from '@/lib/advancedAnalytics'
-import { SIGNAL_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
+import { RADAR_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
 import SignalsCenter from '@/components/SignalsCenter'
 import { usePresence } from '@/hooks/usePresence'
 import { useRealtime } from '@/hooks/useRealtime'
@@ -672,7 +672,7 @@ export default function OptimusGolRadariPage() {
 	  const radarCount = useMemo(() => {
 	    let count = 0
 	    for (const [, prob] of goalProbabilities) {
-	      if (prob.score >= SIGNAL_THRESHOLD && prob.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) count++
+	      if (prob.score >= RADAR_THRESHOLD && prob.goalProbability5min >= SIGNAL_5MIN_THRESHOLD) count++
 	    }
 	    return count
 	  }, [goalProbabilities])
@@ -680,7 +680,7 @@ export default function OptimusGolRadariPage() {
   // Filter matches based on bottom tab
   const filteredMatches = useMemo(() => {
     if (activeTab === 'live') return matches.filter(m => m.isLive)
-    if (activeTab === 'radar') return matches.filter(m => (goalProbabilities.get(m.code)?.score || 0) >= SIGNAL_THRESHOLD)
+    if (activeTab === 'radar') return matches.filter(m => (goalProbabilities.get(m.code)?.score || 0) >= RADAR_THRESHOLD)
     if (activeTab === 'favorites') return matches.filter(m => favorites.has(m.code))
     // "all" tab: exclude upcoming (shown separately above)
     return matches.filter(m => !m.isUpcoming)
@@ -883,7 +883,7 @@ export default function OptimusGolRadariPage() {
       selectedMatch.home, selectedMatch.away, goalooOddsMovement,
     )
     if (serverRadar && clientCalc.score < serverRadar.score && pressureSnapshots.length < 3) return serverRadar
-    return clientCalc.score >= SIGNAL_THRESHOLD && clientCalc.goalProbability5min >= SIGNAL_5MIN_THRESHOLD ? clientCalc : (serverRadar || null)
+    return clientCalc.score >= RADAR_THRESHOLD && clientCalc.goalProbability5min >= SIGNAL_5MIN_THRESHOLD ? clientCalc : (serverRadar || null)
   }, [selectedMatch, pressureSnapshots, goalooOddsMovement])
 
   // Detail content props shared between desktop and mobile

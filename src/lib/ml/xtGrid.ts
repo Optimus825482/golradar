@@ -54,7 +54,12 @@ function findGridFile(version?: string): string | null {
     const prefix = version ? `xt-grid-v${version}` : 'xt-grid-v';
     const files = s2.fs.readdirSync(GRID_DIR)
       .filter((f: string) => f.startsWith(prefix) && f.endsWith('.json'))
-      .sort();
+      .sort((a, b) => {
+        // Numeric version sort: extract number after "v" → v10 > v2
+        const va = parseInt(a.match(/v(\d+)/)?.[1] ?? '0', 10);
+        const vb = parseInt(b.match(/v(\d+)/)?.[1] ?? '0', 10);
+        return va - vb;
+      });
     return files.length > 0 ? s2.path.join(GRID_DIR, files[files.length - 1]) : null;
   } catch {
     return null;

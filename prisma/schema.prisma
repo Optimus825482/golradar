@@ -380,7 +380,6 @@ model ModelArtifact {
   name         String // "gbdt" | "xgb" | "inplay" | "team-strength" | "xt-grid"
   version      String // semver: "1.0.0"
   createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
   metricsJson  String // {brier, logLoss, accuracy, calibrationError, n, trainRows, trainHorizon}
   artifactPath String // data/ml-models/<name>-v<version>.json
   sha256       String

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/securityHelpers";
-import { logError } from '@/lib/devLog';
+import { logError, logInfo } from '@/lib/devLog';
 
 export const dynamic = "force-dynamic";
 
@@ -124,49 +124,27 @@ export async function POST(request: Request) {
     }
 
     if (action === "label-all") {
-      // Batch label ALL unlabeled rows (can be slow)
-      const unlabeled = await db.predictionLog.findMany({
-        where: { goalScored: null },
-        select: { id: true, matchCode: true, minute: true, createdAt: true },
-        orderBy: { matchCode: "asc" },
-        take: 50000,
+      // Start background labeling via PipelineRun + return runId for polling
+      const run = await db.pipelineRun.create({
+        data: {
+          modelName: "gbdt",
+          horizonMin: horizonMin,
+          status: "extracting",
+          progressPct: 0,
+          step: "Başlatılıyor...",
+        },
       });
-      const codes = [...new Set(unlabeled.map(r => r.matchCode))];
 
-      // Fetch all goal events
-      const allGoals = await db.matchEvent.findMany({
-        where: { matchCode: { in: codes }, eventType: "goal" },
-        select: { matchCode: true, minute: true, createdAt: true },
-        orderBy: { minute: "asc" },
+      // Fire background
+      labelAllInBackground(run.id, horizonMin, dryRun ?? false).catch((err) => {
+        logError('label-matches', `Background label ${run.id} failed:`, err);
+        db.pipelineRun.update({
+          where: { id: run.id },
+          data: { status: "failed", errorMsg: String(err.message || err) },
+        }).catch(() => {});
       });
-      const goalsByMatch = new Map<number, typeof allGoals>();
-      for (const g of allGoals) {
-        if (!goalsByMatch.has(g.matchCode)) goalsByMatch.set(g.matchCode, []);
-        goalsByMatch.get(g.matchCode)!.push(g);
-      }
 
-      if (dryRun) {
-        return NextResponse.json({ ok: true, wouldLabel: unlabeled.length, matchCount: codes.length, dryRun: true });
-      }
-
-      let labeled = 0;
-      // Process in batches to avoid overwhelming DB
-      const batchSize = 500;
-      for (let i = 0; i < unlabeled.length; i += batchSize) {
-        const batch = unlabeled.slice(i, i + batchSize);
-        await Promise.all(batch.map(async (row) => {
-          const goals = goalsByMatch.get(row.matchCode) ?? [];
-          const rMin = row.minute ?? 0;
-          const firstGoal = goals.find(g => g.minute > rMin && g.minute - rMin <= horizonMin);
-          const delta = firstGoal ? firstGoal.minute - rMin : null;
-          await db.predictionLog.update({
-            where: { id: row.id },
-            data: { goalScored: !!firstGoal, minutesToGoal: delta, goalTimestamp: firstGoal?.createdAt ?? null },
-          });
-          labeled++;
-        }));
-      }
-      return NextResponse.json({ ok: true, labeled, matchCount: codes.length });
+      return NextResponse.json({ ok: true, runId: run.id, status: "queued" });
     }
 
     return NextResponse.json({ error: "unknown_action" }, { status: 400 });
@@ -174,4 +152,85 @@ export async function POST(request: Request) {
     logError('label-matches', err);
     return NextResponse.json({ error: "internal_error" }, { status: 500 });
   }
+}
+
+// ── Background label-all worker ──────────────────────────────────
+
+async function labelAllInBackground(
+  runId: string,
+  horizonMin: number,
+  dryRun: boolean,
+) {
+  const update = async (pct: number, step: string, extra?: Record<string, unknown>) => {
+    await db.pipelineRun.update({
+      where: { id: runId },
+      data: { progressPct: pct, step, ...(extra ?? {}) },
+    }).catch(() => {});
+  };
+
+  await update(2, "Etiketsiz satırlar taranıyor...");
+
+  const unlabeled = await db.predictionLog.findMany({
+    where: { goalScored: null },
+    select: { id: true, matchCode: true, minute: true, createdAt: true },
+    orderBy: { matchCode: "asc" },
+    take: 50000,
+  });
+
+  if (dryRun) {
+    await update(100, `✅ ${unlabeled.length} etiketsiz satır (dry-run)`, { newTrainRows: unlabeled.length });
+    return;
+  }
+
+  await update(5, `${unlabeled.length} etiketsiz satır bulundu, gol event'leri çekiliyor...`);
+
+  const codes = [...new Set(unlabeled.map(r => r.matchCode))];
+  const allGoals = await db.matchEvent.findMany({
+    where: { matchCode: { in: codes }, eventType: "goal" },
+    select: { matchCode: true, minute: true, createdAt: true },
+    orderBy: { minute: "asc" },
+  });
+  const goalsByMatch = new Map<number, typeof allGoals>();
+  for (const g of allGoals) {
+    if (!goalsByMatch.has(g.matchCode)) goalsByMatch.set(g.matchCode, []);
+    goalsByMatch.get(g.matchCode)!.push(g);
+  }
+
+  await update(10, `${codes.length} maç, ${allGoals.length} gol event'i bulundu. Label'lanıyor...`);
+
+  let labeled = 0;
+  const total = unlabeled.length;
+  const batchSize = 300;
+
+  // Track which match we're currently labeling for live display
+  let currentMatch: string | null = null;
+
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = unlabeled.slice(i, i + batchSize);
+    const firstRow = batch[0];
+    currentMatch = `#${firstRow.matchCode}`;
+
+    await Promise.all(batch.map(async (row) => {
+      const goals = goalsByMatch.get(row.matchCode) ?? [];
+      const rMin = row.minute ?? 0;
+      const firstGoal = goals.find(g => g.minute > rMin && g.minute - rMin <= horizonMin);
+      const delta = firstGoal ? firstGoal.minute - rMin : null;
+      await db.predictionLog.update({
+        where: { id: row.id },
+        data: { goalScored: !!firstGoal, minutesToGoal: delta, goalTimestamp: firstGoal?.createdAt ?? null },
+      });
+      labeled++;
+    }));
+
+    const pct = 10 + Math.round((i + batchSize) / total * 85);
+    const done = Math.min(i + batchSize, total);
+    await update(pct, `Label'lanıyor: ${done}/${total} (${labeled} güncellendi) · şu an: ${currentMatch}`);
+  }
+
+  await update(100, `✅ Tamamlandı: ${labeled} satır label'landı (${codes.length} maç)`);
+  await db.pipelineRun.update({
+    where: { id: runId },
+    data: { status: "done", progressPct: 100, newTrainRows: labeled, completedAt: new Date() },
+  }).catch(() => {});
+  logInfo('label-matches', `Background label-all done: ${labeled} rows`);
 }

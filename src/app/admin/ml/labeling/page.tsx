@@ -117,25 +117,50 @@ export default function AdminLabelingPage() {
     setLabelLoading(false);
   };
 
-  // Label ALL unlabeled
+  // Label ALL unlabeled — background + progress polling
+  const [labelAllRun, setLabelAllRun] = useState<DatasetRun | null>(null);
+  const labelAllPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const labelAll = async () => {
     setLabelLoading(true);
     setError(null);
+    setLabelAllRun(null);
     try {
       const res = await authFetch('/api/admin/ml/label-matches', {
         method: 'POST',
         body: JSON.stringify({ action: 'label-all', horizonMin: horizon, dryRun: false }),
       });
       const data = await res.json();
-      if (data.ok) {
-        setSuccess(`✓ ${data.labeled} satır label'landı (${data.matchCount} maç)`);
-        load();
+      if (data.ok && data.runId) {
+        // Start polling progress
+        labelAllPollRef.current = setInterval(async () => {
+          try {
+            const pr = await authFetch(`/api/admin/ml/generate-dataset?runId=${data.runId}`);
+            const prData = await pr.json();
+            if (prData.ok) {
+              setLabelAllRun(prData);
+              if (prData.status === 'done' || prData.status === 'failed') {
+                clearInterval(labelAllPollRef.current!);
+                labelAllPollRef.current = null;
+                setLabelLoading(false);
+                if (prData.status === 'done') {
+                  setSuccess(`✓ ${prData.newTrainRows ?? '?'} satır label'landı`);
+                  load();
+                } else {
+                  setError(prData.errorMsg || 'Label başarısız');
+                }
+              }
+            }
+          } catch { /* polling retry */ }
+        }, 1000);
       } else {
-        setError(data.error || 'Label başarısız');
+        setError(data.error || 'Label başlatılamadı');
+        setLabelLoading(false);
       }
-    } catch { setError('Bağlantı hatası'); }
-    setLabelLoading(false);
+    } catch { setError('Bağlantı hatası'); setLabelLoading(false); }
   };
+
+  useEffect(() => () => { if (labelAllPollRef.current) clearInterval(labelAllPollRef.current); }, []);
 
   // Generate dataset
   const startGenerate = async () => {
@@ -272,6 +297,35 @@ export default function AdminLabelingPage() {
             ⚡ Tümünü Label'la
           </button>
         </div>
+
+        {/* Label-all progress bar */}
+        {labelAllRun && (
+          <div className="mt-3 p-4 rounded-lg bg-amber-50 border border-amber-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-amber-800">{labelAllRun.step}</span>
+              <span className="text-[11px] font-mono text-amber-600">{labelAllRun.progressPct}%</span>
+            </div>
+            <div className="w-full h-2 bg-amber-200 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all duration-500 ${
+                labelAllRun.status === 'failed' ? 'bg-red-500' :
+                labelAllRun.status === 'done' ? 'bg-emerald-500' : 'bg-amber-500'
+              }`} style={{ width: `${labelAllRun.progressPct}%` }} />
+            </div>
+            {labelAllRun.status === 'done' ? (
+              <div className="mt-2 text-[11px] text-emerald-700 font-bold">
+                ✅ {labelAllRun.step}
+              </div>
+            ) : labelAllRun.status === 'failed' ? (
+              <div className="mt-2 text-[11px] text-red-700">
+                ❌ {labelAllRun.errorMsg || 'Başarısız'}
+              </div>
+            ) : (
+              <div className="mt-2 text-[11px] text-amber-700 font-mono animate-pulse">
+                ▸ {labelAllRun.step}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Filters */}

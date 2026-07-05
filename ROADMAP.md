@@ -26,8 +26,8 @@
 - U1: Signal pagination (server-side limit/offset)
 - U2: CSV/JSON export on admin
 - U3: Audit log page
-- U4: Change password validation
-- U5: console.error→logError
+- U4: Change password validation ✅
+- U5: console.error→logError ✅
 - U6: Array index key
 
 ### Infrastructure (5)  

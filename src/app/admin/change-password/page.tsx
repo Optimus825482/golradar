@@ -16,8 +16,20 @@ function ChangePasswordForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (newPassword.length < 6) {
-      setError('Yeni şifre en az 6 karakter olmalı');
+    if (newPassword.length < 12) {
+      setError('Yeni şifre en az 12 karakter olmalı');
+      return;
+    }
+    if (!/[A-Z]/.test(newPassword)) {
+      setError('Yeni şifre en az bir büyük harf içermeli');
+      return;
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      setError('Yeni şifre en az bir rakam içermeli');
+      return;
+    }
+    if (!/[^a-zA-Z0-9]/.test(newPassword)) {
+      setError('Yeni şifre en az bir özel karakter içermeli');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -86,7 +98,7 @@ function ChangePasswordForm() {
             type="password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="En az 6 karakter"
+            placeholder="En az 12 karakter, büyük harf, rakam, özel karakter"
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none"
           />
         </div>

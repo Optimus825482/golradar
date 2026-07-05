@@ -27,9 +27,8 @@ const VALID_NAMES = new Set<string>([
   "inplay",
   "team-strength",
   "xt-grid",
-  "gap",
-  "pi",
-  "glicko2",
+  "lightgbm",
+  // GAP/Pi/Glicko2: in-memory rating models, no artifact to backtest
 ]);
 
 export const GET = adminRoute(async () => {

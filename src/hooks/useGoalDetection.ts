@@ -41,14 +41,19 @@ export function useGoalDetection(): UseGoalDetectionResult {
     new Map(),
   );
   const playSoundEnabled = useRef(true);
+  const soundRecoveryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cleanup pending flash timers on unmount
+  // Cleanup pending flash timers + sound recovery on unmount
   useEffect(() => {
     return () => {
       for (const timer of flashTimersRef.current.values()) {
         clearTimeout(timer);
       }
       flashTimersRef.current.clear();
+      if (soundRecoveryTimer.current) {
+        clearTimeout(soundRecoveryTimer.current);
+        soundRecoveryTimer.current = null;
+      }
     };
   }, []);
 

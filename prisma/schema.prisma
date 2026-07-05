@@ -107,6 +107,8 @@ model PredictionLog {
   @@index([createdAt])
   @@index([modelVariant])
   @@index([matchCode, createdAt])
+  @@index([matchCode, modelVariant])
+  @@index([goalScored])
 }
 
 // ── Gol Radarı: Backtest Runs ────────────────────────────────────
@@ -274,6 +276,7 @@ model Signal {
   @@index([date])
   @@index([matchCode])
   @@index([goalHappened])
+  @@index([goalHappened, createdAt])
   @@index([signalSide])
   @@index([calibratedP])
 }
@@ -285,6 +288,7 @@ model Signal {
 model SignalPnL {
   id            String   @id @default(cuid())
   signalId      String
+  signal        Signal   @relation(fields: [signalId], references: [id], onDelete: Cascade)
   calibratedP   Float
   closingOdds   Float?
   outcome       Int      // 0 = no goal, 1 = goal

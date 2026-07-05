@@ -32,10 +32,11 @@ export default function NationalEloPage() {
   const runImport = async () => {
     setImporting(true);
     try {
-      const { execSync } = await import('child_process');
-      execSync('bun scripts/import-national-elo.ts', { cwd: process.cwd(), stdio: 'pipe' });
+      const resp = await fetch('/api/admin/national-elo', { method: 'POST' });
+      const json = await resp.json();
+      if (!json.ok) throw new Error(json.error);
       fetchData();
-    } catch { /* */ }
+    } catch (e) { /* */ }
     setImporting(false);
   };
 

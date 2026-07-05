@@ -43,7 +43,7 @@ export async function getClubElo(teamName: string): Promise<ClubEloRating | null
       .trim()
       .replace(/\s+/g, '-');
 
-    const url = `http://clubelo.com/API/GetClubElo/${encodeURIComponent(slug)}`;
+    const url = `https://clubelo.com/API/GetClubElo/${encodeURIComponent(slug)}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
 
     if (!res.ok) return null;

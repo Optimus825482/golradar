@@ -439,7 +439,7 @@ export async function fetchGoalooSeasonMatches(
   const data = await goalooFetchSeasonJson(url);
 
   if (!data) {
-    console.error(`[Goaloo] Failed to fetch season matches for ${leagueId} ${season}`);
+    devError(`[Goaloo] Failed to fetch season matches for ${leagueId} ${season}`);
     return [];
   }
 
@@ -505,10 +505,10 @@ export async function fetchGoalooSeasonMatches(
         }
     }
 
-    console.log(`[Goaloo] Season ${season} league ${leagueId}: ${matches.length} matches`);
+    devLog(`[Goaloo] Season ${season} league ${leagueId}: ${matches.length} matches`);
     return matches;
   } catch (err: any) {
-    console.error(`[Goaloo] Parse error for season ${leagueId} ${season}:`, err?.message?.substring(0, 100));
+    devError(`[Goaloo] Parse error for season ${leagueId} ${season}:`, err?.message?.substring(0, 100));
     return [];
   }
 }
@@ -520,14 +520,14 @@ export async function fetchGoalooMatchesByDate(date: string): Promise<GoalooMatc
   const data = await goalooFetch(url);
 
   if (!data) {
-    console.error(`[Goaloo] Failed to fetch matches for ${date}`);
+    devError(`[Goaloo] Failed to fetch matches for ${date}`);
     return [];
   }
 
   try {
     const json = JSON.parse(data);
     if (json.ErrCode !== 0 || !json.Data) {
-      console.error(`[Goaloo] API error for ${date}:`, json.ErrMsg || json.ErrCode);
+      devError(`[Goaloo] API error for ${date}:`, json.ErrMsg || json.ErrCode);
       return [];
     }
 
@@ -544,10 +544,10 @@ export async function fetchGoalooMatchesByDate(date: string): Promise<GoalooMatc
       }
     }
 
-    console.log(`[Goaloo] Found ${matches.length} matches for ${date}`);
+    devLog(`[Goaloo] Found ${matches.length} matches for ${date}`);
     return matches;
   } catch (err: any) {
-    console.error(`[Goaloo] Parse error for ${date}:`, err?.message?.substring(0, 100));
+    devError(`[Goaloo] Parse error for ${date}:`, err?.message?.substring(0, 100));
     return [];
   }
 }
@@ -582,7 +582,7 @@ export async function fetchGoalooMatchesRecent(daysBack: number = 3): Promise<Go
     }
   }
 
-  console.log(`[Goaloo] Total: ${allMatches.length} matches from last ${daysBack} days`);
+  devLog(`[Goaloo] Total: ${allMatches.length} matches from last ${daysBack} days`);
   return allMatches;
 }
 
@@ -599,7 +599,7 @@ export async function fetchGoalooMomentum(matchId: number): Promise<MomentumData
   const data = await goalooFetch(url);
 
   if (!data) {
-    console.error(`[Goaloo] Failed to fetch momentum for match ${matchId}`);
+    devError(`[Goaloo] Failed to fetch momentum for match ${matchId}`);
     return null;
   }
 
@@ -612,14 +612,14 @@ export async function fetchGoalooMomentum(matchId: number): Promise<MomentumData
     const jsq: string = json.Data.jsq;
     return parseMomentumJsq(matchId, jsq);
   } catch (err: any) {
-    console.error(`[Goaloo] Momentum parse error for ${matchId}:`, err?.message?.substring(0, 100));
+    devError(`[Goaloo] Momentum parse error for ${matchId}:`, err?.message?.substring(0, 100));
     return null;
   }
 }
 
 function parseMomentumJsq(matchId: number, jsq: string): MomentumData {
-  const homeIntensities: number[] = new Array(90).fill(0);
-  const awayIntensities: number[] = new Array(90).fill(0);
+  const homeIntensities: number[] = new Array(120).fill(0);
+  const awayIntensities: number[] = new Array(120).fill(0);
   const homeGoalMinutes: number[] = [];
   const awayGoalMinutes: number[] = [];
   const homeRedCardMinutes: number[] = [];
@@ -1087,7 +1087,7 @@ export async function findGoalooMatchForNesine(
   if (bestMatch && bestScore >= 0.4) {
     // SADECE ilk seferde log — cache hit'lerde sessiz
     if (!cached) {
-      console.log(`[Goaloo Mapping] ${nesineHome} vs ${nesineAway} → Goaloo #${bestMatch.goalooMatchId} ${bestMatch.homeTeam} vs ${bestMatch.awayTeam} (score: ${bestScore.toFixed(2)})`);
+      devLog(`[Goaloo Mapping] ${nesineHome} vs ${nesineAway} → Goaloo #${bestMatch.goalooMatchId} ${bestMatch.homeTeam} vs ${bestMatch.awayTeam} (score: ${bestScore.toFixed(2)})`);
     }
     return bestMatch
   }
@@ -1144,7 +1144,8 @@ function cleanupCache() {
 
 // Run cleanup every 30 minutes (only on server)
 if (typeof setInterval !== 'undefined') {
-  setInterval(cleanupCache, 30 * 60 * 1000);
+  const h = setInterval(cleanupCache, 30 * 60 * 1000);
+  if (typeof h.unref === 'function') h.unref();
 }
 
 async function fetchGoalooMatchesCached(date: string): Promise<GoalooMatch[]> {

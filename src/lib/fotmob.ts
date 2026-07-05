@@ -233,26 +233,31 @@ import { logError } from '@/lib/devLog';
 // ── Fetch FotMob matches for today ──
 
 export async function fetchFotMobMatches(date?: string): Promise<FotMobMatchDay[]> {
-  // Accept either YYYY-MM-DD or YYYYMMDD; the FotMob API requires
-  // the compact form. Normalize here so callers can pass ISO dates.
   const d = (date ?? new Date().toISOString().slice(0, 10)).replace(/-/g, "");
   const url = `${FOTMOB_BASE}/matches?date=${d}`;
   
-  try {
-    const resp = await fetch(url, { headers: FOTMOB_HEADERS, cache: "no-store" });
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    
-    const matches: FotMobMatchDay[] = [];
-    for (const league of data.leagues || []) {
-      for (const m of league.matches || []) {
-        matches.push(m);
+  // Retry: 3 attempts with 1s/2s backoff
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await fetch(url, { headers: FOTMOB_HEADERS, cache: "no-store", signal: AbortSignal.timeout(10_000) });
+      if (!resp.ok) {
+        if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
+        continue;
       }
+      const data = await resp.json();
+      
+      const matches: FotMobMatchDay[] = [];
+      for (const league of data.leagues || []) {
+        for (const m of league.matches || []) {
+          matches.push(m);
+        }
+      }
+      return matches;
+    } catch {
+      if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
     }
-    return matches;
-  } catch {
-    return [];
   }
+  return [];
 }
 
 // ── Build Nesine→FotMob match mapping ──
@@ -306,8 +311,10 @@ export async function buildMatchMappings(
     }
   }
   
-  // Update cache
-  mappingCache = { timestamp: Date.now(), date: today, mappings };
+  // Update cache — only if we have data (avoid poisoning with empty on API error)
+  if (fotmobMatches.length > 0) {
+    mappingCache = { timestamp: Date.now(), date: today, mappings };
+  }
   return mappings;
 }
 

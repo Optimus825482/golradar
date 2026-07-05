@@ -132,7 +132,7 @@ export async function evaluateDailyShadows(
     }
   }
   if (!isFinite(bestShadowBrier)) bestShadowBrier = 0;
-  const shadowBrierDelta = safeBrier > 0 ? bestShadowBrier - safeBrier : 0;
+  const shadowBrierDelta = bestShadowBrier - safeBrier;
 
   // Per-name column picks: take the most-recent artifact for that
   // name (so ModelMetrics tracks the *current* version of "xgb" rather

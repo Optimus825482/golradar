@@ -165,54 +165,103 @@ export async function trainStackingMetaModel(): Promise<StackingWeights> {
   const n = trainingData.length;
   if (n < 100) return currentWeights;
 
-  // Gradient descent for logistic regression
-  let w = { ...currentWeights };
-  const lr = 0.01;
-  const epochs = 500;
+	// Gradient descent for logistic regression
+	  let w = { ...currentWeights };
+	  const lr = 0.01;
+	  const epochs = 500;
+	  const L2 = 0.01; // ridge regularization
 
-  for (let epoch = 0; epoch < epochs; epoch++) {
-    let gradIntercept = 0;
-    let gradRule = 0, gradPoisson = 0, gradElo = 0, gradMl = 0, gradTs = 0, gradInplay = 0, gradGap = 0, gradPi = 0, gradGlicko2 = 0;
+	  // Shuffle + 80/20 split for early stopping
+	  const shuffled = [...trainingData];
+	  for (let i = shuffled.length - 1; i > 0; i--) {
+	    const j = Math.floor(Math.random() * (i + 1));
+	    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+	  }
+	  const splitIdx = Math.floor(shuffled.length * 0.8);
+	  const trainSet = shuffled.slice(0, splitIdx);
+	  const valSet = shuffled.slice(splitIdx);
+	  const nTrain = trainSet.length;
 
-    for (const sample of trainingData) {
-      const z = w.intercept
-        + w.ruleBased * sample.input.ruleBased
-        + w.poisson * sample.input.poisson
-        + w.elo * sample.input.elo
-        + w.ml * sample.input.ml
-        + w.teamStrength * sample.input.teamStrength
-        + w.inplay * sample.input.inplay
-        + w.gap * sample.input.gap
-        + (w.pi || 0) * (sample.input.pi || 0)
-        + (w.glicko2 || 0) * (sample.input.glicko2 || 0);
-      const pred = 1 / (1 + Math.exp(-z));
-      const err = pred - sample.actual;
+	  let bestValLoss = Infinity;
+	  let bestW = { ...w };
+	  let stallEpochs = 0;
+	  const STALL_LIMIT = 50;
 
-      gradIntercept += err;
-      gradRule += err * sample.input.ruleBased;
-      gradPoisson += err * sample.input.poisson;
-      gradElo += err * sample.input.elo;
-      gradMl += err * sample.input.ml;
-      gradTs += err * sample.input.teamStrength;
-      gradInplay += err * sample.input.inplay;
-      gradGap += err * sample.input.gap;
-      gradPi += err * (sample.input.pi || 0);
-      gradGlicko2 += err * (sample.input.glicko2 || 0);
-    }
+	  for (let epoch = 0; epoch < epochs; epoch++) {
+	    let gradIntercept = 0;
+	    let gradRule = 0, gradPoisson = 0, gradElo = 0, gradMl = 0, gradTs = 0, gradInplay = 0, gradGap = 0, gradPi = 0, gradGlicko2 = 0;
 
-    w.intercept -= lr * (gradIntercept / n);
-    w.ruleBased -= lr * (gradRule / n);
-    w.poisson -= lr * (gradPoisson / n);
-    w.elo -= lr * (gradElo / n);
-    w.ml -= lr * (gradMl / n);
-    w.teamStrength -= lr * (gradTs / n);
-    w.inplay -= lr * (gradInplay / n);
-    w.gap -= lr * (gradGap / n);
-    w.pi = (w.pi || 0) - lr * (gradPi / n);
-    w.glicko2 = (w.glicko2 || 0) - lr * (gradGlicko2 / n);
-  }
+	    for (const sample of trainSet) {
+	      const z = w.intercept
+	        + w.ruleBased * sample.input.ruleBased
+	        + w.poisson * sample.input.poisson
+	        + w.elo * sample.input.elo
+	        + w.ml * sample.input.ml
+	        + w.teamStrength * sample.input.teamStrength
+	        + w.inplay * sample.input.inplay
+	        + w.gap * sample.input.gap
+	        + (w.pi || 0) * (sample.input.pi || 0)
+	        + (w.glicko2 || 0) * (sample.input.glicko2 || 0);
+	      const pred = 1 / (1 + Math.exp(-z));
+	      const err = pred - sample.actual;
 
-  currentWeights = w;
+	      gradIntercept += err;
+	      gradRule += err * sample.input.ruleBased;
+	      gradPoisson += err * sample.input.poisson;
+	      gradElo += err * sample.input.elo;
+	      gradMl += err * sample.input.ml;
+	      gradTs += err * sample.input.teamStrength;
+	      gradInplay += err * sample.input.inplay;
+	      gradGap += err * sample.input.gap;
+	      gradPi += err * (sample.input.pi || 0);
+	      gradGlicko2 += err * (sample.input.glicko2 || 0);
+	    }
+
+	    // L2 regularization (ridge): add 2*λ*w to gradient
+	    w.intercept -= lr * ((gradIntercept / nTrain) + 2 * L2 * w.intercept);
+	    w.ruleBased -= lr * ((gradRule / nTrain) + 2 * L2 * w.ruleBased);
+	    w.poisson -= lr * ((gradPoisson / nTrain) + 2 * L2 * w.poisson);
+	    w.elo -= lr * ((gradElo / nTrain) + 2 * L2 * w.elo);
+	    w.ml -= lr * ((gradMl / nTrain) + 2 * L2 * w.ml);
+	    w.teamStrength -= lr * ((gradTs / nTrain) + 2 * L2 * w.teamStrength);
+	    w.inplay -= lr * ((gradInplay / nTrain) + 2 * L2 * w.inplay);
+	    w.gap -= lr * ((gradGap / nTrain) + 2 * L2 * w.gap);
+	    w.pi = (w.pi || 0) - lr * ((gradPi / nTrain) + 2 * L2 * (w.pi || 0));
+	    w.glicko2 = (w.glicko2 || 0) - lr * ((gradGlicko2 / nTrain) + 2 * L2 * (w.glicko2 || 0));
+
+	    // Early stopping: compute validation loss every 10 epochs
+	    if (epoch % 10 === 0 && valSet.length > 0) {
+	      let valLoss = 0;
+	      for (const sample of valSet) {
+	        const z = w.intercept
+	          + w.ruleBased * sample.input.ruleBased
+	          + w.poisson * sample.input.poisson
+	          + w.elo * sample.input.elo
+	          + w.ml * sample.input.ml
+	          + w.teamStrength * sample.input.teamStrength
+	          + w.inplay * sample.input.inplay
+	          + w.gap * sample.input.gap
+	          + (w.pi || 0) * (sample.input.pi || 0)
+	          + (w.glicko2 || 0) * (sample.input.glicko2 || 0);
+	        const pred = 1 / (1 + Math.exp(-z));
+	        valLoss -= sample.actual * Math.log(Math.max(pred, 1e-9)) + (1 - sample.actual) * Math.log(Math.max(1 - pred, 1e-9));
+	      }
+	      valLoss /= valSet.length;
+
+	      if (valLoss < bestValLoss - 1e-4) {
+	        bestValLoss = valLoss;
+	        bestW = { ...w };
+	        stallEpochs = 0;
+	      } else {
+	        stallEpochs += 10;
+	        if (stallEpochs >= STALL_LIMIT) break; // early stop
+	      }
+	    }
+	  }
+
+	  // Restore best weights from early stopping
+	  if (valSet.length > 0) w = bestW;
+	  currentWeights = w;
   return w;
 }
 

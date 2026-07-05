@@ -14,7 +14,7 @@
 // testing against historical data.
 
 import { db } from '../db';
-import { featuresToArray, type MatchFeatures } from '../featureEngineering';
+import { featuresToArray, FEATURE_NAMES, type MatchFeatures } from '../featureEngineering';
 import { getXgbModelCached, predictXgb, type XgbModel } from './xgbLoader';
 import { resolveArtifactPath, type ModelName } from "./modelRouter";
 
@@ -251,8 +251,8 @@ export async function runModelBacktest(
     try {
       const parsed = JSON.parse(log.featuresJson);
       features = Array.isArray(parsed) ? parsed : featuresToArray(parsed as MatchFeatures);
-      if (features.length > 67) features = features.slice(0, 67);
-      else if (features.length < 67) features = [...features, ...Array(67 - features.length).fill(0.5)];
+      if (features.length > FEATURE_NAMES.length) features = features.slice(0, FEATURE_NAMES.length);
+	      else if (features.length < FEATURE_NAMES.length) features = [...features, ...Array(FEATURE_NAMES.length - features.length).fill(0.5)];
     } catch {
       continue;
     }

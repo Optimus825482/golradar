@@ -374,22 +374,19 @@ export function parseMatch(m: any): ParsedMatch {
 
 let fotMobIdCache: Map<number, number | null> | null = null;
 let fotMobIdCacheTimestamp = 0;
-let fotMobIdCacheHydrating = false;
 let fotMobIdCacheHydratePromise: Promise<void> | null = null;
 const FOTMOB_ID_CACHE_TTL = 60 * 1000;
 
-async function ensureCacheHydrated(): Promise<void> {
+function ensureCacheHydrated(): Promise<void> {
   // Already populated and fresh
-  if (fotMobIdCache && Date.now() - fotMobIdCacheTimestamp < FOTMOB_ID_CACHE_TTL) return;
-  // Already hydrating — wait for existing promise
-  if (fotMobIdCacheHydrating && fotMobIdCacheHydratePromise) {
-    await fotMobIdCacheHydratePromise;
-    return;
-  }
-  // Start hydration
-  fotMobIdCacheHydrating = true;
-  fotMobIdCacheHydratePromise = hydrateFotMobIdCache();
-  await fotMobIdCacheHydratePromise;
+  if (fotMobIdCache && Date.now() - fotMobIdCacheTimestamp < FOTMOB_ID_CACHE_TTL) return Promise.resolve();
+  // Already hydrating — share existing promise (singleton async pattern)
+  if (fotMobIdCacheHydratePromise) return fotMobIdCacheHydratePromise;
+  // Start hydration — set promise synchronously so concurrent callers share it
+  fotMobIdCacheHydratePromise = hydrateFotMobIdCache().then(() => {
+    fotMobIdCacheTimestamp = Date.now();
+  });
+  return fotMobIdCacheHydratePromise;
 }
 
 function lookupFotMobIdForNesineCode(nesineCode: number): number | null {
@@ -424,12 +421,11 @@ export async function hydrateFotMobIdCache(): Promise<void> {
       }
     }
     fotMobIdCache = map;
-    fotMobIdCacheTimestamp = Date.now();
-    fotMobIdCacheHydrating = false;
-    logDev('nesine', `FotMob ID cache hydrated: ${map.size} mappings`);
-  } catch (err) {
-    fotMobIdCacheHydrating = false;
-    logError('nesine', 'Failed to hydrate FotMob ID cache:', err);
+	    fotMobIdCacheTimestamp = Date.now();
+	    logDev('nesine', `FotMob ID cache hydrated: ${map.size} mappings`);
+	  } catch (err) {
+	    logError('nesine', 'Failed to hydrate FotMob ID cache:', err);
+	    // Callers fall back to non-enriched goalRadar
     // Callers fall back to non-enriched goalRadar
   }
 }

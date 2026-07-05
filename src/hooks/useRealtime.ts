@@ -21,15 +21,17 @@ export function useRealtime() {
   const [connected, setConnected] = useState(false);
   const [wsData, setWsData] = useState<PushPayload | null>(null);
   const esRef = useRef<EventSource | null>(null);
-  const gaveUp = useRef(false);
+  const errorCount = useRef(0);
 
   useEffect(() => {
-    if (gaveUp.current) return;
     if (typeof window === 'undefined') return;
 
     const es = new EventSource('/api/push');
 
-    es.onopen = () => setConnected(true);
+    es.onopen = () => {
+      setConnected(true);
+      errorCount.current = 0;
+    };
 
     es.onmessage = (event) => {
       try {
@@ -39,10 +41,13 @@ export function useRealtime() {
     };
 
     es.onerror = () => {
-      // Ilk hatada pes et — HTTP poll devam eder
-      gaveUp.current = true;
+      errorCount.current++;
       setConnected(false);
-      es.close();
+      // EventSource auto-reconnects by spec. After 5 consecutive errors
+      // close and let the HTTP poll take over (avoid infinite retry loop).
+      if (errorCount.current >= 5) {
+        es.close();
+      }
     };
 
     esRef.current = es;

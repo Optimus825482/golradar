@@ -97,17 +97,14 @@ function fetchViaScrapling(url: string, timeoutMs: number = 20000): Promise<any>
   return new Promise((resolve) => {
     const python = resolvePython();
     if (!python || !execFile) {
-      console.error("Scrapling disabled: no python interpreter on PATH. Set PYTHON_PATH to enable.");
+      devError("Scrapling disabled: no python interpreter on PATH. Set PYTHON_PATH to enable.");
       scraplingAvailable = false;
       resolve(null);
       return;
     }
     const args = [getScraplingScript(), url, "--timeout", String(timeoutMs)];
-    const timeout = setTimeout(() => {
-      resolve(null); // Timeout - don't crash
-    }, timeoutMs + 10000); // Extra buffer for Python startup
 
-    execFile(python, args, { timeout: timeoutMs + 10000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    const child = execFile(python, args, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       clearTimeout(timeout);
       if (error) {
         const code = (error as NodeJS.ErrnoException).code;
@@ -115,7 +112,7 @@ function fetchViaScrapling(url: string, timeoutMs: number = 20000): Promise<any>
           // Binary vanished between resolve and exec — invalidate cache.
           _pythonPath = undefined;
         }
-        console.error("Scrapling exec error:", error.message);
+        devError("Scrapling exec error:", error.message);
         scraplingAvailable = false; // Mark as unavailable
         resolve(null);
         return;
@@ -131,19 +128,25 @@ function fetchViaScrapling(url: string, timeoutMs: number = 20000): Promise<any>
             if (result.ok && result.data) {
               resolve(result.data);
             } else {
-              console.error("Scrapling returned error:", result.error);
+              devError("Scrapling returned error:", result.error);
               resolve(null);
             }
             return;
           }
         }
-        console.error("Scrapling: no JSON found in output");
+        devError("Scrapling: no JSON found in output");
         resolve(null);
       } catch (err: any) {
-        console.error("Scrapling parse error:", err?.message);
+        devError("Scrapling parse error:", err?.message);
         resolve(null);
       }
     });
+
+    // Kill subprocess on timeout to prevent zombie accumulation
+    const timeout = setTimeout(() => {
+      child.kill('SIGTERM');
+      resolve(null);
+    }, timeoutMs + 10000);
   });
 }
 
@@ -396,7 +399,7 @@ const MAPPING_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // Name normalization for matching (delegated to shared module)
 
 import { nameSimilarity } from './teamNameNormalizer';
-import { logError } from '@/lib/devLog';
+import { logError, devError } from '@/lib/devLog';
 
 // Extract slug ID from URL like "/football/xxx-live-127912"
 function extractSlugId(url: string): number {

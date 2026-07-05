@@ -71,7 +71,7 @@ export function evaluateCalibrationDrift(
       : null;
 
   const elevated =
-    driftPct !== null && driftPct > Math.max(7, thresholdPct * 100);
+    driftPct !== null && driftPct > thresholdPct * 100;
 
   const direction: CalibrationDriftReport['direction'] =
     driftPct == null

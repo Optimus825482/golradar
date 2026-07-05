@@ -131,24 +131,11 @@ async function trainMainModels(exportResults: Array<{ result: ExportResult; hori
         continue;
       }
 	      const newBrier = completed.metrics?.brier ?? null;
-	      // Sadece yeni Brier champion'dan iyi YİSE shadow oluştur.
-	      let shouldRegister = false;
-	      if (newBrier != null && typeof newBrier === 'number') {
-	        const championBrier = await getChampionBrier(name);
-	        if (championBrier == null) {
-	          shouldRegister = true; // İlk model
-	        } else if (newBrier <= championBrier) {
-	          shouldRegister = true; // İyi veya eşit
-	        } else {
-	          logInfo('MLScheduler', `${name}@${version} Brier ${newBrier.toFixed(4)} > champion ${championBrier.toFixed(4)} — shadow atlandı`);
-	        }
-	      } else {
-	        shouldRegister = true; // Brier bilinmiyor — güvence
-	      }
+		      // Her zaman shadow artifact olarak kaydet (Brier iyi/kötü fark etmez).
+		      // Shadow evaluator deprecation kararını verir. Kaydetmezsek diskte
+		      // orphan dosya kalır ve backtest/shadow karşılaştırması yapılamaz.
 
-	      if (!shouldRegister) continue;
-
-	      // Eski shadow'ları temizle: her model için max 5 shadow
+		      // Eski shadow'ları temizle: her model için max 5 shadow
 	      const artifactList = await (await import('./modelRouter')).listArtifacts(name);
 	      const shadows = artifactList.filter(a => !a.isChampion).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 	      if (shadows.length >= 5) {

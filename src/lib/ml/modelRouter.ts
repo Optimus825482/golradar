@@ -21,6 +21,7 @@ import { loadXtGrid, type XtGrid } from './xtGrid';
 import { loadGapRating, type GapRatingModel } from './gap';
 import { loadPiRating, type PiRatingModel } from './piRatingGlue';
 import { loadGlicko2, type Glicko2Model } from './glicko2Glue';
+import { logError } from '@/lib/devLog';
 
 export type ModelName = 'gbdt' | 'xgb' | 'inplay' | 'team-strength' | 'xt-grid' | 'lightgbm' | 'gap' | 'pi' | 'glicko2';
 
@@ -52,11 +53,16 @@ async function loadArtifactRecord(name: ModelName) {
 
 function evictIfFull(): void {
   if (modelCache.size <= CACHE_MAX) return;
-  // Simple: clear half when full
-  const keys = Array.from(modelCache.keys());
-  for (let i = 0; i < Math.ceil(keys.length / 2); i++) {
-    modelCache.delete(keys[i]);
+  // Evict oldest by loadedAt
+  let oldest: ModelName | null = null;
+  let oldestT = Infinity;
+  for (const [k, v] of modelCache.entries()) {
+    if (v.loadedAt < oldestT) {
+      oldestT = v.loadedAt;
+      oldest = k;
+    }
   }
+  if (oldest) modelCache.delete(oldest);
 }
 
 /**
@@ -113,7 +119,14 @@ async function getChampionPath(name: ModelName): Promise<{
     modelCache.set(name, { entry: null, loadedAt: Date.now() });
     return null;
   }
-  const metrics = JSON.parse(artifact.metricsJson) as Record<string, number>;
+  let metrics: Record<string, number>;
+  try {
+    metrics = JSON.parse(artifact.metricsJson) as Record<string, number>;
+  } catch {
+    logError('modelRouter', `Malformed metricsJson for ${name}@${artifact.version}`);
+    modelCache.set(name, { entry: null, loadedAt: Date.now() });
+    return null;
+  }
   const entry: ModelEntry = {
     name,
     version: artifact.version,
@@ -157,7 +170,8 @@ export async function loadTeamStrengthChampion(): Promise<{
 } | null> {
   const meta = await getChampionPath('team-strength');
   if (!meta) {
-    return { model: loadTeamStrength(), version: loadTeamStrength().version };
+    const def = loadTeamStrength();
+    return { model: def, version: def.version };
   }
   // Fitted model'i disk'ten yükle
   try {
@@ -210,17 +224,26 @@ export async function listArtifacts(name?: ModelName): Promise<ArtifactListItem[
     orderBy: [{ name: 'asc' }, { createdAt: 'desc' }],
     take: 50,
   });
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name as ModelName,
-    version: r.version,
-    isChampion: r.isChampion,
-    metrics: JSON.parse(r.metricsJson) as Record<string, number>,
-    artifactPath: r.artifactPath,
-    createdAt: r.createdAt,
-    sha256: r.sha256,
-    bytes: r.bytes,
-  }));
+  return rows.map((r) => {
+    let metrics: Record<string, number>;
+    try {
+      metrics = JSON.parse(r.metricsJson) as Record<string, number>;
+    } catch {
+      logError('modelRouter', `Malformed metricsJson for ${r.name}@${r.version} — skipping`);
+      return null;
+    }
+    return {
+      id: r.id,
+      name: r.name as ModelName,
+      version: r.version,
+      isChampion: r.isChampion,
+      metrics,
+      artifactPath: r.artifactPath,
+      createdAt: r.createdAt,
+      sha256: r.sha256,
+      bytes: r.bytes,
+    };
+  }).filter((x): x is ArtifactListItem => x !== null);
 }
 
 /**

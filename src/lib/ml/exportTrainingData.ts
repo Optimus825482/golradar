@@ -313,8 +313,8 @@ export async function exportTrainingData(
         sha256,
         status: "failed",
         errorMsg: `Only one label class: ${positives} positives, ${negatives} negatives. Need goal events in the data.`,
-        dataStart: predictionLogs[0].createdAt,
-        dataEnd: predictionLogs[predictionLogs.length - 1].createdAt,
+        dataStart: predictionLogs[predictionLogs.length - 1].createdAt,
+        dataEnd: predictionLogs[0].createdAt,
       },
     });
     return null;
@@ -353,8 +353,8 @@ export async function exportTrainingData(
 	    select: { id: true, createdAt: true },
 	    orderBy: { createdAt: 'desc' },
 	  });
-		  if (existingRows.length >= 3) {
-		    const toDelete = existingRows.slice(2); // keep top 2 newest
+        if (existingRows.length >= 3) {
+          const toDelete = existingRows.slice(3); // keep top 3 newest
 		    // FIX: deleteMany — delete() record yoksa prisma:error firlatir,
 		    // .catch() sessize alsa bile log'a yazilir.
 		    const idsToDelete = toDelete.map(x => x.id);
@@ -371,8 +371,8 @@ export async function exportTrainingData(
       path: filePath,
       sha256,
       status: "ready",
-      dataStart: predictionLogs[0].createdAt,
-      dataEnd: predictionLogs[predictionLogs.length - 1].createdAt,
+      dataStart: predictionLogs[predictionLogs.length - 1].createdAt,
+      dataEnd: predictionLogs[0].createdAt,
     },
   });
 
@@ -382,8 +382,8 @@ export async function exportTrainingData(
     rowCount: rows.length,
     sha256,
     bytes: jsonl.length,
-    dataStart: predictionLogs[0].createdAt,
-    dataEnd: predictionLogs[predictionLogs.length - 1].createdAt,
+    dataStart: predictionLogs[predictionLogs.length - 1].createdAt,
+    dataEnd: predictionLogs[0].createdAt,
   };
 }
 

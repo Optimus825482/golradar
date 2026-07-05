@@ -108,14 +108,18 @@ export async function pollJob(
   const { timeoutMs = 120_000, pollMs = 2_000 } = opts;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const job = await trainerFetch<JobHandle>(`/jobs/${jobId}`);
-    if (job) {
-      // Translate artifactPath back: trainer returns /data/... but web expects /app/data/...
-      if (job.artifactPath) {
-        job.artifactPath = job.artifactPath.replace(/^\/data\//, "/app/data/");
+    try {
+      const job = await trainerFetch<JobHandle>(`/jobs/${jobId}`);
+      if (job) {
+        // Translate artifactPath back: trainer returns /data/... but web expects /app/data/...
+        if (job.artifactPath) {
+          job.artifactPath = job.artifactPath.replace(/^\/data\//, "/app/data/");
+        }
       }
+      if (job?.status === 'success' || job?.status === 'failed') return job;
+    } catch {
+      // Transient network/server error — retry
     }
-    if (job?.status === 'success' || job?.status === 'failed') return job;
     await new Promise((r) => setTimeout(r, pollMs));
   }
   return null;

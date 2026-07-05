@@ -732,6 +732,16 @@ const statsCache = new Map<string, CacheEntry<ScoremerMatchStats>>();
 const mappingCache: { entry: CacheEntry<ScoremerMapping[]> | null } = { entry: null };
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const MAX_STATS_CACHE = 500;
+
+function evictStatsIfOversized(): void {
+  if (statsCache.size <= MAX_STATS_CACHE) return;
+  let excess = statsCache.size - MAX_STATS_CACHE;
+  for (const key of statsCache.keys()) {
+    if (excess-- <= 0) break;
+    statsCache.delete(key);
+  }
+}
 
 export async function fetchScoremerMatchListCached(): Promise<ScoremerMatch[]> {
   if (matchListCache.entry && Date.now() - matchListCache.entry.timestamp < CACHE_TTL) {
@@ -750,6 +760,7 @@ export async function fetchScoremerMatchStatsCached(matchId: string): Promise<Sc
   const data = await fetchScoremerMatchStats(matchId);
   if (data) {
     statsCache.set(matchId, { data, timestamp: Date.now() });
+    evictStatsIfOversized();
   }
   return data;
 }

@@ -1120,6 +1120,18 @@ const MAPPING_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 saat
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 // Periodic cleanup to prevent unbounded growth
+// Extra guard: per-cache LRU eviction after TTL cleanup
+const MAX_CACHE_ENTRIES = 1000;
+
+function evictIfOversized<K, V>(map: Map<K, V>, max: number): void {
+  if (map.size <= max) return;
+  let excess = map.size - max;
+  for (const key of map.keys()) {
+    if (excess-- <= 0) break;
+    map.delete(key);
+  }
+}
+
 function cleanupCache() {
   const now = Date.now();
   const cutoff = now - CACHE_TTL * 2; // Remove entries older than 2x TTL
@@ -1135,11 +1147,17 @@ function cleanupCache() {
   for (const [key, val] of oddsCache) {
     if (val.timestamp < cutoff) oddsCache.delete(key);
   }
-  // Mapping cache: 24h TTL (canlilik süresince tut)
+  // Mapping cache: 24h TTL
   const mappingCutoff = now - MAPPING_CACHE_TTL;
   for (const [key, val] of mappingCache) {
     if (val.timestamp < mappingCutoff) mappingCache.delete(key);
   }
+  // LRU eviction: cap all caches at max entries
+  evictIfOversized(matchesCache, MAX_CACHE_ENTRIES);
+  evictIfOversized(momentumCache, MAX_CACHE_ENTRIES);
+  evictIfOversized(eventsCache, MAX_CACHE_ENTRIES);
+  evictIfOversized(oddsCache, MAX_CACHE_ENTRIES);
+  evictIfOversized(mappingCache, MAX_CACHE_ENTRIES);
 }
 
 // Run cleanup every 30 minutes (only on server)

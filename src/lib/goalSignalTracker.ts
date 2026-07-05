@@ -54,8 +54,17 @@ import {
 import { db } from "./db";
 import { logError } from "./devLog";
 import { loadExcludedMinutes, isExcludedMinute } from "./excludedMinutes";
-import { onGoal as feedbackOnGoal } from "./feedbackLoops";
+import { onGoal as feedbackOnGoal, recordSignalOutcomes, categorizeSignalOutcome, type SignalOutcome } from "./feedbackLoops";
 import { recordPrediction } from "./ml/weightTuner";
+import { logInfo } from "./devLog";
+
+// ponytail: inline debug helper. Upgrade: structured logging with sampling.
+const SIGNAL_DEBUG = process.env.SIGNAL_DEBUG === 'true';
+
+function signalDebug(msg: string, ctx?: Record<string, unknown>): void {
+  if (!SIGNAL_DEBUG) return;
+  logInfo('SignalTracker', msg, ctx);
+}
 
 // ── Local date helper ────────────────────────────────────
 export const getLocalDateString = (d: Date = new Date()): string => {
@@ -262,35 +271,73 @@ export async function checkAndRecordSignal(
   const threshold = getDynamicThreshold(undefined, minNum, undefined);
   
   // ── Multi-Tier N-of-M Confirmation ─────────────────────────────
-  // Sinyal sayısını ARTIRIR: düşük threshold + model onayı = daha çok sinyal, daha doğru
-  // Tier sistemi threshold'un ALTINDAKİ skorlara da izin verir (model sayısı yeterliyse)
+  // FIX (2026-07-05): When modelAgreement is the default (1), the
+  // N-of-M gate is impossible to pass (elite needs 5, confirmed
+  // 3, watch 2). Use score-only tiers when modelAgreement < 2.
+  // When explicit ensemble is available (>= 2), use the full N-of-M.
   let signalTier: "elite" | "confirmed" | "watch" | "radar" | null = null;
 
-  // Tier determination: highest tier that qualifies
-  // Her tier kendi threshold'u ile değerlendirilir, base threshold'tan bağımsız
-  if (goalProbability.score >= TIER_ELITE_THRESHOLD && modelAgreement >= TIER_ELITE_MIN_MODELS) {
-    signalTier = "elite";
-  } else if (goalProbability.score >= TIER_CONFIRMED_THRESHOLD && modelAgreement >= TIER_CONFIRMED_MIN_MODELS) {
-    signalTier = "confirmed";
-  } else if (goalProbability.score >= TIER_WATCH_THRESHOLD && modelAgreement >= TIER_WATCH_MIN_MODELS) {
-    signalTier = "watch";
-  } else if (goalProbability.score >= threshold) {
-    signalTier = "radar";
+  const useNofM = modelAgreement >= 2;
+
+  if (useNofM) {
+    // N-of-M mode: requires both score AND model agreement
+    if (goalProbability.score >= TIER_ELITE_THRESHOLD && modelAgreement >= TIER_ELITE_MIN_MODELS) {
+      signalTier = "elite";
+    } else if (goalProbability.score >= TIER_CONFIRMED_THRESHOLD && modelAgreement >= TIER_CONFIRMED_MIN_MODELS) {
+      signalTier = "confirmed";
+    } else if (goalProbability.score >= TIER_WATCH_THRESHOLD && modelAgreement >= TIER_WATCH_MIN_MODELS) {
+      signalTier = "watch";
+    } else if (goalProbability.score >= threshold) {
+      signalTier = "radar";
+    }
+  } else {
+    // Score-only mode (modelAgreement unknown = default 1)
+    // ponytail: use configurable thresholds directly.
+    // Upgrade: per-league calibration of these thresholds.
+    if (goalProbability.score >= TIER_WATCH_THRESHOLD) {
+      signalTier = "watch";
+    } else if (goalProbability.score >= TIER_CONFIRMED_THRESHOLD) {
+      signalTier = "confirmed";
+    } else if (goalProbability.score >= TIER_ELITE_THRESHOLD) {
+      signalTier = "elite";
+    } else if (goalProbability.score >= threshold) {
+      signalTier = "radar";
+    }
   }
 
   // If no tier qualifies, skip signal
-  if (!signalTier) return null;
+  if (!signalTier) {
+    signalDebug('SIGNAL_DROP:no_tier', {
+      matchCode, homeTeam, awayTeam,
+      score: goalProbability.score, threshold, modelAgreement,
+      side: goalProbability.side,
+      tierMode: useNofM ? 'N-of-M' : 'score-only',
+    });
+    return null;
+  }
 
   // "both" sinyallerine izin ver — yön belirsiz ama gol olasılığı yüksek.
   // correctPrediction sadece signalSide !== "both" ise hesaplanır.
-  if (!goalProbability.side) return null;
+  if (!goalProbability.side) {
+    signalDebug('SIGNAL_DROP:no_side', {
+      matchCode, homeTeam, awayTeam,
+      score: goalProbability.score, signalTier,
+    });
+    return null;
+  }
 
   // ── Excluded minute zones ─────────────────────────────────────
   // Faz 9 — DB backed (excludedMinutes.ts), cache TTL 5dk. Config
   // default fallback.
   const sigMin = parseMinute(minute);
   const excludedZones = await loadExcludedMinutes();
-  if (isExcludedMinute(sigMin, excludedZones)) return null;
+  if (isExcludedMinute(sigMin, excludedZones)) {
+    signalDebug('SIGNAL_DROP:excluded_minute', {
+      matchCode, homeTeam, awayTeam,
+      minute: sigMin, score: goalProbability.score, signalTier,
+    });
+    return null;
+  }
 
   // signalSide "both" da olabilir — cooldown/upsert için "both" kullan
   const signalSide = goalProbability.side as "home" | "away" | "both";
@@ -300,6 +347,10 @@ export async function checkAndRecordSignal(
   // ponytail: bu ~%90 DB sorgusunu keser (30sn poll'de çoğu cooldown içinde).
   //Upgrade path: Redis if distributed workers
   if (checkCooldownCache(matchCode, signalSide)) {
+    signalDebug('SIGNAL_DROP:cooldown', {
+      matchCode, homeTeam, awayTeam, signalSide,
+      score: goalProbability.score,
+    });
     // Cache'te cooldown var — updateLastValues yine de yap (DB'deki son değerler taze kalsın)
     const existingForCooldown = await repoFindExisting(matchCode, today, signalSide);
     if (existingForCooldown?.goalHappened === null && existingForCooldown.id) {
@@ -375,6 +426,12 @@ export async function checkAndRecordSignal(
   };
 
   const created = await repoCreate(record);
+  signalDebug('SIGNAL_CREATED', {
+    matchCode, homeTeam, awayTeam, signalSide,
+    score: goalProbability.score, calibratedP: goalProbability.calibratedP,
+    minute: minNum, signalTier, signalLevel: goalProbability.level,
+    tierMode: useNofM ? 'N-of-M' : 'score-only',
+  });
   // Cooldown artık DB'de: oluşturulan kaydın lastSignalTimestamp'ı bir sonraki
   // checkAndRecordSignal çağrısında repoFindExisting ile okunur.
   return created;
@@ -466,6 +523,34 @@ export async function reportGoal(
         });
       }),
     );
+
+    // ── Self-Learning: signal outcome categorization ──────────────
+    // Record every resolved signal's outcome for per-league/per-minute
+    // accuracy tracking. Best-effort — failures don't block goal path.
+    if (withId.length > 0) {
+      const outcomes: SignalOutcome[] = withId.map((s) => {
+        const gm = goalMinute > 0 ? goalMinute : s.signalMinute;
+        const correctPred = s.signalSide === 'both' ? true : goalSide === s.signalSide;
+        const goalHappened = true;
+        return {
+          signalId: s.id,
+          matchCode,
+          minute: s.signalMinute,
+          league: s.league,
+          homeTeam: s.homeTeam,
+          awayTeam: s.awayTeam,
+          predictedSide: s.signalSide,
+          calibratedP: s.calibratedP,
+          signalTier: s.signalTier ?? null,
+          goalHappened,
+          goalSide,
+          correctPrediction: correctPred,
+          minutesAfterSignal: Math.max(0, gm - s.signalMinute),
+          outcome: categorizeSignalOutcome(goalHappened, correctPred),
+        };
+      });
+      recordSignalOutcomes(outcomes).catch(() => {});
+    }
 
     // ── Feedback Loop: golden sonra thesis resolve + kalibrasyon ──
     // ponytail: tek çağrı, async, başarısız olursa sessiz geç

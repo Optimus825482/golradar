@@ -24,7 +24,7 @@ import { createHash } from 'crypto';
 import { mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { db } from '../db';
-import { extractFeatures, featuresToArray, FEATURE_NAMES, type MatchFeatures } from '../featureEngineering';
+import { extractFeatures, featuresToArray, FEATURE_NAMES, horizonAwareLabel, type MatchFeatures } from '../featureEngineering';
 import type { FeatureExtractionInput } from '../featureEngineering';
 
 // Use the Docker volume mount path (/app/data/ml-training) so the file is
@@ -174,6 +174,22 @@ export async function exportTrainingData(
       // Bulk enrichment verilerini eğitimden çıkar (boş stat'lı eski kayıtlar)
       modelVariant: { not: 'goaloo-bulk' },
     },
+    select: {
+      id: true,
+      matchCode: true,
+      minute: true,
+      createdAt: true,
+      featuresJson: true,
+      goalScored: true,
+      minutesToGoal: true,
+      homeTeam: true,
+      awayTeam: true,
+      league: true,
+      homeElo: true,
+      awayElo: true,
+      homeScore: true,
+      awayScore: true,
+    },
     orderBy: [{ matchCode: "desc" }, { createdAt: "desc" }],
     take: maxRows > 0 ? maxRows : 100_000,
   });
@@ -207,6 +223,7 @@ export async function exportTrainingData(
   let skippedMissingFeatures = 0;
   let labeledFromDb = 0;
   let labeledFromEvents = 0;
+  let recomputedLabels = 0;
 
 	for (const log of predictionLogs) {
 	    // Cron ile train-inference skew'u önle: cron'un sinyal üretmediği
@@ -251,17 +268,28 @@ export async function exportTrainingData(
       }
     }
 
-    // Primary label: PredictionLog.goalScored (set during backfill / finalize)
-    // Secondary: MatchEvent join for logs where goalScored is still null
-    let label: number;
-    if (log.goalScored !== null) {
-      label = log.goalScored ? 1 : 0;
-      labeledFromDb++;
-    } else {
-      const matchGoals = goalsByMatch.get(log.matchCode) ?? [];
-      label = labelForLog(log.createdAt, horizon, matchGoals);
-      labeledFromEvents++;
-    }
+	    // Primary label: PredictionLog.goalScored + minutesToGoal (backfill).
+	    // FIX (2026-07-05): backfillPredictionLogLabels uses a 15-min horizon
+	    // for ALL rows, but short-horizon models need horizon-aware labels.
+	    // Use horizonAwareLabel to recompute when minutesToGoal is available.
+	    // Secondary: MatchEvent join for logs where goalScored is still null.
+	    let label: number;
+	    let recomputedLabel = false;
+	    if (log.goalScored !== null) {
+	      const corrected = horizonAwareLabel(
+	        log.goalScored,
+	        log.minutesToGoal ?? null,
+	        horizon,
+	      );
+	      label = corrected.label;
+	      recomputedLabel = corrected.recomputed;
+	      if (recomputedLabel) recomputedLabels++;
+	      labeledFromDb++;
+	    } else {
+	      const matchGoals = goalsByMatch.get(log.matchCode) ?? [];
+	      label = labelForLog(log.createdAt, horizon, matchGoals);
+	      labeledFromEvents++;
+	    }
 
     rows.push({
       matchCode: log.matchCode,
@@ -291,7 +319,7 @@ export async function exportTrainingData(
     `[Export] ${rows.length} rows, ${positives} positives (${((positives / rows.length) * 100).toFixed(1)}%), ` +
       `${negatives} negatives for horizon=${horizon}min` +
       (labeledFromDb > 0
-        ? ` (${labeledFromDb} from DB goalScored, ${labeledFromEvents} from MatchEvent)`
+        ? ` (${labeledFromDb} from DB goalScored${recomputedLabels > 0 ? `, ${recomputedLabels} horizon-corrected` : ""}, ${labeledFromEvents} from MatchEvent)`
         : ""),
   );
 

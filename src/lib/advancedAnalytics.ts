@@ -15,10 +15,6 @@
 export type { MatchStats } from './nesineTypes';
 import type { MatchStats } from './nesineTypes';
 
-export interface _LegacyRemoved {
-  [key: string]: { home: number | null; away: number | null }
-}
-
 export interface PressureSnapshot {
   minute: string
   timestamp: number

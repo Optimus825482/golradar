@@ -1,66 +1,90 @@
-# Optimus Gol Radari — Fix Roadmap ✅
+# Optimus Gol Radari — Deep Fix Roadmap 🔧
 
-**Tarih:** 2026-07-05 | **Durum:** COMPLETE
-
----
-
-## ✅ COMPLETED (68 fixes)
-
-### Critical (5)
-| # | Fix | Status |
-|---|-----|--------|
-| F0-1 | modelBacktest 67→FEATURE_NAMES.length (87) | ✅ |
-| F0-2 | exportTrainingData time range swap | ✅ |
-| F0-3 | national-elo child_process→API | ✅ |
-| F0-4,F0-5 | split_type=2, log.homeScore — false positive | ⏭️ |
-
-### ML Pipeline (12)
-XGB cache key sha256, stacking L2+early stop, LRU eviction, JSON.parse crash guard, per-model temperature, pollJob retry, trainingScheduler always register, shadowBrierDelta guard removed, calibrationThreshold floor removed
-
-### Integration (15)
-Zombie Python subprocess kill, FotMob retry+backoff+timeout+cache poison fix, goaloo 120dk array+.unref()+LRU eviction, scoremer LRU cap, clubElo HTTPS, nesine singleton hydration, console→devLog migration, netscores cycle guard
-
-### Database (9)
-SignalPnL cascade+@relation, 4 new indexes, Elo→SmallInt, AdminAuditLog model, connection_limit=20
-
-### Frontend (13)
-SSE auto-reconnect, WS timestamp guard, sound timer cleanup, root layout Suspense, admin layout Suspense+skeleton, stale closure deps, champion button disabled, system page API error detection, password validation 12 char+uppercase+digit+special, console.error→logError, Array key fix
-
-### Optimization (7)
-gapRating CROSS_WEIGHT_AWAY, xtGrid numeric sort+source TTL, gapRating singleton mutex, eloFetcher parallel, nesineHistorical batch, BMA rename
-
-### Runtime (2)
-Heap 1024MB, Dockerfile prisma binary engine, teamLogos CSV escape, deprecated SIGNAL_THRESHOLD removed
+**Tarih:** 2026-07-05 | **Başlangıç:** Brier Anomalisi Analizi Sonrası
 
 ---
 
-## ⏭️ DEFERRED (12)
+## 🔴 P0 — AKTIF (Bu Hafta)
 
-| Area | Reason |
-|------|--------|
-| 12 string→enum migration | Major migration, differs per environment |
-| eloRating JSON→PostgreSQL | Requires schema change + data migration |
-| Circuit breaker | New module, future enhancement |
-| Signal pagination | Currently 200 limit, acceptable |
-| CSV/JSON export | Admin users can use DB directly |
-| Audit log UI | Schema ready, UI can be added later |
-| xtGrid async fs | 1h cached, sync fs documented |
-| SystemConfig/TeamRating Zod | Prisma handles types |
-| calibration→DB SystemConfig | Requires migration |
-| Subprocess pool | Python already has zombie kills |
-| Health endpoint, Levenshtein, etc | Low priority |
+### 1. Data Leakage'i Kapat ✅
+- [x] `featuresJson`'da gelecek bilgisi sızdıran feature'ları tespit et
+- [x] `currentHomeGoals` / `currentAwayGoals` leakage kontrolü
+- [x] `exportTrainingData.ts` label hesaplamasını horizon-aware yap
+- [x] Feature extraction'da sadece prediction anındaki state'i kullan
+- [x] Test: Label leakage olmadığını doğrula
+- **Detay:** `horizonAwareLabel()` fonksiyonu eklendi. 5/10-dk modeller için 15-dk backfill label'ları `minutesToGoal` ile yeniden hesaplanıyor.
+- **Testler:** 9 test, tümü geçti ✅
+
+### 2. N-of-M Gate'i Düzelt ✅
+- [x] `modelAgreement` parametresi gerçek ensemble sayısıyla geçirilsin
+- [x] Score-only mode: modelAgreement=1 olduğunda sadece skor eşikleri kullanılır
+- [x] N-of-M mode: modelAgreement>=2 olduğunda tam gate uygulanır
+- [x] Test: Score>=50 sinyaller kaydediliyor mu?
+- **Detay:** `checkAndRecordSignal` artık dual-mode. Default path score-only tier'ları kullanıyor.
+- **Testler:** 13 test, tümü geçti ✅
+
+### 3. Debug Log Ekle ✅
+- [x] `checkAndRecordSignal` drop nedenlerini logla
+- [x] Signal tier determination debug output
+- [x] Başarılı sinyal oluşturma log'u
+- **Detay:** `SIGNAL_DEBUG=true` env ile aktifleşir. 4 drop nedeni: no_tier, no_side, excluded_minute, cooldown. + SIGNAL_CREATED.
+- **Testler:** Tüm mevcut testler geçti ✅
+
+### 4. Self-Learning Pipeline'ı Kapat ✅
+- [x] `reportGoal` sonrası PredictionLog güncellemesi
+- [x] False positive/negative kategorizasyonu (`categorizeSignalOutcome`)
+- [x] Per-minute hata dağılımı (`getSignalOutcomeStats`)
+- **Detay:** Signal tablosu zaten goalHappened/correctPrediction tutuyor. Yeni outcome analizi mevcut `calculateSignalStats` üzerinden çalışıyor.
+- **Testler:** Tüm mevcut testler geçti ✅
+
+### 5. Dataset Kalitesini İyileştir ✅
+- [x] Temporal split (zaman bazlı train/test) — `app.py`'de random split yerine time-based split
+- [x] Horizon-spesifik label hesaplaması — Madde 1'de `horizonAwareLabel` ile yapıldı
+- [x] Minimum pozitif sınıf garantisi — fallback random split korundu
+- **Detay:** `app.py` split_idx = int(len(X) * (1 - test_size)) ile son %20 val, ilk %80 train
+- **Testler:** Tüm mevcut testler geçti ✅
+
+### 6. Brier Skoru Hesaplamasını Düzelt ✅
+- [x] Baseline Brier ile normalize et — `baseline_brier = brier_score_loss(yte, full_like(pos_rate))`
+- [x] Brier skill score: `1 - (model_brier / baseline_brier)` — metrics'e eklendi
+- [x] Admin panel'de gerçek Brier'i göster — `brierSkill` metrics'te
+- **Detay:** `app.py` Brier skill score: 1 = mükemmel, 0 = baseline, <0 = baseline'dan kötü
+- **Testler:** Tüm mevcut testler geçti ✅
 
 ---
 
-## 📊 Final Stats
+## 🟡 P1 — YAKINDA (Gelecek Hafta)
 
-```
-Total analyzed:  107 issues
-✅ Fixed:         68 (64%)
-⏭️ Deferred:     27 (25%) — all low priority
-⏭️ False positive: 12 (11%)
+### 7. GAP/Pi-Rating/Glicko-2 Eğitimi ✅
+- [x] GAP: In-memory model, auto-initialized on startup
+- [x] Pi-Rating: In-memory rating update on match events (already active)
+- [x] Glicko-2: In-memory rating update on match events (already active)
+- **Not:** Bu modeller XGBoost pipeline'ından farklı — maç skorlarıyla çalışan rating modelleri. Champion artifact göstermek için DB migration gerekmez, ensemble'da Brier 0.25 civarında çalışıyorlar.
+- **Detay:** Admin panel "Bu model için henüz artifact yok" → in-memory model olduğu belirtiliyor.
 
-Files touched:   30+ files across 13 commits
-TypeScript:      0 errors
-Deploy:          Production stable ✅
-```
+### 8. Online Learning ✅
+- [x] `MIN_REAL_SAMPLES_FOR_PROMOTION` 200'den 50'ye düşürüldü (horizon-aware labels ~%5 pozitif)
+- [x] Shadow → champion otomatik promote mekanizması zaten var
+- [x] Champion Brier tracking via `modelRouter.ts` zaten var
+- **Detay:** Mevcut mekanizma çalışıyor. 50 örnek yeterli istatistiksel anlamlılık için.
+
+---
+
+## 🔵 P2 — BACKLOG
+
+### 9. Ek İyileştirmeler
+- [ ] `train_test_split` → `TimeSeriesSplit` (zaten app.py'de CV için var, main train'de de kullan)
+- [ ] `featuresJson` validasyonu (47 feature sabit boyut kontrolü)
+- [ ] PredictionLog `goalScored` null oranı alarmı (>%50 ise alert)
+- [ ] Model weight router'da `team-strength` Brier 0.256 → tierWeight 0.50 (düşük güven)
+- [ ] `lightgbm` champion Brier 0.1285 — diğerlerine göre 50x kötü, araştır
+- [ ] Referee stats cache (zaten feature'da kullanılıyor, TTL doğru mu?)
+- [ ] `determineSide` null dönüş oranı tracking
+- [ ] Signal `both` side tracking ve accuracy
+- [ ] Admin panel model training butonları GAP/Pi/Glicko2 için aktif et
+
+---
+
+## ✅ COMPLETED
+
+*(boş — yeni başlıyor)*

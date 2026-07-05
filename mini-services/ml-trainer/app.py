@@ -199,13 +199,15 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                 "Need at least a few goals in the training window."
             )
 
-        # Stratified split — fall back to random split if too few positives
+        # Time-based split — prevents temporal leakage from same-match rows
+        # spreading across train/test. Uses the last test_size fraction of
+        # rows as the validation fold (assumes rows are ordered by time).
+        # Fall back to random stratified split when too few positives (<4).
         test_size = req.test_size
-        min_test_pos = max(1, int(n_pos * test_size * 0.5))
+        split_idx = int(len(X) * (1 - test_size))
         if n_pos >= 4 and n_neg >= 4:
-            Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=test_size, stratify=y, random_state=req.random_state
-            )
+            Xtr, Xte = X[:split_idx], X[split_idx:]
+            ytr, yte = y[:split_idx], y[split_idx:]
         else:
             Xtr, Xte, ytr, yte = train_test_split(
                 X, y, test_size=test_size, random_state=req.random_state
@@ -359,6 +361,10 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         p = model.predict_proba(Xte)[:, 1]
         p_clipped = np.clip(p, 1e-9, 1 - 1e-9)
         brier = brier_score_loss(yte, p)
+        # Baseline Brier: always predict the train-set base rate
+        baseline_brier = brier_score_loss(yte, np.full_like(yte, pos_rate))
+        # Brier skill score: fraction of improvement over baseline (1 = perfect, 0 = baseline, <0 = worse)
+        brier_skill = 1.0 - (brier / max(baseline_brier, 1e-9))
         ll = log_loss(yte, p_clipped)
         acc = accuracy_score(yte, (p > 0.5).astype(int))
         try:
@@ -371,7 +377,7 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         # Feature importance (top 5)
         importance = model.feature_importances_
         top5_idx = importance.argsort()[-5:][::-1]
-        print(f"[trainer] {req.name}@{req.version}: Brier={brier:.4f}, AUC={auc:.3f}, "
+        print(f"[trainer] {req.name}@{req.version}: Brier={brier:.4f} (baseline={baseline_brier:.4f}, skill={brier_skill:.3f}), AUC={auc:.3f}, "
               f"Acc={acc:.3f}, top5={top5_idx.tolist()}, "
               f"imp={[round(importance[i], 4) for i in top5_idx]}")
 
@@ -389,6 +395,8 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         job.artifact_path = str(artifact_path)
         job.metrics = {
             "brier": float(brier),
+            "baselineBrier": float(baseline_brier),
+            "brierSkill": float(brier_skill),
             "logLoss": float(ll),
             "accuracy": float(acc),
             "auc": float(auc),

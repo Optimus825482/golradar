@@ -46,6 +46,16 @@ export function computeBrierDecomposition(
   };
 }
 
+/** PowerBI dashboard adapter: remap {reliability,resolution} → {refinement,calibration}. */
+export function brierForPowerBI(d: BrierDecomposition): { refinement: number; calibration: number; uncertainty: number; brierScore: number } {
+  return {
+    refinement: d.reliability,
+    calibration: d.resolution,
+    uncertainty: d.uncertainty,
+    brierScore: d.brierScore,
+  };
+}
+
 export function computeCalibrationCurve(
   signals: Array<{ calibratedP: number; goalHappened: boolean }>,
   bucketCount: number,

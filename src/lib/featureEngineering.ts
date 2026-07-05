@@ -912,6 +912,29 @@ export function featuresToArray(features: MatchFeatures): number[] {
   return FEATURE_NAMES.map(name => features[name] ?? 0);
 }
 
+// ── Horizon-aware label correction ──────────────────────────────────
+// Fix: backfillPredictionLogLabels uses a 15-min horizon for ALL
+// PredictionLog rows, but models trained for 5-min or 10-min horizons
+// need tighter labeling. minutesToGoal stores the actual elapsed minutes.
+//
+// ponytail: single pure function, no I/O. Upgrade: per-horizon backfill
+// if the unified 15-min label proves insufficient for 5-min open-play models.
+
+export function horizonAwareLabel(
+  goalScored: boolean | null,
+  minutesToGoal: number | null,
+  exportHorizon: 5 | 10 | 15,
+): { label: 0 | 1; recomputed: boolean } {
+  if (goalScored === null) return { label: 0, recomputed: false };
+  if (goalScored === true && minutesToGoal !== null) {
+    const withinHorizon = minutesToGoal <= exportHorizon;
+    return { label: withinHorizon ? 1 : 0, recomputed: !withinHorizon };
+  }
+  if (goalScored === false) return { label: 0, recomputed: false };
+  // goalScored=true, minutesToGoal=null → corrupted row, err safe
+  return { label: 1, recomputed: false };
+}
+
 // ── Training data record ───────────────────────────────────────────
 
 export interface TrainingRecord {

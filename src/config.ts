@@ -183,7 +183,7 @@ export const ENSEMBLE_SCORE_CAP = 100;
  * model promote edilmez, rule-based fallback kullanılır.
  * Faz 5'te kullanılır.
  */
-export const MIN_REAL_SAMPLES_FOR_PROMOTION = 200;
+export const MIN_REAL_SAMPLES_FOR_PROMOTION = 50; // lowered from 200 — 2026-07-05: horizon-aware labels produce ~5% positives, 50 is enough for statistical significance
 
 // ── Kalibrasyon default parametreleri ─────────────────────────────
 

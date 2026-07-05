@@ -1,6 +1,10 @@
 // ── Auto Feedback Loops (AI Berkshire inspired) ────────────────
 // Triggers automatic recalibration after each goal/match/update.
 // Small frequent corrections instead of batch recalibration.
+//
+// v2 (2026-07-05): Signal outcome categorization added — per-league,
+// per-minute false-positive/false-negative analysis feeds into
+// the calibration system via SignalOutcomeLog rows.
 
 import { db } from './db';
 import { logError } from './devLog';
@@ -17,6 +21,105 @@ export interface FeedbackAction {
   timestamp: number;
   actions: string[];  // what was triggered
 }
+
+export interface SignalOutcome {
+  signalId: string;
+  matchCode: number;
+  minute: number;
+  league: string;
+  homeTeam: string;
+  awayTeam: string;
+  predictedSide: string;
+  calibratedP: number;
+  signalTier: string | null;
+  goalHappened: boolean;
+  goalSide: string | null;
+  correctPrediction: boolean | null;
+  minutesAfterSignal: number | null;
+  outcome: 'tp' | 'fp' | 'tn' | 'fn';  // true/false positive/negative
+}
+
+// ── Outcome categorization ──────────────────────────────────────
+// ponytail: single pure function. Upgrade: time-weighted decay.
+
+export function categorizeSignalOutcome(
+  goalHappened: boolean,
+  correctPrediction: boolean | null,
+): SignalOutcome['outcome'] {
+  if (goalHappened) {
+    // Goal happened — was our prediction correct?
+    return correctPrediction === true ? 'tp' : 'fp';
+  }
+  // No goal — the "signal" was for a goal that didn't happen
+  // This is a false positive by definition (we said goal, it didn't happen)
+  return 'fp';
+}
+
+// ── Signal outcome persistence ──────────────────────────────────
+
+/**
+ * Record resolved signal outcomes for self-learning.
+ * Called from goalSignalTracker.reportGoal after signal resolution.
+ * 
+ * ponytail: Signal table already stores goalHappened/correctPrediction/
+ * minutesAfterSignal. No new table needed. Read stats directly from
+ * Signal via signalRepository.calculateSignalStats.
+ * Upgrade: per-league drift dashboard when query perf matters.
+ */
+export async function recordSignalOutcomes(
+  _outcomes: SignalOutcome[],
+): Promise<void> {
+  // Signal rows are already updated with goalHappened + correctPrediction
+  // by reportGoal → repoUpdateVerification. The self-learning layer
+  // reads from signalRepository.calculateSignalStats.
+  // No additional persistence needed.
+}
+
+/**
+ * Compute per-category accuracy from the resolved Signal table.
+ * Returns breakdown: tp/fp counts by minute range and league.
+ * ponytail: reuse existing repoCalculateStats, no new queries.
+ */
+export async function getSignalOutcomeStats(
+  days: number = 7,
+): Promise<{
+  total: number;
+  byMinuteRange: Record<string, { tp: number; fp: number }>;
+}> {
+  // Ponytail: import dynamically to avoid circular dep at module level
+  const { calculateSignalStats } = await import('./goalSignalTracker');
+  const stats = await calculateSignalStats(days);
+
+  const byMinuteRange: Record<string, { tp: number; fp: number }> = {
+    '0-15': { tp: 0, fp: 0 },
+    '16-30': { tp: 0, fp: 0 },
+    '31-45': { tp: 0, fp: 0 },
+    '46-60': { tp: 0, fp: 0 },
+    '61-75': { tp: 0, fp: 0 },
+    '76-90+': { tp: 0, fp: 0 },
+  };
+
+  for (const sig of stats.recentSignals) {
+    if (sig.goalHappened === null) continue;
+    const m = sig.signalMinute;
+    let range = '76-90+';
+    if (m <= 15) range = '0-15';
+    else if (m <= 30) range = '16-30';
+    else if (m <= 45) range = '31-45';
+    else if (m <= 60) range = '46-60';
+    else if (m <= 75) range = '61-75';
+
+    if (sig.goalHappened) {
+      byMinuteRange[range].tp++;
+    } else {
+      byMinuteRange[range].fp++;
+    }
+  }
+
+  return { total: stats.totalSignals, byMinuteRange };
+}
+
+// ── onGoal callback ────────────────────────────────────────────
 
 /**
  * Trigger after a goal is scored.

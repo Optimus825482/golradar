@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // 60 saniye timeout (heroku benzeri)
+export const maxDuration = 0; // SSE unlimited — 60s kills persistent connection, causes ERR_HTTP2_PROTOCOL_ERROR
 
 async function fetchMatches() {
   const base = process.env.PUSH_INTERNAL_URL ?? 'http://localhost:3012';

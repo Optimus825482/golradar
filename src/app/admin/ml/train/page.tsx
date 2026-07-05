@@ -30,13 +30,7 @@ const MODEL_OPTIONS = [
   { value: 'xgb', label: 'XGBoost', color: '#3b82f6', desc: 'Yüksek doğruluk potansiyeli — XGBoost sidecar' },
   { value: 'inplay', label: 'InPlay 5dk', color: '#8b5cf6', desc: 'Canlı maç 5dk gol modeli — XGBoost sidecar' },
   { value: 'lightgbm', label: 'LightGBM', color: '#f59e0b', desc: 'Hızlı eğitim, düşük bellek — LightGBM sidecar' },
-  { value: 'gap', label: 'GAP Rating', color: '#6366f1', desc: 'Wheatcroft GAP — atak performans ratingi (in-memory, sidecar gerekmez)' },
-  { value: 'pi', label: 'Pi-Rating', color: '#ec4899', desc: 'Constantinou & Fenton dinamik takım gücü (in-memory, sidecar gerekmez)' },
-  { value: 'glicko2', label: 'Glicko-2', color: '#14b8a6', desc: 'Glickman rating volatilite modeli (in-memory, sidecar gerekmez)' },
 ];
-
-/** Models that run via Python trainer sidecar. GAP/Pi/Glicko2 are in-memory. */
-const SIDECAR_MODELS = new Set(['gbdt', 'xgb', 'inplay', 'lightgbm']);
 
 function nextVersion(artifacts: ArtifactInfo[]): string {
   const versions = artifacts
@@ -110,13 +104,6 @@ export default function AdminMLTrainPage() {
     setError(null);
     setSuccess(null);
     try {
-      // In-memory models: no API call needed. Show info message.
-      if (!SIDECAR_MODELS.has(modelName)) {
-        setSuccess(`ℹ ${modelName.toUpperCase()}: In-memory rating modeli — maç sonuçlarıyla otomatik güncellenir. Sidecar eğitimi gerekmez.`);
-        setLoading(false);
-        return;
-      }
-      // Sidecar models: normal training flow
       const ds = datasets.find(d => d.id === datasetId);
       const body: Record<string, unknown> = {
         name: modelName,
@@ -137,11 +124,6 @@ export default function AdminMLTrainPage() {
   };
 
   const startPipeline = async () => {
-    // In-memory models don't use the pipeline
-    if (!SIDECAR_MODELS.has(modelName)) {
-      setSuccess(`ℹ ${modelName.toUpperCase()}: In-memory model — pipeline gerekmez.`);
-      return;
-    }
     setPipelineLoading(true);
     setError(null);
     setSuccess(null);

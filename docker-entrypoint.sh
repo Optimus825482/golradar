@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+# Keep-alive > 61s prevents Traefik HTTP/2 race condition
+export KEEP_ALIVE_TIMEOUT=65000
+
 echo "[ENTRYPOINT] Starting Optimus Gol Radari..."
 echo "[ENTRYPOINT] Domain: https://radar.erkanerdem.online"
 
@@ -179,4 +182,5 @@ echo "  Login:  admin / admin123"
 echo "═══════════════════════════════════════════════"
 echo ""
 
-exec node --max-old-space-size=1024 server.js
+# ponytail: 2GB heap — 1GB with 7+ intervals + ML inference + subprocess was causing OOM
+exec node --max-old-space-size=2048 server.js

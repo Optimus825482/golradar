@@ -9,6 +9,7 @@ import {
 } from "@/lib/netscores";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300; // 5min — NetScores fetch + mapping can be slow
 
 const log = process.env.NODE_ENV === 'development' ? console.log : () => {};
 const warnN = process.env.NODE_ENV === 'development' ? console.warn : () => {};

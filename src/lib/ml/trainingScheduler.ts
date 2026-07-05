@@ -283,7 +283,7 @@ export function startTrainingScheduler(): SchedulerState {
   // in-memory cache'i tazeler ve SSE subscriber'lara push eder.
   // Bu sayede 1000 kullanıcının her biri ayrı ayrı /api/matches
   // çağırmaz — hepsi cache'ten beslenir.
-  const POLL_INTERVAL_MS = 5_000;
+  const POLL_INTERVAL_MS = 15_000; // 15s (was 5s) — match state doesn't change meaningfully in 5s, 15s cuts self-inflicted CPU load 3x
   state.pollTimer = setUnref(
     setInterval(() => {
       fetch(`http://localhost:${process.env.PORT || 3012}/api/cron/poll-matches`, {

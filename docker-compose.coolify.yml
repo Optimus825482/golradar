@@ -75,6 +75,14 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
 
   # ── ML Trainer Sidecar (XGBoost) ──
   ml-trainer:

@@ -95,10 +95,10 @@ async function generateInBackground(
 
   // Step 1: Label all unlabeled rows first
   if (labelFirst) {
-    await updateRun(runId, "labeling", 5, "Maç etiketleri kontrol ediliyor...");
+    await updateRun(runId, "extracting", 5, "Maç etiketleri kontrol ediliyor...");
     const unlabeled = await db.predictionLog.count({ where: { goalScored: null } });
     if (unlabeled > 0) {
-      await updateRun(runId, "labeling", 10, `${unlabeled} etiketsiz satır bulundu, label'lanıyor...`);
+      await updateRun(runId, "extracting", 10, `${unlabeled} etiketsiz satır bulundu, label'lanıyor...`);
       // Quick label pass: use MatchEvent to label rows
       const rows = await db.predictionLog.findMany({
         where: { goalScored: null },
@@ -133,7 +133,7 @@ async function generateInBackground(
           labeled++;
         }));
         const pct = 10 + Math.round((i + batchSize) / rows.length * 10);
-        await updateRun(runId, "labeling", pct, `Label'landı: ${Math.min(i + batchSize, rows.length)}/${rows.length} (${labeled} güncellendi)`);
+        await updateRun(runId, "extracting", pct, `Label'landı: ${Math.min(i + batchSize, rows.length)}/${rows.length} (${labeled} güncellendi)`);
       }
     }
   }

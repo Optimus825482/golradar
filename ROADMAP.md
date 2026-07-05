@@ -51,7 +51,7 @@
 - O5: calibration→DB SystemConfig
 
 ### Code (7)
-- C1: All console→logError
+- C1: All console→logError ✅
 - C2: teamLogos CSV fix
 - C3: config deprecated cleanup
 - C4: Docker log noise

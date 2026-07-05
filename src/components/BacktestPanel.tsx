@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import type { BacktestResult } from '@/lib/backtestEngine'
 import type { SignalAccuracyStats, GoalSignalRecord } from '@/lib/goalSignalTracker'
+import { logError } from '@/lib/devLog'
 import type { SimulationProgress } from '@/lib/backtestSimulator'
 
 type TabView = 'overview' | 'calibration' | 'thresholds' | 'buckets' | 'factors' | 'time' | 'signals'
@@ -48,7 +49,7 @@ export default function BacktestPanel() {
         setRecentSignals(recData.records || [])
       }
     } catch (err) {
-      console.error('Signal data fetch error:', err)
+      logError('backtest', 'Signal data fetch error:', err)
     }
     setLastUpdate(new Date())
   }, [days])
@@ -97,10 +98,10 @@ export default function BacktestPanel() {
         await runBacktest()
       } else {
         const errData = await resp.json().catch(() => ({}))
-        console.error('Simulation error:', errData)
+        logError('backtest', 'Simulation error:', errData)
       }
     } catch (err) {
-      console.error('Simulation start error:', err)
+      logError('backtest', 'Simulation start error:', err)
     }
     setSimulating(false)
   }, [simDaysBack, simMaxMatches, runBacktest])

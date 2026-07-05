@@ -13,6 +13,7 @@ import {
   type TrainingHorizon,
   type ExportResult,
 } from "./exportTrainingData";
+import { autoLabelPredictionLogs, type AutoLabelResult } from "./autoLabel";
 import {
   startTraining,
   pollJob,
@@ -61,6 +62,17 @@ function getState(): SchedulerState {
 
 async function exportAllHorizons(): Promise<void> {
   const state = getState();
+
+  // Auto-label: label unlabeled rows before export so training data is fresh
+  try {
+    const labelResult = await autoLabelPredictionLogs();
+    if (labelResult.labeled > 0) {
+      logInfo('MLScheduler', `Auto-label: ${labelResult.labeled} rows labeled, ${labelResult.skipped} skipped`);
+    }
+  } catch (err) {
+    logError('MLScheduler', 'Auto-label failed:', err);
+  }
+
   const results: Array<{ result: ExportResult; horizon: number }> = [];
   for (const horizon of state.horizons) {
     try {

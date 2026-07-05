@@ -199,19 +199,24 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
                 "Need at least a few goals in the training window."
             )
 
-        # Time-based split — prevents temporal leakage from same-match rows
-        # spreading across train/test. Uses the last test_size fraction of
-        # rows as the validation fold (assumes rows are ordered by time).
-        # Fall back to random stratified split when too few positives (<4).
+        # Time-based split — prevents temporal leakage.
+        # Guard: if last 20% has <2 positives (1.6% rate → likely), fall back
+        # to stratified split. ponytail: check both sides, upgrade: per-match split.
         test_size = req.test_size
         split_idx = int(len(X) * (1 - test_size))
-        if n_pos >= 4 and n_neg >= 4:
+        te_pos = int(y[split_idx:].sum()) if n_pos >= 4 else 0
+        tr_pos = int(y[:split_idx].sum()) if n_pos >= 4 else 0
+        
+        if n_pos >= 4 and n_neg >= 4 and te_pos >= 2 and tr_pos >= 2:
             Xtr, Xte = X[:split_idx], X[split_idx:]
             ytr, yte = y[:split_idx], y[split_idx:]
+            print(f"[trainer] time-split: train={len(ytr)} (pos={tr_pos}), test={len(yte)} (pos={te_pos})")
         else:
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=test_size, random_state=req.random_state
+                X, y, test_size=test_size, stratify=y if (n_pos >= 2 and n_neg >= 2) else None,
+                random_state=req.random_state
             )
+            print(f"[trainer] stratified-split (time-split had test_pos={te_pos}, need ≥2)")
 
         # Compute base_score from training label distribution
         # (default 0.5 causes the model to predict 0.5 for everything)

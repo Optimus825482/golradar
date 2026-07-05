@@ -428,22 +428,18 @@ export function calculateGoalProbability(
   catch { calibratedP = 0.5; }
 
   // ── 5-min signal gate ─────────────────────────────────────────
+  // 5dk içinde gol olasılığı düşükse level downgrade, AMA side korunur
+  // ve skor kesilmez. Düşük 5-min olasılığı = "şu an değil ama yakında olabilir".
   const isMomentumRising = ctx.hf.length + ctx.af.length >= 3;
   const baseThreshold = minNum <= 30 ? SIGNAL_5MIN_THRESHOLD : minNum <= 60 ? 0.20 : minNum <= 75 ? 0.12 : 0.08;
   const effectiveThreshold = isMomentumRising ? Math.max(0.06, baseThreshold - 0.04) : baseThreshold;
   const gateThreshold = level === 'critical' ? 0.06 : effectiveThreshold;
 
   if (goalProbability5min < gateThreshold) {
-    level = 'low';
-    side = null;
-    if (finalFinalScore < RADAR_THRESHOLD) {
-      const capThreshold = Math.max(40, RADAR_THRESHOLD - 6); // env değişince uyumlu
-      finalScore = Math.min(finalFinalScore, capThreshold);
-      finalFinalHome = Math.min(finalFinalHome, capThreshold);
-      finalFinalAway = Math.min(finalFinalAway, capThreshold);
-    } else {
-      finalScore = finalFinalScore;
-    }
+    if (level !== 'low') level = 'medium'; // downgrade ama kill etme
+    // ponytail: side korunur. Düşük 5-min olasılığı "şu an olmaz" demek değil —
+    // momentum build-up'ı kaçırıyor olabiliriz. Side yok edilirse sinyal sıfırlanır.
+    finalScore = finalFinalScore;
   } else {
     finalScore = finalFinalScore;
   }

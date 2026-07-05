@@ -264,7 +264,8 @@ async function processMatch(
   const inExcludedZone = sigMin <= 2 || (sigMin >= 43 && sigMin <= 45) || sigMin >= 89;
 
   let signalsCreated = 0;
-  if (prob && prob.score >= RADAR_THRESHOLD && prob.side && prob.side !== "both" && !inExcludedZone) {
+  // both sinyallerine de izin ver — yön belirsiz ama gol olasılığı yüksek olabilir
+  if (prob && prob.score >= RADAR_THRESHOLD && prob.side && !inExcludedZone) {
     try {
       const result = await checkAndRecordSignal(
         matchCode,

@@ -13,7 +13,7 @@
     .env RADAR_THRESHOLD ile override edilebilir. Varsayılan 65. */
 export const RADAR_THRESHOLD = (() => {
   const env = parseInt(process.env.RADAR_THRESHOLD || '', 10);
-  return isNaN(env) ? 65 : Math.max(40, Math.min(80, env));
+  return isNaN(env) ? 55 : Math.max(40, Math.min(80, env));
 })();
 
 /** @deprecated RADAR_THRESHOLD kullan, bu sadece backward compat */

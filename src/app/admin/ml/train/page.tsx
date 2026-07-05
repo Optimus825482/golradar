@@ -26,11 +26,17 @@ interface ArtifactInfo {
 }
 
 const MODEL_OPTIONS = [
-  { value: 'gbdt', label: 'GBDT (Champion)', color: '#10b981', desc: 'Gradient Boosted Decision Trees' },
-  { value: 'xgb', label: 'XGBoost', color: '#3b82f6', desc: 'Yüksek doğruluk potansiyeli' },
-  { value: 'inplay', label: 'InPlay 5dk', color: '#8b5cf6', desc: 'Canlı maç 5dk gol modeli' },
-  { value: 'lightgbm', label: 'LightGBM', color: '#f59e0b', desc: 'Hızlı eğitim, düşük bellek' },
+  { value: 'gbdt', label: 'GBDT (Champion)', color: '#10b981', desc: 'Gradient Boosted Decision Trees — XGBoost sidecar' },
+  { value: 'xgb', label: 'XGBoost', color: '#3b82f6', desc: 'Yüksek doğruluk potansiyeli — XGBoost sidecar' },
+  { value: 'inplay', label: 'InPlay 5dk', color: '#8b5cf6', desc: 'Canlı maç 5dk gol modeli — XGBoost sidecar' },
+  { value: 'lightgbm', label: 'LightGBM', color: '#f59e0b', desc: 'Hızlı eğitim, düşük bellek — LightGBM sidecar' },
+  { value: 'gap', label: 'GAP Rating', color: '#6366f1', desc: 'Wheatcroft GAP — atak performans ratingi (in-memory, sidecar gerekmez)' },
+  { value: 'pi', label: 'Pi-Rating', color: '#ec4899', desc: 'Constantinou & Fenton dinamik takım gücü (in-memory, sidecar gerekmez)' },
+  { value: 'glicko2', label: 'Glicko-2', color: '#14b8a6', desc: 'Glickman rating volatilite modeli (in-memory, sidecar gerekmez)' },
 ];
+
+/** Models that run via Python trainer sidecar. GAP/Pi/Glicko2 are in-memory. */
+const SIDECAR_MODELS = new Set(['gbdt', 'xgb', 'inplay', 'lightgbm']);
 
 function nextVersion(artifacts: ArtifactInfo[]): string {
   const versions = artifacts
@@ -104,6 +110,27 @@ export default function AdminMLTrainPage() {
     setError(null);
     setSuccess(null);
     try {
+      // In-memory models: use their own fit endpoint
+      if (!SIDECAR_MODELS.has(modelName)) {
+        const res = await authFetch(`/api/admin/ml/train`, {
+          method: 'POST',
+          body: JSON.stringify({
+            name: modelName,
+            version,
+            horizon_min: horizonMin,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok || data.status === 'queued') {
+          setSuccess(`✓ ${modelName} fit başlatıldı. Model in-memory olarak güncellenecek.`);
+          load();
+        } else {
+          setError(data.error || 'Fit başlatılamadı');
+        }
+        setLoading(false);
+        return;
+      }
+      // Sidecar models: normal training flow
       const ds = datasets.find(d => d.id === datasetId);
       const body: Record<string, unknown> = {
         name: modelName,

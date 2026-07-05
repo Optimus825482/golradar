@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { authFetch } from '@/lib/adminAuth';
 import {
   Brain, Activity, Target, BarChart3, Zap, Shield,
-  RefreshCw, ChevronRight, Bot, GitCompare, Puzzle, Server,
+  RefreshCw, ChevronRight, Bot, GitCompare, Puzzle, Server, Database,
 } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -306,6 +306,10 @@ export default function AdminPage() {
             <Link href="/admin/system" className="text-center py-3 rounded-lg bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 transition-all duration-150 ease-out hover:scale-[1.02] active:scale-[0.98]">
               <Server className="size-5 mx-auto text-cyan-600 mb-0.5" />
               <div className="text-[11px] font-bold text-cyan-700">Sistem</div>
+            </Link>
+            <Link href="/admin/ml/datasets" className="text-center py-3 rounded-lg bg-violet-50 hover:bg-violet-100 border border-violet-200 transition-all duration-150 ease-out hover:scale-[1.02] active:scale-[0.98]">
+              <Database className="size-5 mx-auto text-violet-600 mb-0.5" />
+              <div className="text-[11px] font-bold text-violet-700">Datasetler</div>
             </Link>
             <a href="/" className="text-center py-3 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-all duration-150 ease-out hover:scale-[1.02] active:scale-[0.98]">
               <BarChart3 className="size-5 mx-auto text-blue-600 mb-0.5" />

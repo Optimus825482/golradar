@@ -417,7 +417,9 @@ export default function AdminMLPage() {
 
             {versions.length === 0 && (
               <div className="p-4 text-center text-[11px] text-gray-400">
-                Bu model için henüz artifact yok. Eğitim pipeline'ı çalıştırın.
+                {name === 'gap' || name === 'pi' || name === 'glicko2'
+                  ? 'In-memory rating modeli — maç sonuçlarıyla otomatik güncellenir. Ayrı eğitim gerekmez.'
+                  : 'Bu model için henüz artifact yok. Eğitim pipeline\'ı çalıştırın.'}
               </div>
             )}
           </div>

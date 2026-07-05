@@ -213,10 +213,11 @@ export async function runModelBacktest(
     };
   }
 
-  // Query PredictionLog rows
+  // Query PredictionLog rows. goalScored may be null for active matches —
+  // use MatchEvent fallback to resolve labels at backtest time.
+  // ponytail: same pattern as exportTrainingData.ts.
   const whereFilter: Record<string, unknown> = {
     createdAt: { gte: cutoff },
-    goalScored: { not: null },
   };
   // All modes re-score through the current model (featuresJson required)
   whereFilter.featuresJson = { not: null };
@@ -237,6 +238,19 @@ export async function runModelBacktest(
 
   if (logs.length < minSamples) return null;
 
+  // Pre-fetch goal events for all matches in the batch
+  const matchCodes = [...new Set(logs.map(l => l.matchCode))];
+  const goalEvents = await db.matchEvent.findMany({
+    where: { matchCode: { in: matchCodes }, eventType: "goal" },
+    select: { matchCode: true, minute: true, createdAt: true },
+    orderBy: { minute: "asc" },
+  });
+  const goalsByMatch = new Map<number, typeof goalEvents>();
+  for (const ev of goalEvents) {
+    if (!goalsByMatch.has(ev.matchCode)) goalsByMatch.set(ev.matchCode, []);
+    goalsByMatch.get(ev.matchCode)!.push(ev);
+  }
+
   // Build features, labels, and probArray in a SINGLE pass
   const resolved: ResolvedLog[] = [];
   const probArray: number[] = [];
@@ -252,7 +266,7 @@ export async function runModelBacktest(
       const parsed = JSON.parse(log.featuresJson);
       features = Array.isArray(parsed) ? parsed : featuresToArray(parsed as MatchFeatures);
       if (features.length > FEATURE_NAMES.length) features = features.slice(0, FEATURE_NAMES.length);
-	      else if (features.length < FEATURE_NAMES.length) features = [...features, ...Array(FEATURE_NAMES.length - features.length).fill(0.5)];
+		      else if (features.length < FEATURE_NAMES.length) features = [...features, ...Array(FEATURE_NAMES.length - features.length).fill(0.5)];
     } catch {
       continue;
     }
@@ -275,7 +289,15 @@ export async function runModelBacktest(
     }
     probArray.push(p);
 
-    const label = log.goalScored === true ? 1 : 0;
+    // Label: goalScored primary, MatchEvent fallback (same as exportTrainingData)
+    let label: number;
+    if (log.goalScored !== null) {
+      label = log.goalScored ? 1 : 0;
+    } else {
+      const matchGoals = goalsByMatch.get(log.matchCode) ?? [];
+      const rMin = log.minute ?? 0;
+      label = matchGoals.some(g => g.minute > rMin && g.minute - rMin <= 15) ? 1 : 0;
+    }
 
     // Normalize level to guard against case/whitespace mismatches
     const rawLevel = (log.level || "").trim().toLowerCase();

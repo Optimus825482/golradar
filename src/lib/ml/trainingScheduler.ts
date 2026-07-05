@@ -157,16 +157,18 @@ async function trainMainModels(exportResults: Array<{ result: ExportResult; hori
 	      });
 	      if (newBrier != null && typeof newBrier === 'number') {
 	        const championBrier = await getChampionBrier(name);
-	        if (championBrier != null && newBrier < championBrier) {
-	          const delta = championBrier - newBrier;
-	          const n = completed.metrics?.n ?? 0;
-	          const minDelta = minDeltaForPromotion(typeof n === 'number' ? n : 0);
-	          if (delta >= minDelta) {
-	            await promoteArtifact(name, version);
-	            logInfo('MLScheduler', `${name}@${version} auto-promoted! Brier ${championBrier.toFixed(4)} → ${newBrier.toFixed(4)} (Δ=${delta.toFixed(4)})`);
-	          } else {
-	            logInfo('MLScheduler', `${name}@${version} better (${newBrier.toFixed(4)} vs ${championBrier.toFixed(4)}) but Δ=${delta.toFixed(4)} < min=${minDelta} — shadow only`);
-	          }
+		        if (championBrier != null && newBrier < championBrier) {
+		          const delta = championBrier - newBrier;
+		          const n = completed.metrics?.n ?? 0;
+		          const minDelta = minDeltaForPromotion(typeof n === 'number' ? n : 0);
+		          const skill = completed.metrics?.brierSkill;
+		          const skillStr = typeof skill === 'number' ? ` skill=${skill.toFixed(3)}` : '';
+		          if (delta >= minDelta) {
+		            await promoteArtifact(name, version);
+		            logInfo('MLScheduler', `${name}@${version} auto-promoted! Brier ${championBrier.toFixed(4)} → ${newBrier.toFixed(4)} (Δ=${delta.toFixed(4)}${skillStr})`);
+		          } else {
+		            logInfo('MLScheduler', `${name}@${version} better (${newBrier.toFixed(4)} vs ${championBrier.toFixed(4)}) but Δ=${delta.toFixed(4)} < min=${minDelta}${skillStr} — shadow only`);
+		          }
 	        } else if (championBrier == null) {
 	          await promoteArtifact(name, version);
 	          logInfo('MLScheduler', `${name}@${version} promoted as first champion (Brier=${newBrier.toFixed(4)})`);
@@ -456,12 +458,14 @@ async function runInPlayRetrain(): Promise<void> {
 	        const delta = championBrier - inplayBrier;
 	        const n = completed.metrics?.n ?? 0;
 	        const minDelta = minDeltaForPromotion(typeof n === 'number' ? n : 0);
-	        if (delta >= minDelta) {
-	          await promoteArtifact('inplay', version);
-	          logInfo('MLScheduler', `In-play auto-promoted! Brier ${championBrier.toFixed(4)} → ${inplayBrier.toFixed(4)} (Δ=${delta.toFixed(4)})`);
-	        } else {
-	          logInfo('MLScheduler', `In-play shadow (Brier ${inplayBrier.toFixed(4)} better but Δ=${delta.toFixed(4)} < min=${minDelta})`);
-	        }
+		        const skill = completed.metrics?.brierSkill;
+		        const skillStr = typeof skill === 'number' ? ` skill=${skill.toFixed(3)}` : '';
+		        if (delta >= minDelta) {
+		          await promoteArtifact('inplay', version);
+		          logInfo('MLScheduler', `In-play auto-promoted! Brier ${championBrier.toFixed(4)} → ${inplayBrier.toFixed(4)} (Δ=${delta.toFixed(4)}${skillStr})`);
+		        } else {
+		          logInfo('MLScheduler', `In-play shadow (Brier ${inplayBrier.toFixed(4)} better but Δ=${delta.toFixed(4)} < min=${minDelta}${skillStr})`);
+		        }
 	      } else if (championBrier == null) {
 	        await promoteArtifact('inplay', version);
 	        logInfo('MLScheduler', `In-play promoted as first champion (Brier=${inplayBrier.toFixed(4)})`);

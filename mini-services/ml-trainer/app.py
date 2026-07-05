@@ -375,14 +375,22 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
         try:
             auc = roc_auc_score(yte, p)
         except ValueError:
-            auc = 0.5  # single class in test set
+            auc = 0.5
+        # PR-AUC: Prec/Rec AUC — robust to class imbalance (Saito & Rehmsmeier 2015)
+        try:
+            from sklearn.metrics import average_precision_score
+            pr_auc = average_precision_score(yte, p)
+        except (ImportError, ValueError):
+            pr_auc = float(pos_rate)  # baseline: random = prevalence
         # Calibration error (10-bin ECE)
         cal_err = _expected_calibration_error(yte, p, n_bins=10)
 
         # Feature importance (top 5)
         importance = model.feature_importances_
         top5_idx = importance.argsort()[-5:][::-1]
-        print(f"[trainer] {req.name}@{req.version}: Brier={brier:.4f} (baseline={baseline_brier:.4f}, skill={brier_skill:.3f}), AUC={auc:.3f}, "
+        print(f"[trainer] {req.name}@{req.version}: "
+              f"Brier={brier:.4f} (baseline={baseline_brier:.4f}, skill={brier_skill:+.3f}), "
+              f"AUC={auc:.3f}, PR-AUC={pr_auc:.3f}, "
               f"Acc={acc:.3f}, top5={top5_idx.tolist()}, "
               f"imp={[round(importance[i], 4) for i in top5_idx]}")
 
@@ -405,6 +413,7 @@ def _run_training_job(job: JobState, req: TrainRequest) -> None:
             "logLoss": float(ll),
             "accuracy": float(acc),
             "auc": float(auc),
+            "prAuc": float(pr_auc),
             "calibrationError": float(cal_err),
             "n": int(len(df)),
             "trainRows": int(len(Xtr)),

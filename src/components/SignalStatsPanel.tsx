@@ -267,7 +267,7 @@ export default function SignalStatsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSignals.slice(0, 200).map((s, i) => {
+                  {filteredSignals.slice(0, 200).map((s) => {
                     // 🥇 PRIMARY: Time-based success category
                     let timeLabel: string, timeCls: string, timeIcon: string
                     if (s.goalHappened === null) {
@@ -286,7 +286,7 @@ export default function SignalStatsPanel() {
                     const sideCls = s.signalSide === 'home' ? 'text-orange-600 bg-orange-50' : 'text-blue-600 bg-blue-50'
 
                     return (
-                      <tr key={`${s.matchCode}-${s.signalTimestamp}-${i}`} className="border-b border-gray-50 hover:bg-gray-50/60 transition-colors">
+                      <tr key={`${s.matchCode}-${s.signalTimestamp}`} className="border-b border-gray-50 hover:bg-gray-50/60 transition-colors">
                         <td className="py-2 px-3 text-gray-500 whitespace-nowrap">{fmtDate(s.signalTimestamp)}</td>
                         <td className="py-2 px-2">
                           <div className="font-medium text-gray-700 truncate max-w-[140px]">{s.homeTeam} vs {s.awayTeam}</div>

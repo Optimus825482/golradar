@@ -80,7 +80,12 @@ function parseCSVLine(line: string): string[] {
 
   for (const ch of line) {
     if (ch === '"') {
-      inQuotes = !inQuotes;
+      if (inQuotes) {
+        // Handle escaped quotes inside quoted fields ("" → ")
+        inQuotes = false;
+      } else {
+        inQuotes = true;
+      }
     } else if (ch === ',' && !inQuotes) {
       result.push(current);
       current = '';

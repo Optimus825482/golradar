@@ -1,7 +1,9 @@
-// ── Bayesian Model Averaging (BMA) ───────────────────────────
-// Replace weighted average with Bayesian model averaging.
-// Each model's weight is its posterior probability given the data.
-// Better models (lower Brier) get naturally higher weight.
+// ── Brier-Weighted Model Averaging ─────────────────────────────
+// Weighted model blending based on Brier score.
+// Lower Brier → higher weight via Gaussian kernel.
+// Note: This is NOT true Bayesian Model Averaging (BMA) which
+// requires marginal likelihood. This is Brier-weighted averaging
+// — a common approximation widely used in forecasting.
 //
 // Reference: Raftery, A.E. et al. (2005). "Bayesian Model Averaging
 // for Linear Regression Models."

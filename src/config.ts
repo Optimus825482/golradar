@@ -16,8 +16,6 @@ export const RADAR_THRESHOLD = (() => {
   return isNaN(env) ? 55 : Math.max(40, Math.min(80, env));
 })();
 
-/** @deprecated RADAR_THRESHOLD kullan, bu sadece backward compat */
-export const SIGNAL_THRESHOLD = RADAR_THRESHOLD;
 
 /**
  * Dinamik eşik hesaplama — lig, dakika ve Elo farkına göre threshold ayarlar.

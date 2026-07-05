@@ -324,11 +324,17 @@ export async function exportTrainingData(
     ? predictionLogs.filter(l => l.goalScored === null).length / predictionLogs.length
     : 0;
 
-  // P2 alarm: >50% null goalScored means backfill pipeline is broken
-  if (nullRate > 0.5) {
+  // P2 alarm: >90% null goalScored AND no MatchEvent fallback → backfill broken
+  // ponytail: MatchEvent fallback is the primary label path for active matches.
+  // Only alarm when BOTH paths produce zero labels.
+  if (nullRate > 0.9 && positives === 0) {
     console.warn(
-      `[Export] ALERT: ${(nullRate * 100).toFixed(0)}% of PredictionLog rows have goalScored=null. ` +
-      `Backfill may be stalled. Check finalizeMatchSignals and backfill-labels cron.`,
+      `[Export] ALERT: ${(nullRate * 100).toFixed(0)}% null goalScored AND 0 labeled rows. ` +
+      `Both backfill and MatchEvent paths are broken. Check finalizeMatchSignals.`,
+    );
+  } else if (nullRate > 0.9 && positives > 0) {
+    console.log(
+      `[Export] goalScored=${(nullRate * 100).toFixed(0)}% null — using MatchEvent fallback (${positives} positives OK)`,
     );
   }
 

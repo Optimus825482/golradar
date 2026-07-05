@@ -125,7 +125,7 @@ async function trainMainModels(exportResults: Array<{ result: ExportResult; hori
         logWarn('MLScheduler', `${name} trainer unreachable — skipping`);
         continue;
       }
-      const completed = await pollJob(job.jobId, { timeoutMs: 180_000, pollMs: 3_000 });
+      const completed = await pollJob(job.jobId, { timeoutMs: 600_000, pollMs: 5_000 });
       if (!completed || completed.status !== 'success' || !completed.artifactPath) {
         logWarn('MLScheduler', `${name} train failed: ${completed?.error ?? 'timeout'}`);
         continue;

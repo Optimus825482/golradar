@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { fmtDate, fmtNum } from '@/lib/safeFormat';
 import { authFetch } from '@/lib/adminAuth';
+import Link from 'next/link';
 
 interface ModelArtifact {
   id: string;
@@ -158,6 +159,25 @@ export default function AdminMLPage() {
         <p className="text-xs text-gray-500 mt-0.5">
           Champion / Shadow artifactlar, eğitim metrikleri ve pipeline durumu
         </p>
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          {[
+            { href: '/admin/ml', label: 'Modeller', active: true },
+            { href: '/admin/ml/train', label: 'Eğitim' },
+            { href: '/admin/ml/datasets', label: 'Datasetler' },
+            { href: '/admin/ml/labeling', label: 'Label\'leme' },
+            { href: '/admin/ml/monitoring', label: 'İzleme' },
+            { href: '/admin/ml/backtest', label: 'Backtest' },
+          ].map(n => (
+            <Link key={n.href} href={n.href}
+              className={`text-[10px] px-2.5 py-1 rounded-full font-bold border transition-all ${
+                n.active
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}>
+              {n.label}
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* Trainer status */}

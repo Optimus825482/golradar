@@ -226,7 +226,7 @@ async function executePipeline(runId: string, config: PipelineConfig): Promise<v
 
     await updatePipelineProgress(runId, 'training', 60, 'Eğitim devam ediyor...');
 
-    const completed = await pollJob(job.jobId, { timeoutMs: 300000, pollMs: 3000 });
+    const completed = await pollJob(job.jobId, { timeoutMs: 600_000, pollMs: 5000 });
     if (!completed || completed.status !== 'success' || !completed.artifactPath) {
       throw new Error(completed?.error || 'Training failed or timed out');
     }

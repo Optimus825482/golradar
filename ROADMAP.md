@@ -56,10 +56,10 @@
 
 | # | Modül | Fix | Durum |
 |---|-------|-----|-------|
-| F2-1 | `netscores.ts` | AbortController + child.kill | ⏳ |
-| F2-2 | `sofascore.ts` | Aynı fix | ⏳ |
-| F2-3 | `scraper.ts` | child.kill on timeout | ⏳ |
-| F2-4 | `goaloo.ts` | Subprocess pool | ⏳ |
+| F2-1 | `netscores.ts` | AbortController + child.kill + devError logging | ✅ |
+| F2-2 | `sofascore.ts` | execFile timeout handles SIGTERM — false positive | ⏭️ |
+| F2-3 | `scraper.ts` | execFile timeout handles SIGTERM — false positive | ⏭️ |
+| F2-4 | `goaloo.ts` | Subprocess pool — özel yapı gerektirir | ⏳ |
 | F2-5 | All bridges | Zombie cleanup loop | ⏳ |
 
 ### 2B: Circuit Breaker & Retry
@@ -67,17 +67,17 @@
 | # | Modül | Fix | Durum |
 |---|-------|-----|-------|
 | F2-6 | All sources | Circuit breaker — **yeni modül** | ⏳ |
-| F2-7 | `fotmob.ts` | Boş response cache poisoning fix | ⏳ |
-| F2-8 | `fotmob.ts` | Retry ekle | ⏳ |
-| F2-9 | `goaloo.ts` | setInterval .unref() eklendi | ✅ |
+| F2-7 | `fotmob.ts` | Boş response cache poisoning fix — sadece data varsa cache'le | ✅ |
+| F2-8 | `fotmob.ts` | 3 retry + 1s/2s backoff + AbortSignal.timeout | ✅ |
+| F2-9 | `goaloo.ts` | setInterval .unref() | ✅ |
 
 ### 2C: Fragile Parsing
 
 | # | Modül | Fix | Durum |
 |---|-------|-----|-------|
 | F2-10 | `goaloo.ts` | 90→120 array | ✅ |
-| F2-11 | `scoremer.ts` | Parse assertion | ⏳ |
-| F2-12 | `sofascore.ts` | stdout JSON only | ⏳ |
+| F2-11 | `scoremer.ts` | Parse assertion — logError import fix, duplicate cleaned | ✅ |
+| F2-12 | `sofascore.ts` | stdout JSON only — bridge protocol zaten doğru | ⏭️ |
 | F2-13 | `netscores.ts` | Cycle detection | ⏳ |
 | F2-14 | `teamNameNormalizer.ts` | Turkish chars — **false positive**, zaten var | ⏭️ |
 
@@ -89,15 +89,15 @@
 | F2-16 | `scoremer.ts`, `netscores.ts` | LRU limit | ⏳ |
 | F2-17 | `eloRating.ts` | PostgreSQL taşıma | ⏳ |
 | F2-18 | `clubElo.ts` | HTTP→HTTPS | ✅ |
-| F2-19 | `fotmob.ts` | Cache hydration race | ⏳ |
+| F2-19 | `nesine.ts` | Cache hydration race — singleton promise pattern | ✅ |
 | F2-20 | `scoremer.ts` | Levenshtein optimization | ⏳ |
 
 ### 2E: Observability
 
 | # | Modül | Fix | Durum |
 |---|-------|-----|-------|
-| F2-21 | `goaloo.ts` | console.* → devLog/devError | ✅ |
-| F2-21 | `netscores.ts`, `sofascore.ts`, `scraper.ts` | console.* → devLog (import eklenmeli) | ⏳ |
+| F2-21 | `goaloo.ts`, `netscores.ts` | console.* → devLog/devError | ✅ |
+| F2-21 | `sofascore.ts`, `scraper.ts` | console.* → devLog (zaten clean) | ⏭️ |
 | F2-22 | All sources | Structured error classification | ⏳ |
 | F2-23 | New endpoint | Health endpoint | ⏳ |
 | F2-24 | All sources | Request deduplication | ⏳ |
@@ -116,9 +116,9 @@
 | F3-6 | `schema.prisma` | Signal(date, matchCode) — var zaten | ⏭️ |
 | F3-7 | `schema.prisma` | @relation directives — cascade eklendi | ✅ |
 | F3-8 | `schema.prisma` | Elo Int→SmallInt | ⏳ |
-| F3-9 | `schema.prisma` | AdminAuditLog modeli | ⏳ |
+| F3-9 | `schema.prisma` | **AdminAuditLog modeli eklendi** (userId, action, entity, details, ip) | ✅ |
 | F3-10 | `src/lib/db.ts` | Pool config — Prisma URL parameter | ⏳ |
-| F3-11 | `schema.prisma` | ModelArtifact updatedAt | ⏳ |
+| F3-11 | `schema.prisma` | ModelArtifact updatedAt eklendi | ✅ |
 
 ---
 
@@ -127,8 +127,8 @@
 | # | Modül | Fix | Durum |
 |---|-------|-----|-------|
 | F4-1 | `hooks/useRealtime.ts` | SSE retry (gaveUp kaldır, 5-error limit) | ✅ |
-| F4-2 | `app/page.tsx` | WS timestamp guard | ⏳ |
-| F4-3 | `hooks/useGoalDetection.ts` | Sound timer cleanup | ⏳ |
+| F4-2 | `app/page.tsx` | WS timestamp guard (eski WS verisi poll'u ezmez) | ✅ |
+| F4-3 | `hooks/useGoalDetection.ts` | Sound timer cleanup on unmount | ✅ |
 | F4-4 | `admin/signals/page.tsx` | signalTier/signalLevel — **false positive** | ⏭️ |
 | F4-5 | `admin/signals/` | Pagination | ⏳ |
 | F4-6 | Admin pages | CSV export | ⏳ |
@@ -136,8 +136,8 @@
 | F4-8 | `admin/ml/page.tsx` | Champion delete button fix | ⏳ |
 | F4-9 | `admin/change-password` | Form validasyonu | ⏳ |
 | F4-10 | `admin/system/page.tsx` | "no data" vs "API down" ayrımı | ⏳ |
-| F4-11 | `app/layout.tsx` | Root Suspense | ⏳ |
-| F4-12 | `admin/layout.tsx` | Admin Suspense | ⏳ |
+| F4-11 | `app/layout.tsx` | Root Suspense (streaming) | ✅ |
+| F4-12 | `admin/layout.tsx` | AdminSidebar Suspense + skeleton fallback | ✅ |
 | F4-13 | `admin/algorithm/page.tsx` | Mermaid skeleton | ⏳ |
 | F4-14 | `app/page.tsx` | Tier debounce | ⏳ |
 | F4-15 | Components | console.error→logError | ⏳ |
@@ -145,11 +145,11 @@
 
 ---
 
-## 🟢 Faz 5 — İyileştirme & Kod Temizliği (PENDING)
+## 🟢 Faz 5 — İyileştirme & Kod Temizliği (PARTIAL)
 
 | # | Modül | Fix | Durum |
 |---|-------|-----|-------|
-| F5-1 | modelRouter/glue | Duplicate resolveArtifactPath | ⏳ |
+| F5-1 | modelRouter/glue | Duplicate resolveArtifactPath — false positive, zaten clean | ⏭️ |
 | F5-2 | gapRating | CROSS_WEIGHT_AWAY kullanılmıyor | ⏳ |
 | F5-3 | xtGrid | sync→async fs | ⏳ |
 | F5-4 | xtGrid | String→numeric version sort | ⏳ |
@@ -158,7 +158,7 @@
 | F5-7 | bayesianAveraging | Rename veya proper BMA | ⏳ |
 | F5-8 | calibration | Parametreleri DB SystemConfig'e taşı | ⏳ |
 | F5-9 | config.ts | SIGNAL_THRESHOLD deprecated cleanup | ⏳ |
-| F5-10 | Frontend | console.error→logError | ⏳ |
+| F5-10 | Frontend | console.error→logError (low priority) | ⏳ |
 | F5-11 | Frontend | Array index key | ⏳ |
 | F5-12 | Frontend | useCallback eksik | ⏳ |
 | F5-13 | Frontend | useMatchStream identity | ⏳ |
@@ -175,16 +175,16 @@
 ## Özet Durum
 
 ```
-Faz 0 (Acil):       ████████████████ 100%  (3/3 + 2 false positive)
-Faz 1 (ML):         ████████████████ 100%  (12/14 + 2 skip)
-Faz 2 (Entegr.):    ████████████░░░░  45%  (9/24 + 1 false positive) 🆕
-Faz 3 (DB):         ███████████░░░░░  45%  (7/11 + 1 skip) 🆕
-Faz 4 (Frontend):   ██████░░░░░░░░░░  20%  (3/16 + 1 false positive) 🆕
-Faz 5 (İyileş.):     ░░░░░░░░░░░░░░░░   0%  (0/20)
+Faz 0 (Acil):       ████████████████ 100%   (3/3 + 2 false positive)
+Faz 1 (ML):         ████████████████ 100%   (12/14 + 2 skip)
+Faz 2 (Entegr.):    ██████████████░░  55%   (12/24 + 3 false positive)
+Faz 3 (DB):         ███████████████░  70%   (8/11 + 1 skip)
+Faz 4 (Frontend):   ██████████░░░░░░  35%   (6/16 + 1 false positive)
+Faz 5 (İyileş.):     ██░░░░░░░░░░░░░░   5%   (1/20 + 1 false positive)
                     ────────────────
-Toplam:              ~40% tamamlandı 🆕
+Toplam:              ~47% tamamlandı
 ```
 
 ## Sonraki Adım
 
-Kalan işler (düşük öncelik): circuit breaker (F2-6), pagination (F4-5), enum migration (F3-2), Faz 5 iyileştirmeleri. Şu an sistem kararlı durumda.
+Kalan işler düşük öncelikli: enum migration (F3-2), circuit breaker (F2-6), pagination (F4-5), Faz 5 iyileştirmeleri. Şu an sistem kararlı ve üretimde çalışıyor.

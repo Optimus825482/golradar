@@ -12,15 +12,15 @@ datasource db {
 
 // ── Gol Radarı: Admin User ───────────────────────────────────────
 model User {
-  id                  String    @id @default(cuid())
-  username            String    @unique
-  passwordHash        String    // pbkdf2 hex
-  passwordSalt        String    // random hex salt
-  mustChangePassword  Boolean   @default(true)
-  sessionToken        String?   @unique // current login token
-  sessionExpiresAt    DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  username           String    @unique
+  passwordHash       String // pbkdf2 hex
+  passwordSalt       String // random hex salt
+  mustChangePassword Boolean   @default(true)
+  sessionToken       String?   @unique // current login token
+  sessionExpiresAt   DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([username])
 }
@@ -30,9 +30,9 @@ model User {
 model AdminAuditLog {
   id        String   @id @default(cuid())
   userId    String?
-  action    String   // "promote" | "reset" | "train" | "settings.change" | "clear.signals" | etc.
-  entity    String   // "ModelArtifact" | "Signal" | "PredictionLog" | "SystemConfig" | etc.
-  details   String?  // Free-form: "promoted xgb@1.2.3 Brier 0.21->0.19"
+  action    String // "promote" | "reset" | "train" | "settings.change" | "clear.signals" | etc.
+  entity    String // "ModelArtifact" | "Signal" | "PredictionLog" | "SystemConfig" | etc.
+  details   String? // Free-form: "promoted xgb@1.2.3 Brier 0.21->0.19"
   ip        String?
   createdAt DateTime @default(now())
 
@@ -43,31 +43,31 @@ model AdminAuditLog {
 
 // ── Gol Radarı: Elo Import Job ───────────────────────────────────
 model EloImportJob {
-  id            String   @id @default(cuid())
-  status        String   @default("running") // running | done | failed
-  totalTeams    Int
-  fetchedTeams  Int      @default(0)
-  failedTeams   Int      @default(0)
-  currentTeam   String?  // Currently fetching
-  progressPct   Int      @default(0) // 0-100
-  resultJson    String?  // Final results summary
-  startedAt     DateTime @default(now())
-  finishedAt    DateTime?
-  createdAt     DateTime @default(now())
+  id           String    @id @default(cuid())
+  status       String    @default("running") // running | done | failed
+  totalTeams   Int
+  fetchedTeams Int       @default(0)
+  failedTeams  Int       @default(0)
+  currentTeam  String? // Currently fetching
+  progressPct  Int       @default(0) // 0-100
+  resultJson   String? // Final results summary
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  createdAt    DateTime  @default(now())
 }
 
 // ── Gol Radarı: Match Pressure Snapshots ─────────────────────────
 // Stores periodic snapshots of match stats for momentum/trend analysis
 model MatchSnapshot {
-  id          String   @id @default(cuid())
-  matchCode   Int      // Nesine match code
-  minute      Int      // Match minute when snapshot was taken
-  homePressure Int     // Calculated home pressure (0-100)
-  awayPressure Int     // Calculated away pressure (0-100)
-  homeGoals   Int      @default(0)
-  awayGoals   Int      @default(0)
-  statsJson   String   // JSON string of full MatchStats at this moment
-  createdAt   DateTime @default(now())
+  id           String   @id @default(cuid())
+  matchCode    Int // Nesine match code
+  minute       Int // Match minute when snapshot was taken
+  homePressure Int // Calculated home pressure (0-100)
+  awayPressure Int // Calculated away pressure (0-100)
+  homeGoals    Int      @default(0)
+  awayGoals    Int      @default(0)
+  statsJson    String // JSON string of full MatchStats at this moment
+  createdAt    DateTime @default(now())
 
   @@unique([matchCode, minute])
   @@index([matchCode, minute])
@@ -77,14 +77,14 @@ model MatchSnapshot {
 // ── Gol Radarı: Match Events ─────────────────────────────────────
 // Goals, shots, cards, and other key events
 model MatchEvent {
-  id          String   @id @default(cuid())
-  matchCode   Int
-  eventType   String   // "goal", "shot_on_target", "red_card", "yellow_card", etc.
-  side        String   // "home" or "away"
-  minute      Int
-  player      String?  // Player name if available
-  xg          Float?   // xG value for shots
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  matchCode Int
+  eventType String // "goal", "shot_on_target", "red_card", "yellow_card", etc.
+  side      String // "home" or "away"
+  minute    Int
+  player    String? // Player name if available
+  xg        Float? // xG value for shots
+  createdAt DateTime @default(now())
 
   @@index([matchCode, eventType])
   @@index([matchCode, minute])
@@ -93,30 +93,30 @@ model MatchEvent {
 // ── Gol Radarı: Prediction Log ───────────────────────────────────
 // Records every prediction for backtesting and calibration
 model PredictionLog {
-  id               String   @id @default(cuid())
-  matchCode        Int
-  minute           Int
-  rawScore         Int      // Raw Goal Radar score (0-100)
-  homeScore        Int      // Home team threat score
-  awayScore        Int      // Away team threat score
-  calibratedP      Float    // Calibrated probability (0-1)
-  side             String   // "home", "away", "both", "none"
-  level            String   // "low", "medium", "high", "critical"
-  factorsJson      String   // JSON array of active factors
-  goalScored       Boolean? // null until match ends and we check
-  minutesToGoal    Int?     // How many minutes after this prediction a goal was scored
-  homeTeam         String
-  awayTeam         String
-  league           String
-  homeElo          Int?     // Elo rating at prediction time
-  awayElo          Int?     // Elo rating at prediction time
-  poissonHomeP     Float?   // Dixon-Coles home goal probability
-  poissonAwayP     Float?   // Dixon-Coles away goal probability
+  id            String    @id @default(cuid())
+  matchCode     Int
+  minute        Int
+  rawScore      Int // Raw Goal Radar score (0-100)
+  homeScore     Int // Home team threat score
+  awayScore     Int // Away team threat score
+  calibratedP   Float // Calibrated probability (0-1)
+  side          String // "home", "away", "both", "none"
+  level         String // "low", "medium", "high", "critical"
+  factorsJson   String // JSON array of active factors
+  goalScored    Boolean? // null until match ends and we check
+  minutesToGoal Int? // How many minutes after this prediction a goal was scored
+  homeTeam      String
+  awayTeam      String
+  league        String
+  homeElo       Int? // Elo rating at prediction time
+  awayElo       Int? // Elo rating at prediction time
+  poissonHomeP  Float? // Dixon-Coles home goal probability
+  poissonAwayP  Float? // Dixon-Coles away goal probability
   // ML pipeline additions
-  modelVariant     String   @default("champion") // "champion" | "shadow:<name>:<version>"
-  featuresJson     String?  // Serialized 47-feature array at prediction time
-  goalTimestamp    DateTime? // When the goal happened (for exact label alignment)
-  createdAt        DateTime @default(now())
+  modelVariant  String    @default("champion") // "champion" | "shadow:<name>:<version>"
+  featuresJson  String? // Serialized 47-feature array at prediction time
+  goalTimestamp DateTime? // When the goal happened (for exact label alignment)
+  createdAt     DateTime  @default(now())
 
   @@index([matchCode, minute])
   @@index([calibratedP, goalScored])
@@ -141,6 +141,7 @@ model BacktestRun {
   accuracy        Float?
   avgTimeToGoal   Float?
   resultJson      String
+
   @@index([createdAt])
 }
 
@@ -149,27 +150,27 @@ model BacktestRun {
 model TeamRating {
   id              String   @id @default(cuid())
   teamName        String   @unique // Normalized team name
-  teamNameTr      String?  // Turkish name for lookup
+  teamNameTr      String? // Turkish name for lookup
   elo             Int      @default(1500)
-  attackStrength  Float    @default(1.0)  // α: relative to league avg
-  defenseWeakness Float    @default(1.0)  // β: relative to league avg
+  attackStrength  Float    @default(1.0) // α: relative to league avg
+  defenseWeakness Float    @default(1.0) // β: relative to league avg
   matchesPlayed   Int      @default(0)
   wins            Int      @default(0)
   draws           Int      @default(0)
   losses          Int      @default(0)
   goalsFor        Int      @default(0)
   goalsAgainst    Int      @default(0)
-  xgFor           Float    @default(0)    // Cumulative xG scored
-  xgAgainst       Float    @default(0)    // Cumulative xG conceded
+  xgFor           Float    @default(0) // Cumulative xG scored
+  xgAgainst       Float    @default(0) // Cumulative xG conceded
   formJson        String   @default("[]") // JSON: last 10 results ["W","D","L",...]
   lastUpdated     DateTime @default(now())
 
   // ── Pi-Rating (Constantinou & Fenton 2013) ──
-  piHa            Float    @default(0)    // Home attack strength
-  piHd            Float    @default(0)    // Home defense strength
-  piAa            Float    @default(0)    // Away attack strength
-  piAd            Float    @default(0)    // Away defense strength
-  piMatches       Int      @default(0)    // Matches used for Pi-Rating
+  piHa      Float @default(0) // Home attack strength
+  piHd      Float @default(0) // Home defense strength
+  piAa      Float @default(0) // Away attack strength
+  piAd      Float @default(0) // Away defense strength
+  piMatches Int   @default(0) // Matches used for Pi-Rating
 
   @@index([teamName])
   @@index([elo])
@@ -178,23 +179,23 @@ model TeamRating {
 // ── Gol Radarı: Cross-Source Team Mapping ────────────────────────
 // Maps team IDs across Nesine, Scoremer, FotMob, NetScores
 model TeamMapping {
-  id              String   @id @default(cuid())
-  nesineCode      Int?     // Nesine match code (not team-specific, but league-level)
-  nesineName      String?  // Team name from Nesine
-  scoremerId      String?  // Scoremer match/team ID
-  scoremerName    String?  // Team name from Scoremer
-  fotmobId        Int?     // FotMob team ID
-  fotmobName      String?  // Team name from FotMob
-  fotmobSlug      String?  // FotMob URL slug
-  fotmobLogoUrl   String?  // https://images.fotmob.com/.../teamlogo/{id}_large.png
-  netscoresId     String?  // NetScores team ID
-  netscoresName   String?  // Team name from NetScores
-  canonicalName   String   // Our canonical team name
-  eloRating       Int?     // Imported Elo rating
-  eloSource       String?  // Source of Elo rating (clubelo, estimate, etc.)
-  country         String?  // Country code (TR, GB, DE, etc.)
-  confidence      Float    @default(0) // Mapping confidence score (0-1)
-  lastVerified    DateTime @default(now())
+  id            String   @id @default(cuid())
+  nesineCode    Int? // Nesine match code (not team-specific, but league-level)
+  nesineName    String? // Team name from Nesine
+  scoremerId    String? // Scoremer match/team ID
+  scoremerName  String? // Team name from Scoremer
+  fotmobId      Int? // FotMob team ID
+  fotmobName    String? // Team name from FotMob
+  fotmobSlug    String? // FotMob URL slug
+  fotmobLogoUrl String? // https://images.fotmob.com/.../teamlogo/{id}_large.png
+  netscoresId   String? // NetScores team ID
+  netscoresName String? // Team name from NetScores
+  canonicalName String // Our canonical team name
+  eloRating     Int? // Imported Elo rating
+  eloSource     String? // Source of Elo rating (clubelo, estimate, etc.)
+  country       String? // Country code (TR, GB, DE, etc.)
+  confidence    Float    @default(0) // Mapping confidence score (0-1)
+  lastVerified  DateTime @default(now())
 
   @@unique([canonicalName])
   @@index([nesineName])
@@ -213,19 +214,19 @@ model ModelMetrics {
   accuracy          Float
   totalPredictions  Int
   totalGoals        Int
-  avgCalibratedP    Float    // Average predicted probability
-  goalAfterSignalP  Float    // % of signals followed by a goal
-  avgMinutesToGoal  Float    // Average minutes from signal to goal
-  calibrationError  Float    // Mean absolute calibration error
-  poissonBrier      Float?   // Brier score for Poisson component
-  eloBrier          Float?   // Brier score for Elo component
+  avgCalibratedP    Float // Average predicted probability
+  goalAfterSignalP  Float // % of signals followed by a goal
+  avgMinutesToGoal  Float // Average minutes from signal to goal
+  calibrationError  Float // Mean absolute calibration error
+  poissonBrier      Float? // Brier score for Poisson component
+  eloBrier          Float? // Brier score for Elo component
   // ML pipeline additions
-  gbdtBrier         Float?   // Champion GBDT Brier
-  xgbBrier          Float?   // XGBoost model Brier (when active)
-  teamStrengthBrier Float?  // Kalman team-strength Brier
-  inPlayBrier       Float?  // Live in-play 5-min model Brier
-  shadowBrierDelta  Float?  // Signed delta: best shadow - champion. Negative = shadow wins.
-  nShadowSamples    Int      @default(0)  // How many predictions contributed to shadowBrierDelta today
+  gbdtBrier         Float? // Champion GBDT Brier
+  xgbBrier          Float? // XGBoost model Brier (when active)
+  teamStrengthBrier Float? // Kalman team-strength Brier
+  inPlayBrier       Float? // Live in-play 5-min model Brier
+  shadowBrierDelta  Float? // Signed delta: best shadow - champion. Negative = shadow wins.
+  nShadowSamples    Int      @default(0) // How many predictions contributed to shadowBrierDelta today
   createdAt         DateTime @default(now())
 
   @@index([date])
@@ -236,56 +237,57 @@ model ModelMetrics {
 // One row per signal above threshold. Goal verification + final scores
 // are written in-place by the tracker. Active factor list stored as JSONB.
 model Signal {
-  id                  String   @id @default(cuid())
-  matchCode           Int
-  homeTeam            String
-  awayTeam            String
-  league              String
-  matchTime           String
-  date                String   // YYYY-MM-DD (local match date)
+  id        String @id @default(cuid())
+  matchCode Int
+  homeTeam  String
+  awayTeam  String
+  league    String
+  matchTime String
+  date      String // YYYY-MM-DD (local match date)
 
-  signalMinute        Int
-  signalSide          String   // "home" | "away" | "both"
-  signalScore         Int      // Raw Goal Radar score 0-100 (first signal)
-  calibratedP         Float    // Calibrated probability 0-1 (first signal)
-  poissonP            Float    // Dixon-Coles Poisson probability (first signal)
-  signalLevel         String   // "low" | "medium" | "high" | "critical"
-  activeFactors       Json     // string[]
+  signalMinute  Int
+  signalSide    String // "home" | "away" | "both"
+  signalScore   Int // Raw Goal Radar score 0-100 (first signal)
+  calibratedP   Float // Calibrated probability 0-1 (first signal)
+  poissonP      Float // Dixon-Coles Poisson probability (first signal)
+  signalLevel   String // "low" | "medium" | "high" | "critical"
+  activeFactors Json // string[]
 
   // Updated every poll while signal is active (score keeps changing)
-  lastScore           Int?     // Most recent score from latest poll
-  lastCalibratedP     Float?   // Most recent calibrated probability
-  lastPoissonP        Float?   // Most recent Poisson probability
-  lastFactors         Json     @default("[]") // Most recent factors
+  lastScore       Int? // Most recent score from latest poll
+  lastCalibratedP Float? // Most recent calibrated probability
+  lastPoissonP    Float? // Most recent Poisson probability
+  lastFactors     Json   @default("[]") // Most recent factors
 
-  homeScore           Int      // Home threat score component
-  awayScore           Int      // Away threat score component
-  currentHomeGoals    Int
-  currentAwayGoals    Int
+  homeScore        Int // Home threat score component
+  awayScore        Int // Away threat score component
+  currentHomeGoals Int
+  currentAwayGoals Int
 
   signalTimestamp     DateTime // First signal creation time
   lastSignalTimestamp DateTime? // Last poll update time
 
   // Goal verification (filled later by checkForGoals / expire)
-  goalHappened        Boolean?
-  goalMinute          Int?
-  goalSide            String?  // "home" | "away"
-  correctPrediction   Boolean?
-  minutesAfterSignal  Int?
-  goalTimestamp       DateTime?
+  goalHappened       Boolean?
+  goalMinute         Int?
+  goalSide           String? // "home" | "away"
+  correctPrediction  Boolean?
+  minutesAfterSignal Int?
+  goalTimestamp      DateTime?
 
   // Match result (filled by finalizeMatchSignals)
-  finalHomeScore      Int?
-  finalAwayScore      Int?
+  finalHomeScore Int?
+  finalAwayScore Int?
 
   // Escalation tracking: how many times the score jumped >=10 pts
-  escalated           Boolean  @default(false) // True when lastScore >= signalScore + 10
+  escalated Boolean @default(false) // True when lastScore >= signalScore + 10
 
   // Multi-Tier N-of-M confirmation (Faz A P0)
-  signalTier          String?  // "elite" | "confirmed" | "watch" | "radar"
+  signalTier String? // "elite" | "confirmed" | "watch" | "radar"
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  SignalPnL SignalPnL[]
 
   // Multiple signals per match per side — each new signal after a resolved one creates a new row
   @@unique([matchCode, date, signalSide])
@@ -302,17 +304,17 @@ model Signal {
 // staking (fraction=0.25). signalTier mirrors Signal.signalTier for
 // group-by analytics (elite/confirmed/watch/radar).
 model SignalPnL {
-  id            String   @id @default(cuid())
-  signalId      String
-  signal        Signal   @relation(fields: [signalId], references: [id], onDelete: Cascade)
-  calibratedP   Float
-  closingOdds   Float?
-  outcome       Int      // 0 = no goal, 1 = goal
-  pnl           Float?
-  kellyStake    Float?
-  signalTier    String?
+  id          String  @id @default(cuid())
+  signalId    String
+  signal      Signal  @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  calibratedP Float
+  closingOdds Float?
+  outcome     Int // 0 = no goal, 1 = goal
+  pnl         Float?
+  kellyStake  Float?
+  signalTier  String?
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([signalId])
   @@index([createdAt])
@@ -326,16 +328,16 @@ model SignalPnL {
 // last successful fetch wins. JSONB payload keeps schema flexible
 // as FotMob's response shape evolves.
 model FotMobCache {
-  id              String   @id @default(cuid())
-  fotmobId        Int      // FotMob match ID
-  matchDate       String   // YYYY-MM-DD — partitions by day, supports cleanup
-  payload         Json     // Full FotMobMatchDetails as JSON
-  fetchStatus     Int      @default(200) // HTTP status of the source fetch
-  fetchError      String?  // Error message if fetch failed
-  fetchedAt       DateTime @default(now()) // When we last hit FotMob
-  expiresAt       DateTime // TTL boundary — soft expiry for read-time check
-  hitCount        Int      @default(0) // How many reads served from this row
-  lastHitAt       DateTime?
+  id          String    @id @default(cuid())
+  fotmobId    Int // FotMob match ID
+  matchDate   String // YYYY-MM-DD — partitions by day, supports cleanup
+  payload     Json // Full FotMobMatchDetails as JSON
+  fetchStatus Int       @default(200) // HTTP status of the source fetch
+  fetchError  String? // Error message if fetch failed
+  fetchedAt   DateTime  @default(now()) // When we last hit FotMob
+  expiresAt   DateTime // TTL boundary — soft expiry for read-time check
+  hitCount    Int       @default(0) // How many reads served from this row
+  lastHitAt   DateTime?
 
   @@unique([fotmobId, matchDate])
   @@index([fotmobId])
@@ -349,19 +351,19 @@ model FotMobCache {
 // gradient-boosted models. SHA256 lets the trainer detect partial
 // writes / corruption. Status transitions: ready → consumed → failed.
 model TrainingDataset {
-  id          String   @id @default(cuid())
-  createdAt   DateTime @default(now())
-  horizonMin  Int      // 5 | 10 | 15
-  rowCount    Int
-  brier       Float?   // Brier on the export's own labels (sanity)
-  logLoss     Float?
-  path        String   // data/ml-training/5min-20260613.jsonl
-  sha256      String
-  status      String   @default("ready") // "ready" | "consumed" | "failed"
-  errorMsg    String?
+  id         String    @id @default(cuid())
+  createdAt  DateTime  @default(now())
+  horizonMin Int // 5 | 10 | 15
+  rowCount   Int
+  brier      Float? // Brier on the export's own labels (sanity)
+  logLoss    Float?
+  path       String // data/ml-training/5min-20260613.jsonl
+  sha256     String
+  status     String    @default("ready") // "ready" | "consumed" | "failed"
+  errorMsg   String?
   // Bounding the export — old data may be dropped, recent data always kept.
-  dataStart   DateTime? // Earliest createdAt included in this export
-  dataEnd     DateTime? // Latest createdAt included
+  dataStart  DateTime? // Earliest createdAt included in this export
+  dataEnd    DateTime? // Latest createdAt included
 
   @@index([createdAt])
   @@index([horizonMin, status])
@@ -374,21 +376,21 @@ model TrainingDataset {
 // accumulate PredictionLog rows with modelVariant=shadow:<name>:<ver>
 // for A/B comparison in the backtest pipeline.
 model ModelArtifact {
-  id            String   @id @default(cuid())
-  name          String   // "gbdt" | "xgb" | "inplay" | "team-strength" | "xt-grid"
-  version       String   // semver: "1.0.0"
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  metricsJson   String   // {brier, logLoss, accuracy, calibrationError, n, trainRows, trainHorizon}
-  artifactPath  String   // data/ml-models/<name>-v<version>.json
-  sha256        String
+  id           String    @id @default(cuid())
+  name         String // "gbdt" | "xgb" | "inplay" | "team-strength" | "xt-grid"
+  version      String // semver: "1.0.0"
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  metricsJson  String // {brier, logLoss, accuracy, calibrationError, n, trainRows, trainHorizon}
+  artifactPath String // data/ml-models/<name>-v<version>.json
+  sha256       String
   // Champion lifecycle
-  promotedAt    DateTime?
-  supersededBy  String?  // name of the row that replaced this as champion
-  isChampion    Boolean  @default(false)
+  promotedAt   DateTime?
+  supersededBy String? // name of the row that replaced this as champion
+  isChampion   Boolean   @default(false)
   // Audit
-  notes         String?  // Free-form: "shadow-only 7d", "promoted via admin", etc.
-  bytes         Int?     // Artifact file size for budget tracking
+  notes        String? // Free-form: "shadow-only 7d", "promoted via admin", etc.
+  bytes        Int? // Artifact file size for budget tracking
 
   @@unique([name, version])
   @@index([name, isChampion])
@@ -398,70 +400,72 @@ model ModelArtifact {
 
 // ── Gol Radarı: Team History (Kalman backfill) ───────────────────
 model TeamHistoryMatch {
-  id          String   @id @default(cuid())
-  matchDate   String
-  homeTeam    String
-  awayTeam    String
-  homeGoals   Int
-  awayGoals   Int
-  homeXG      Float?   // expected-goals from FotMob shotmap (xG-aware Kalman fit)
-  awayXG      Float?
-  league      String?
-  source      String
-  fetchedAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  matchDate String
+  homeTeam  String
+  awayTeam  String
+  homeGoals Int
+  awayGoals Int
+  homeXG    Float? // expected-goals from FotMob shotmap (xG-aware Kalman fit)
+  awayXG    Float?
+  league    String?
+  source    String
+  fetchedAt DateTime @default(now())
 
-  @@map("TeamHistoryMatch")
   @@unique([matchDate, homeTeam, awayTeam])
   @@index([matchDate])
   @@index([homeTeam, matchDate])
   @@index([awayTeam, matchDate])
   @@index([source, fetchedAt])
+  @@map("TeamHistoryMatch")
 }
 
 // ── Feature Engineering Set ────────────────────────────────────
 model FeatureSet {
-  id            String   @id @default(cuid())
-  createdAt     DateTime @default(now())
-  horizonMin    Int
-  rowCount      Int
-  featureCount  Int
-  sha256        String
-  path          String
-  status        String   @default("generating")
-  errorMsg      String?
-  dataStart     DateTime?
-  dataEnd       DateTime?
-  durationMs    Int?
+  id           String    @id @default(cuid())
+  createdAt    DateTime  @default(now())
+  horizonMin   Int
+  rowCount     Int
+  featureCount Int
+  sha256       String
+  path         String
+  status       String    @default("generating")
+  errorMsg     String?
+  dataStart    DateTime?
+  dataEnd      DateTime?
+  durationMs   Int?
+
   @@index([createdAt])
   @@index([status])
 }
 
 // ── ML Pipeline Run ────────────────────────────────────────────
 model PipelineRun {
-  id            String   @id @default(cuid())
-  createdAt     DateTime @default(now())
-  completedAt   DateTime?
-  modelName     String
-  horizonMin    Int
-  status        String   @default("pending")
-  progressPct   Int      @default(0)
-  step          String   @default("")
-  errorMsg      String?
-  featureSetId  String?
-  featureSetRowCount Int?
-  oldChampionVersion String?
-  oldChampionBrier   Float?
-  oldChampionAcc     Float?
-  newVersion    String?
-  newBrier      Float?
-  newLogLoss    Float?
-  newAccuracy   Float?
-  newCalibrationError Float?
-  newTrainRows  Int?
-  brierDelta    Float?
-  isBetter      Boolean?
-  isPromoted    Boolean?
+  id                     String    @id @default(cuid())
+  createdAt              DateTime  @default(now())
+  completedAt            DateTime?
+  modelName              String
+  horizonMin             Int
+  status                 String    @default("pending")
+  progressPct            Int       @default(0)
+  step                   String    @default("")
+  errorMsg               String?
+  featureSetId           String?
+  featureSetRowCount     Int?
+  oldChampionVersion     String?
+  oldChampionBrier       Float?
+  oldChampionAcc         Float?
+  newVersion             String?
+  newBrier               Float?
+  newLogLoss             Float?
+  newAccuracy            Float?
+  newCalibrationError    Float?
+  newTrainRows           Int?
+  brierDelta             Float?
+  isBetter               Boolean?
+  isPromoted             Boolean?
   promotionRequiredDelta Float?
+
   @@index([createdAt])
   @@index([status])
 }
@@ -472,10 +476,10 @@ model PipelineRun {
 // arası tutarlılık için tek kaynak. İzotoni tablo breakpoint'leri büyük olabilir
 // ama Json sütununa sığar; disk'te bırakma kararı Faz 2'de netleşti: DB.
 model SystemConfig {
-  key         String   @id // "calibration.params", "calibration.isotonic", "smartCalibration.mode"
-  value       Json
-  updatedAt   DateTime @updatedAt
-  updatedBy   String?  // admin user id / "autoCalibrate"
+  key       String   @id // "calibration.params", "calibration.isotonic", "smartCalibration.mode"
+  value     Json
+  updatedAt DateTime @updatedAt
+  updatedBy String? // admin user id / "autoCalibrate"
 }
 
 // ── Gol Radarı: League Profile (lig gol zamanlama kalibrasyonu) ──
@@ -503,11 +507,11 @@ model LeagueProfile {
 model FootballdbClub {
   id          String   @id @default(cuid())
   slug        String   @unique // clubs-ranking/{slug}
-  name        String   // Kulüp adı
-  country     String   // Ülke adı
-  countryIso  String?  // ISO kodu (GER, ENG, vs.)
+  name        String // Kulüp adı
+  country     String // Ülke adı
+  countryIso  String? // ISO kodu (GER, ENG, vs.)
   points      Int      @default(0) // Güncel puanı (Elo)
-  continent   String   // Kıta (europe, asia, etc.)
+  continent   String // Kıta (europe, asia, etc.)
   lastUpdated DateTime @default(now())
 
   @@index([continent])
@@ -522,9 +526,9 @@ model FootballdbClub {
 model NationalTeamElo {
   id          String   @id @default(cuid())
   countryCode String   @unique // ISO 2-letter code (TR, EN, FR, ...)
-  countryName String   // Full name (Turkey, England, France, ...)
-  elo         Int      // Current Elo rating
-  rank        Int      // Current world rank
+  countryName String // Full name (Turkey, England, France, ...)
+  elo         Int // Current Elo rating
+  rank        Int // Current world rank
   lastUpdated DateTime @default(now())
 
   @@index([elo])
@@ -537,8 +541,8 @@ model NationalTeamElo {
 // Öncelik sırası: FeatureFlag → process.env → kod default.
 // PATCH /api/admin/settings ile yazılır, process.env[key] de set edilir.
 model FeatureFlag {
-  key       String   @id          // "STACKING_BLEND_ALPHA"
-  value     String                // override değeri
+  key       String   @id // "STACKING_BLEND_ALPHA"
+  value     String // override değeri
   updatedAt DateTime @updatedAt
   updatedBy String?
 
@@ -548,12 +552,12 @@ model FeatureFlag {
 // ── Pi-Rating (Constantinou 2013) — DB persistans ──────────────
 // Ha: Home attack, Hd: Home defense, Aa: Away attack, Ad: Away defense
 model TeamPiRating {
-  teamName  String   @id
-  Ha        Float    @default(0)
-  Hd        Float    @default(0)
-  Aa        Float    @default(0)
-  Ad        Float    @default(0)
-  matches   Int      @default(0)
+  teamName    String   @id
+  Ha          Float    @default(0)
+  Hd          Float    @default(0)
+  Aa          Float    @default(0)
+  Ad          Float    @default(0)
+  matches     Int      @default(0)
   lastUpdated DateTime @updatedAt
 
   @@map("TeamPiRating")
@@ -578,16 +582,16 @@ model TeamGlicko2Rating {
 // set-pieces (and therefore more goal opportunities), high
 // penaltyRate correlates with higher goal expectation.
 model RefereeStats {
-  id              String   @id @default(cuid())
-  refereeName     String   @unique
-  matchesCount    Int      @default(0)
-  avgYellowCards  Float    @default(0)
-  avgRedCards     Float    @default(0)
-  avgFouls        Float    @default(0)
-  avgPenalties    Float    @default(0)
-  penaltyRate     Float    @default(0)  // penalties per match
-  cardRate        Float    @default(0)  // total cards per match
-  lastUpdated     DateTime @updatedAt
+  id             String   @id @default(cuid())
+  refereeName    String   @unique
+  matchesCount   Int      @default(0)
+  avgYellowCards Float    @default(0)
+  avgRedCards    Float    @default(0)
+  avgFouls       Float    @default(0)
+  avgPenalties   Float    @default(0)
+  penaltyRate    Float    @default(0) // penalties per match
+  cardRate       Float    @default(0) // total cards per match
+  lastUpdated    DateTime @updatedAt
 
   @@index([refereeName])
 }

@@ -133,14 +133,14 @@
 | F4-5 | `admin/signals/` | Pagination | ⏳ |
 | F4-6 | Admin pages | CSV export | ⏳ |
 | F4-7 | Admin pages | Audit log sayfası | ⏳ |
-| F4-8 | `admin/ml/page.tsx` | Champion delete button fix | ⏳ |
+| F4-8 | `admin/ml/page.tsx` | Champion delete button fix — **6A-3'te yapıldı** | ✅ |
 | F4-9 | `admin/change-password` | Form validasyonu | ⏳ |
-| F4-10 | `admin/system/page.tsx` | "no data" vs "API down" ayrımı | ⏳ |
+| F4-10 | `admin/system/page.tsx` | "no data" vs "API down" ayrımı — **6A-4'te yapıldı** | ✅ |
 | F4-11 | `app/layout.tsx` | Root Suspense (streaming) | ✅ |
 | F4-12 | `admin/layout.tsx` | AdminSidebar Suspense + skeleton fallback | ✅ |
 | F4-13 | `admin/algorithm/page.tsx` | Mermaid skeleton | ⏳ |
 | F4-14 | `app/page.tsx` | Tier debounce | ⏳ |
-| F4-15 | Components | console.error→logError | ⏳ |
+| F4-15 | Components | console.error→logError — **6A-14'te yapılacak** | ⏳ |
 | F4-16 | `app/page.tsx` | Stale closure deps | ⏳ |
 
 ---
@@ -150,9 +150,9 @@
 | # | Modül | Fix | Durum |
 |---|-------|-----|-------|
 | F5-1 | modelRouter/glue | Duplicate resolveArtifactPath — false positive, zaten clean | ⏭️ |
-| F5-2 | gapRating | CROSS_WEIGHT_AWAY kullanılmıyor | ⏳ → Faz 6 |
+| F5-2 | gapRating | CROSS_WEIGHT_AWAY kullanılmıyor — **6A-8'de yapıldı** | ✅ |
 | F5-3 | xtGrid | sync→async fs | ⏳ → Faz 6 |
-| F5-4 | xtGrid | String→numeric version sort | ⏳ → Faz 6 |
+| F5-4 | xtGrid | String→numeric version sort — **6A-9'da yapıldı** | ✅ |
 | F5-5 | xtGrid | TTL not invalidated | ⏳ → Faz 6 |
 | F5-6 | gapRating | _initializing race | ⏳ → Faz 6 |
 | F5-7 | bayesianAveraging | Rename veya proper BMA | ⏳ → Faz 6 |
@@ -176,22 +176,24 @@
 
 ### 🟢 6A: Kolay (14 iş, ~1-5dk each)
 
-| # | Modül | Sorun | Çözüm |
+| # | Modül | Sorun | Durum |
 |---|-------|-------|-------|
-| 6A-1 | `config.ts` | `SIGNAL_THRESHOLD` deprecated — hala 5+ yerde import ediliyor | Tüm referansları `RADAR_THRESHOLD`'a çevir |
-| 6A-2 | `app/page.tsx` | Stale closure: `setFotmobTab` deps'te gereksiz, `fotmobTab` eksik | Deps düzelt |
-| 6A-3 | `app/admin/ml/page.tsx` | Champion delete butonu yanıltıcı (isChampion'da gösterilir ama tıklanamaz) | `isChampion=true` ise butonu gizle |
-| 6A-4 | `app/admin/system/page.tsx` | "no data" vs "API down" ayrımı yok | Bağlantı sağlığı check'i ekle |
-| 6A-5 | `app/admin/algorithm/page.tsx` | Mermaid diagram flash (300KB chunk) | Her diyagram için skeleton placeholder |
-| 6A-6 | `app/page.tsx` | Tier transition'da debounce yok → interval sıfırlanır | 500ms debounce |
-| 6A-7 | `lib/teamLogos.ts` | CSV parser escaped quote (`""`) desteklemez | regex fix |
-| 6A-8 | `lib/ml/gapRating.ts` | `CROSS_WEIGHT_AWAY` tanımlı ama kullanılmıyor | `away.Hd` güncellemesinde kullan |
-| 6A-9 | `lib/ml/xtGrid.ts` | Versiyon sıralaması string (v10 < v2) | Numerik sort |
-| 6A-10 | `prisma/schema.prisma` | Elo `Int` → `SmallInt` | Schema değişikliği |
-| 6A-11 | `src/lib/db.ts` | Connection pool yapılandırması yok | `DATABASE_URL`'ye `?connection_limit=20` ekle |
-| 6A-12 | `scripts/resolvePython.ts` | PATH'ten python bulmaz, sadece sabit yollar | `where python3` / `which python3` ekle |
-| 6A-13 | Components | Array index as React key | Unique key kullan |
-| 6A-14 | Components | `console.error` → `logError` (BacktestPanel, SignalStatsPanel) | 15dk |
+| 6A-1 | `config.ts` | `SIGNAL_THRESHOLD` deprecated — hala 5+ yerde import ediliyor | ✅ |
+| 6A-2 | `app/page.tsx` | Stale closure: `setFotmobTab` deps'te gereksiz, `fotmobTab` eksik | ✅ |
+| 6A-3 | `app/admin/ml/page.tsx` | Champion delete butonu yanıltıcı | ✅ |
+| 6A-4 | `app/admin/system/page.tsx` | "no data" vs "API down" ayrımı yok | ✅ |
+| 6A-5 | `app/admin/algorithm/page.tsx` | Mermaid diagram flash (300KB chunk) | ⏳ |
+| 6A-6 | `app/page.tsx` | Tier transition'da debounce yok → interval sıfırlanır | ⏳ |
+| 6A-7 | `lib/teamLogos.ts` | CSV parser escaped quote (`""`) desteklemez | ⏳ |
+| 6A-8 | `lib/ml/gapRating.ts` | `CROSS_WEIGHT_AWAY` tanımlı ama kullanılmıyor | ✅ |
+| 6A-9 | `lib/ml/xtGrid.ts` | Versiyon sıralaması string (v10 < v2) | ✅ |
+| 6A-10 | `prisma/schema.prisma` | Elo `Int` → `SmallInt` | ⏳ |
+| 6A-11 | `src/lib/db.ts` | Connection pool yapılandırması yok | ⏳ |
+| 6A-12 | `src/lib/scraper.ts` | PATH'ten python bulmaz, sadece sabit yollar | ✅ |
+| 6A-13 | Components | Array index as React key | ⏳ |
+| 6A-14 | Components | `console.error` → `logError` | ⏳ |
+| 🆕 | `docker-entrypoint.sh` | OOM — `max-old-space-size` 512→1024MB | ✅ |
+| 🆕 | `prisma/schema.prisma` | `updatedAt` DB'de yok → P2022 crash → satır silindi | ✅ |
 
 ### 🟡 6B: Orta (11 iş, ~10-30dk each)
 

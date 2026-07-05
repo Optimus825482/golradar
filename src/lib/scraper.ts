@@ -16,7 +16,15 @@ async function getPython(): Promise<string | null> {
   try {
     const { existsSync } = await import('fs');
     const { join } = await import('path');
-    const python = process.env.PYTHON_PATH || 'python3';
+    const { execSync } = await import('child_process');
+    // Try explicit path first, then PATH lookup
+    let python = process.env.PYTHON_PATH;
+    if (!python) {
+      try {
+        python = execSync('which python3 2>/dev/null || where python3 2>NUL', { encoding: 'utf-8' }).trim().split('\n')[0];
+        if (!python) python = 'python3';
+      } catch { python = 'python3'; }
+    }
     const bridge = join(process.cwd(), 'scripts', 'scrape_bridge.py');
     if (!existsSync(bridge)) { _PYTHON = null; return null; }
     _PYTHON = python;

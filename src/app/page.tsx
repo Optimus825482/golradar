@@ -893,14 +893,14 @@ export default function OptimusGolRadariPage() {
     filteredStats, statsHalf, setStatsHalf, fotmobData, fotmobLoading,
     scoremerStats, scoremerHtStats, scoremerLoading,
     goalooMatchId: goalooMatchIdMap[selectedMatch.code] || 0,
-    activeChartTab, setActiveChartTab,
+    activeChartTab, setActiveChartTab, fotmobTab,
   } : null, [
     selectedMatch, currentPressure, selectedGoalProb,
     pressureChartData, statsChartData, momentumBars, xgFlowData, threatIndex,
     filteredStats, statsHalf, fotmobData, fotmobLoading,
     scoremerStats, scoremerHtStats, scoremerLoading,
     goalooMatchIdMap, selectedMatch?.code ?? 0,
-    activeChartTab, setStatsHalf, setFotmobTab, setActiveChartTab,
+    activeChartTab, fotmobTab,
   ])
 
   // Render match list based on sort mode

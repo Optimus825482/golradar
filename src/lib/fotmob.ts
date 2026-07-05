@@ -229,10 +229,11 @@ const MAPPING_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 import { normalizeTeamName, translateTeamName, nameSimilarity } from './teamNameNormalizer';
 import { logError } from '@/lib/devLog';
+import { breakers } from './circuitBreaker';
 
 // ── Fetch FotMob matches for today ──
-
 export async function fetchFotMobMatches(date?: string): Promise<FotMobMatchDay[]> {
+  if (breakers.fotmob.isOpen) return [];
   const d = (date ?? new Date().toISOString().slice(0, 10)).replace(/-/g, "");
   const url = `${FOTMOB_BASE}/matches?date=${d}`;
   

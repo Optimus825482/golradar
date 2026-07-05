@@ -1007,6 +1007,8 @@ function teamNameSimilarity(nameA: string, nameB: string): number {
 
 function levenshtein(a: string, b: string): number {
   const m = a.length, n = b.length
+  // Fast path: length difference > 2 → guaranteed distance > 1
+  if (Math.abs(m - n) > 2) return Math.abs(m - n);
   const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
   for (let i = 0; i <= m; i++) dp[i][0] = i
   for (let j = 0; j <= n; j++) dp[0][j] = j

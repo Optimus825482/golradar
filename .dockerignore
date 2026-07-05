@@ -12,3 +12,12 @@ tsconfig.tsbuildinfo
 .claude
 .z-ai-config
 .fallow
+
+# Docker build log noise reduction
+logs
+dev.log
+*.log
+data/ml-training/*.jsonl
+data/ml-models/*
+tmp
+.cache

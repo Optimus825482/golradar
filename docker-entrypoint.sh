@@ -102,13 +102,11 @@ mkdir -p /app/web/data
 mkdir -p /app/data/ml-models /app/data/ml-training /app/data/drift /app/data/calibration 2>/dev/null || true
 
 # ── Shared volume permissions ──────────────────────────────────────
-# If /app/data is a mounted volume (e.g. on Coolify / Docker Compose),
-# the Python trainer sidecar may run as a different UID and fail to
-# write model files with "Permission denied". Loosen write permissions
-# on the directory tree (NOT recursive on files — that would mmap
-# existing model files). Use find to chmod directories only.
+# Named volumes mount as root:root, overriding build-time chown.
+# Entrypoint runs as root (USER golradar removed from Dockerfiles)
+# so we can chown the volume, then drop to golradar for the app process.
 if [ -d /app/data ]; then
-  # Ensure directories are writable by current user (golradar)
+  chown -R golradar:golradar /app/data 2>/dev/null || true
   find /app/data -type d -exec chmod 755 {} + 2>/dev/null || true
   find /app/data -type f -exec chmod 644 {} + 2>/dev/null || true
 fi
@@ -170,4 +168,4 @@ echo "════════════════════════�
 echo ""
 
 # ponytail: 2GB heap — 1GB with 7+ intervals + ML inference + subprocess was causing OOM
-exec node --max-old-space-size=2048 server.js
+exec su-exec golradar node --max-old-space-size=2048 server.js

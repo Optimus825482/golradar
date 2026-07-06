@@ -58,7 +58,8 @@ ENV HOSTNAME=0.0.0.0
 RUN apk add --no-cache \
       python3 \
       libstdc++ \
-      nodejs
+      nodejs \
+      su-exec
 
 # Copy pre-built Python packages (compiled .so files, no runtime compilation needed)
 COPY --from=build /python-packages /python-packages
@@ -107,9 +108,6 @@ EXPOSE 3012 3003
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:3012/api', timeout=5)" || exit 1
-
-# Drop root — run as non-root user
-USER golradar
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

@@ -45,18 +45,23 @@ fi
 # ── Prisma Schema Sync ────────────────────────────────────────────
 echo "[DB] Veritabanı şeması senkronize ediliyor..."
 
-PRISMA_BIN="node ./node_modules/prisma/build/index.js"
-
-# migrate deploy dene, olmazsa db push dene (non-destructive)
-if ! NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
-    $PRISMA_BIN migrate deploy 2>&1; then
-    echo "[DB] migrate deploy başarısız → db push deneniyor..."
-    NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
-        $PRISMA_BIN db push 2>&1 || echo "[WARN] db push de başarısız, elle müdahale gerekebilir"
-    # db push başarılı olduysa failed migration'ları resolve et (P3009 hatasını önle)
-    echo "[DB] db push tamam, failed migration'lar resolve ediliyor..."
-    $PRISMA_BIN migrate resolve --applied 20260624_174500_backfill_predictions 2>/dev/null || true
-    $PRISMA_BIN migrate resolve --applied 20260630_add_pi_rating_columns 2>/dev/null || true
+# Run dedicated migration script
+if [ -f "/app/scripts/apply-migrations.sh" ]; then
+    /app/scripts/apply-migrations.sh
+else
+    PRISMA_BIN="node ./node_modules/prisma/build/index.js"
+    
+    # migrate deploy dene, olmazsa db push dene (non-destructive)
+    if ! NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
+        $PRISMA_BIN migrate deploy 2>&1; then
+        echo "[DB] migrate deploy başarısız → db push deneniyor..."
+        NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
+            $PRISMA_BIN db push 2>&1 || echo "[WARN] db push de başarısız, elle müdahale gerekebilir"
+        # db push başarılı olduysa failed migration'ları resolve et (P3009 hatasını önle)
+        echo "[DB] db push tamam, failed migration'lar resolve ediliyor..."
+        $PRISMA_BIN migrate resolve --applied 20260624_174500_backfill_predictions 2>/dev/null || true
+        $PRISMA_BIN migrate resolve --applied 20260630_add_pi_rating_columns 2>/dev/null || true
+    fi
 fi
 echo "[DB] ✅ Şema senkronizasyonu tamam"
 

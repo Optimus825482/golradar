@@ -66,9 +66,10 @@ COPY --from=builder /app/docs/fotmob_teams.csv /app/docs/fotmob_teams.csv
 COPY --from=builder /app/scripts /app/scripts
 RUN chmod +x /app/scripts/*.sh
 
-# Create non-root user
+# Create non-root user and data directories with correct ownership
 RUN addgroup -S golradar -g 1001 && \
     adduser -S golradar -u 1001 -G golradar && \
+    mkdir -p /app/data/ml-models /app/data/ml-training /app/data/drift /app/data/calibration && \
     chown -R golradar:golradar /app
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh

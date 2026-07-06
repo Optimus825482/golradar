@@ -104,6 +104,7 @@ const NAV_GROUPS: NavGroup[] = [
       items: [
         { key: "system", href: "/admin/system", label: "Sistem Durumu", icon: Server, description: "Cache, SSE, writer, backfill durumu" },
         { key: "pipeline", href: "/admin/pipeline", label: "Pipeline Monitor", icon: Activity, description: "Canlı pipeline olayları, hata takibi" },
+        { key: "pipeline-debug", href: "/admin/pipeline/debug", label: "Pipeline Debug", icon: Radio, description: "Tek maç debug trace" },
       ],
     },
 ];

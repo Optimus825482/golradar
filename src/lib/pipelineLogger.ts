@@ -52,7 +52,7 @@ async function writeToDb(
         source,
         matchCode: matchCode ?? null,
         message,
-        details: details ?? undefined,
+        details: details !== null && details !== undefined ? (details as any) : undefined,
       },
     });
     const event: PipelineEventData = {

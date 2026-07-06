@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 // ── GET: olayları oku ─────────────────────────────────────────
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const limit = Math.min(parseInt(searchParams.get('limit') || '50', '10'), 500);
+  const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 500);
   const level = searchParams.get('level') as PipelineEventLevel | null;
   const source = searchParams.get('source') as PipelineEventSource | null;
   const since = searchParams.get('since') ? new Date(searchParams.get('since')!) : null;
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
         source,
         matchCode: matchCode ?? null,
         message,
-        details: details ?? undefined,
+        details: details !== null && details !== undefined ? (details as any) : undefined,
       },
     });
 

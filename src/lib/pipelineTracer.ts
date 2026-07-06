@@ -76,7 +76,7 @@ export class PipelineTracer {
           awayTeam: this.awayTeam || null,
           league: this.league || null,
           status,
-          traceData: this.steps,
+          traceData: this.steps as any,
           error: errorMsg || null,
           completedAt: new Date(),
         },

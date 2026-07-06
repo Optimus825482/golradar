@@ -61,12 +61,20 @@ async function main() {
   });
 
   // Destroy all existing sessions (force re-login)
-  await db.session.deleteMany({ where: { userId: user.id } });
+  // Session tablosu yoksa (prisma db push henüz yapılmamış) sessiz geç
+  try {
+    await db.session.deleteMany({ where: { userId: user.id } });
+    console.log(`       Mevcut session'lar temizlendi (yeniden giriş gerekli)`);
+  } catch {
+    console.log(`       (Session tablosu yok — prisma db push gerekebilir)`);
+  }
 
   console.log(`[RESET] ✅ Admin şifresi başarıyla sıfırlandı`);
   console.log(`       Kullanıcı: admin`);
   console.log(`       Yeni şifre: ${password}`);
-  console.log(`       Mevcut session'lar temizlendi (yeniden giriş gerekli)`);
+  console.log(``);
+  console.log(`       ⚠️  Eksik DB tabloları varsa şunu çalıştır:`);
+  console.log(`          npx prisma db push`);
   process.exit(0);
 }
 

@@ -131,7 +131,8 @@ export async function POST(request: NextRequest) {
 
     // ── Step 6: Signal decision ───────────────────────────────
     const sigMin = parseInt(minute.replace(/[^0-9]/g, ''), 10) || 0;
-    const inExcludedZone = sigMin <= 2;
+    const hasGoals = (homeGoals > 0 || awayGoals > 0);
+    const inExcludedZone = sigMin <= 2 && !hasGoals;
 
     const gatePassed = prob && prob.score >= RADAR_THRESHOLD && prob.side && !inExcludedZone;
 

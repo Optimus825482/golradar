@@ -311,8 +311,10 @@ async function processMatch(
   // ("45+2" → 452 was being excluded by sigMin>=89). Minute-based exclusion
   // is handled by DB-backed excludedMinutes.ts inside checkAndRecordSignal.
   // This is a pre-filter for the immediate post-kickoff noise window only.
+  // Ek: gol olmuş maçta (skor 0-0 değil) dakika 0-2 exclusion'unu atla.
   const sigMin = parseMinuteSafe(minute);
-  const inExcludedZone = sigMin <= 2;
+  const hasGoals = (homeGoals > 0 || awayGoals > 0);
+  const inExcludedZone = sigMin <= 2 && !hasGoals;
 
   let signalsCreated = 0;
   // both sinyallerine de izin ver — yön belirsiz ama gol olasılığı yüksek olabilir

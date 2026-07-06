@@ -234,8 +234,11 @@ export function calculateGoalProbability(
     }
   }
 
-  // ── Side determination ───────────────────────────────────────
-  let side: GoalProbability['side'] = determineSide(ctx.hs, ctx.as, pressureHistory);
+  // ── Side determination (ön: Poisson blend öncesi skorlar) ───
+  // FIX 2026-07-07: side son clamp'tan sonra final skorlarla tekrar
+  // hesaplanır (aşağıda). Bu ilk tahmin intermediate logic için
+  // korunuyor ancak return'de final skorlar kullanılır.
+  const initialSide: GoalProbability['side'] = determineSide(ctx.hs, ctx.as, pressureHistory);
 
   // ── Clamp ─────────────────────────────────────────────────────
   ctx.hs = Math.max(0, Math.min(ENSEMBLE_SCORE_CAP, ctx.hs));
@@ -421,6 +424,12 @@ export function calculateGoalProbability(
   let finalFinalHome = Math.round(ctx.hs);
   let finalFinalAway = Math.round(ctx.as);
   const finalFinalScore = blendedThreatScore(finalFinalHome, finalFinalAway);
+
+  // ── Final side determination (Poisson blend + tüm boost'lardan sonra) ──
+  // FIX 2026-07-07: side daha önce Poisson blend + LSTM/FotMob/Goaloo
+  // öncesi hesaplanıyordu. Şimdi final skorlarla tekrar hesapla.
+  // initialSide intermediate logic için korunur ama return finalSide kullanır.
+  const side: GoalProbability['side'] = determineSide(finalFinalHome, finalFinalAway, pressureHistory);
 
   // ── Calibrated probability (FotMob/Goaloo sonrası final score ile) ──
   let calibratedP: number;

@@ -389,8 +389,10 @@ model Signal {
   updatedAt DateTime    @updatedAt
   SignalPnL SignalPnL[]
 
-  // Multiple signals per match per side — each new signal after a resolved one creates a new row
-  @@unique([matchCode, date, signalSide])
+	  // Partial unique index on (matchCode, date, signalSide) WHERE goalHappened IS NULL
+	  // is managed by migration add_signal_pending_unique (NOT via @@unique).
+	  // Full @@unique would prevent new signals after a resolved one for the same side.
+	  // See signalRepository.createSignal() for the P2002 race-handling logic.
   @@index([date])
   @@index([matchCode])
   @@index([matchCode, date])

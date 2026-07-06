@@ -313,35 +313,29 @@ export async function updateLastValues(
 // ── Writes ──────────────────────────────────────────────────────
 
 /**
- * Create or update a signal record atomically. Uses upsert on the
- * (matchCode, date, signalSide) unique constraint so two concurrent
- * polls never race. C12: replaced try-catch-P2002 with upsert.
+ * Create a signal record. Two concurrent polls may race on the same
+ * (matchCode, date, signalSide) combo — P2002 is caught silently.
+ *
+ * Note: The database has a PARTIAL unique index
+ *   (signal_pending_unique) on (matchCode, date, signalSide)
+ *   WHERE goalHappened IS NULL. This allows multiple resolved signals
+ *   for the same match+side while preventing duplicate pending rows.
+ *   A full upsert() would require a full UNIQUE constraint, which
+ *   would block new signals after a resolved one — so we use create()
+ *   with P2002 fallback instead.
  */
 export async function createSignal(
   record: GoalSignalRecord,
 ): Promise<GoalSignalRecord | null> {
   const data = fromGoalSignalRecord(record);
   try {
-    const row = await db.signal.upsert({
-      where: {
-        matchCode_date_signalSide: {
-          matchCode: data.matchCode,
-          date: data.date,
-          signalSide: data.signalSide,
-        },
-      },
-      update: {
-        lastScore: data.lastScore,
-        lastCalibratedP: data.lastCalibratedP,
-        lastPoissonP: data.lastPoissonP,
-        lastFactors: data.lastFactors,
-        lastSignalTimestamp: data.lastSignalTimestamp,
-      },
-      create: data,
-    });
+    const row = await db.signal.create({ data });
     return toGoalSignalRecord(row);
   } catch (err: unknown) {
-    logError('signalRepository', 'createSignal upsert failed:', err);
+    // P2002 = unique constraint violation — another poll created
+    // a pending signal for this (matchCode, date, signalSide) first.
+    if (isPrismaErrorCode(err, 'P2002')) return null;
+    logError('signalRepository', 'createSignal failed:', err);
     return null;
   }
 }
@@ -555,13 +549,17 @@ export async function expireHalftimeBatch(
 
 // ── Error guards ────────────────────────────────────────────────
 
-function isPrismaNotFound(err: unknown): boolean {
+function isPrismaErrorCode(err: unknown, code: string): boolean {
   return (
     typeof err === 'object' &&
     err !== null &&
     'code' in err &&
-    (err as { code?: string }).code === 'P2025'
+    (err as { code?: string }).code === code
   );
+}
+
+function isPrismaNotFound(err: unknown): boolean {
+  return isPrismaErrorCode(err, 'P2025');
 }
 
 // ── Stats aggregation ───────────────────────────────────────────

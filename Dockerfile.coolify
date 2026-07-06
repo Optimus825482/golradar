@@ -48,8 +48,7 @@ RUN apk add --no-cache \
       python3 \
       libstdc++ \
       nodejs \
-      openssl \
-      su-exec
+      openssl
 
 # Copy pre-built Python packages
 COPY --from=builder /python-packages /python-packages
@@ -81,6 +80,9 @@ WORKDIR /app
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:3012/api', timeout=5)" || exit 1
+
+# Drop root
+USER golradar
 
 EXPOSE 3012
 CMD ["/docker-entrypoint.sh"]

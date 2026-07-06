@@ -24,7 +24,7 @@ import { createHash } from "crypto";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { db } from "../db";
-import { logInfo } from "../devLog";
+import { logInfo, logWarn } from "../devLog";
 import {
   extractFeatures,
   featuresToArray,
@@ -84,7 +84,15 @@ export interface ExportResult {
  * if featuresJson is missing. The trainer sees the same vector
  * shape regardless.
  */
-function reconstructFeatureInput(log: any): FeatureExtractionInput | null {
+function reconstructFeatureInput(log: {
+  featuresJson?: string | null;
+  matchStats?: FeatureExtractionInput["stats"];
+  minute?: number | string | null;
+  homeGoals?: number | null;
+  awayGoals?: number | null;
+  homeTeam?: string;
+  awayTeam?: string;
+}): FeatureExtractionInput | null {
   if (!log.featuresJson) return null;
   // Validate JSON shape. The trainer uses the same `featuresToArray`
   // order so callers can rely on the canonical 47-feature vector.
@@ -225,7 +233,7 @@ export async function exportTrainingData(
   // Build training rows — use PredictionLog.goalScored as primary label source.
   // MatchEvent lookup is a secondary fallback for logs that predate the goalScored column.
   const rows: TrainingRow[] = [];
-  let skippedMissingFeatures = 0;
+
   let labeledFromDb = 0;
   let labeledFromEvents = 0;
   let recomputedLabels = 0;
@@ -239,7 +247,6 @@ export async function exportTrainingData(
     }
 
     if (!log.featuresJson) {
-      skippedMissingFeatures++;
       continue;
     }
 
@@ -256,7 +263,6 @@ export async function exportTrainingData(
     } catch {
       const input = reconstructFeatureInput(log);
       if (!input) {
-        skippedMissingFeatures++;
         continue;
       }
       const extracted = await extractFeatures(input);
@@ -268,8 +274,9 @@ export async function exportTrainingData(
     // Feature boyutunu FEATURE_NAMES'e sabitle + sapma alarmı
     const TARGET_FEATURE_COUNT = FEATURE_NAMES.length;
     if (features.length !== TARGET_FEATURE_COUNT) {
-      console.warn(
-        `[Export] WARNING: feature count mismatch ${features.length} vs expected ${TARGET_FEATURE_COUNT} ` +
+      logWarn(
+        "Export",
+        `WARNING: feature count mismatch ${features.length} vs expected ${TARGET_FEATURE_COUNT} ` +
           `for matchCode=${log.matchCode} minute=${log.minute}. ` +
           `Pad/trim applied but investigate featuresJson source.`,
       );
@@ -340,8 +347,9 @@ export async function exportTrainingData(
   // ponytail: MatchEvent fallback is the primary label path for active matches.
   // Only alarm when BOTH paths produce zero labels.
   if (nullRate > 0.9 && positives === 0) {
-    console.warn(
-      `[Export] ALERT: ${(nullRate * 100).toFixed(0)}% null goalScored AND 0 labeled rows. ` +
+    logWarn(
+      "Export",
+      `ALERT: ${(nullRate * 100).toFixed(0)}% null goalScored AND 0 labeled rows. ` +
         `Both backfill and MatchEvent paths are broken. Check finalizeMatchSignals.`,
     );
   } else if (nullRate > 0.9 && positives > 0) {

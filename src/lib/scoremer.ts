@@ -1,25 +1,26 @@
+/* eslint-disable no-console, @typescript-eslint/no-explicit-any */
 // Scoremer.com API client
 // Fetches match statistics for finished matches from scoremer.com
 // Uses the fixtures page (server-rendered) for match list, match_live for stats
 
-import { normalizeTeamName, translateTeamName, nameSimilarity } from './teamNameNormalizer';
+import { normalizeTeamName, nameSimilarity } from "./teamNameNormalizer";
 
-const SCOREMER_BASE = "https://www.scoremer.com";
 const SCOREMER_TR_BASE = "https://www.scoremer.com/tr";
 
-const log = process.env.NODE_ENV === 'development' ? console.log : () => {};
-const warn = process.env.NODE_ENV === 'development' ? console.warn : () => {};
-const errLog = process.env.NODE_ENV === 'development' ? console.error : () => {};
+const log = process.env.NODE_ENV === "development" ? console.log : () => {};
+const warn = process.env.NODE_ENV === "development" ? console.warn : () => {};
+const errLog =
+  process.env.NODE_ENV === "development" ? console.error : () => {};
 
 export interface ScoremerMatchStats {
   // Full-time stats
-  shots_on_target: { home: number; away: number } | null;       // İsabetli Şut / Hedefe vuruşlar / On Target
-  shots_off_target: { home: number; away: number } | null;      // İsabetsiz Şut / Hedef dışı vuruşlar / Off Target
-  dangerous_attacks: { home: number; away: number } | null;     // Tehlikeli Hücum / Dangerous Attacks
-  attacks: { home: number; away: number } | null;               // Hücum / Saldırılar / Attacks
-  possession: { home: number; away: number } | null;            // Top sahipliği % / Possession %
-  expected_goals: { home: number; away: number } | null;        // Expected Goals / xG
-  corners: { home: number; away: number } | null;               // Köşe vuruş / Corners
+  shots_on_target: { home: number; away: number } | null; // İsabetli Şut / Hedefe vuruşlar / On Target
+  shots_off_target: { home: number; away: number } | null; // İsabetsiz Şut / Hedef dışı vuruşlar / Off Target
+  dangerous_attacks: { home: number; away: number } | null; // Tehlikeli Hücum / Dangerous Attacks
+  attacks: { home: number; away: number } | null; // Hücum / Saldırılar / Attacks
+  possession: { home: number; away: number } | null; // Top sahipliği % / Possession %
+  expected_goals: { home: number; away: number } | null; // Expected Goals / xG
+  corners: { home: number; away: number } | null; // Köşe vuruş / Corners
   // Half-time stats
   ht_shots_on_target: { home: number; away: number } | null;
   ht_shots_off_target: { home: number; away: number } | null;
@@ -53,39 +54,53 @@ export interface ScoremerMapping {
 
 // ── Fetch page via Node.js fetch (cross-platform) ──────────────
 
-import { scrapeUrl } from './scraper';
-import { logError } from '@/lib/devLog';
+import { scrapeUrl } from "./scraper";
+import { logError } from "@/lib/devLog";
 
 const SCOREMER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8',
-  'Accept-Encoding': 'gzip, deflate',
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8",
+  "Accept-Encoding": "gzip, deflate",
 };
 
 async function fetchDirectHttp(url: string): Promise<string | null> {
   // Step 1: Try native fetch (fast, works on unprotected sites)
   try {
-    const resp = await fetch(url, { headers: SCOREMER_HEADERS, signal: AbortSignal.timeout(20000) });
+    const resp = await fetch(url, {
+      headers: SCOREMER_HEADERS,
+      signal: AbortSignal.timeout(20000),
+    });
     if (resp.ok) {
       const text = await resp.text();
       if (text.length > 1000) return text;
     }
-  } catch (e) { logError('scoremer', e); /* fall through to bridge */ }
+  } catch (e) {
+    logError("scoremer", e); /* fall through to bridge */
+  }
 
   // Step 2: Try Python bridge (bypasses Cloudflare via curl_cffi)
-  const result = await scrapeUrl(url, { type: 'html', referer: 'https://www.scoremer.com/', timeout: 25000 });
+  const result = await scrapeUrl(url, {
+    type: "html",
+    referer: "https://www.scoremer.com/",
+    timeout: 25000,
+  });
   if (result.ok && result.data && result.data.length > 1000) return result.data;
-  warn(`[Scoremer] Bridge failed for ${url}: ${result.error || 'too short'}`);
+  warn(`[Scoremer] Bridge failed for ${url}: ${result.error || "too short"}`);
   return null;
 }
 
 // ── Team slug cache (built from fixtures) ──
 
-const teamSlugCache: { entry: CacheEntry<Map<string, string>> | null } = { entry: null };
+const teamSlugCache: { entry: CacheEntry<Map<string, string>> | null } = {
+  entry: null,
+};
 
 function extractTeamSlugs(html: string, slugMap: Map<string, string>) {
-  const teamAnchors = html.matchAll(/<a[^>]*href="\/tr\/football\/team\/([^"]+)"[^>]*>\s*([^<]+?)\s*<\/a>/gi);
+  const teamAnchors = html.matchAll(
+    /<a[^>]*href="\/tr\/football\/team\/([^"]+)"[^>]*>\s*([^<]+?)\s*<\/a>/gi,
+  );
   for (const m of teamAnchors) {
     const slug = m[1];
     const name = m[2].trim();
@@ -100,9 +115,16 @@ function extractTeamSlugs(html: string, slugMap: Map<string, string>) {
 
 export async function getTeamSlug(teamName: string): Promise<string | null> {
   // Check cache
-  if (teamSlugCache.entry && Date.now() - teamSlugCache.entry.timestamp < CACHE_TTL) {
+  if (
+    teamSlugCache.entry &&
+    Date.now() - teamSlugCache.entry.timestamp < CACHE_TTL
+  ) {
     const norm = normalizeTeamName(teamName);
-    return teamSlugCache.entry.data.get(teamName) || teamSlugCache.entry.data.get(norm) || null;
+    return (
+      teamSlugCache.entry.data.get(teamName) ||
+      teamSlugCache.entry.data.get(norm) ||
+      null
+    );
   }
 
   // Build slug cache from fixtures
@@ -164,7 +186,9 @@ async function fetchScoremerMatchList(): Promise<ScoremerMatch[]> {
   const lastHtml = await fetchDirectHttp(lastUrl);
   if (lastHtml) {
     parseFixturesHtml(lastHtml, matches, seenIds);
-    log(`[Scoremer] Added matches from /fixtures/last (total: ${matches.length})`);
+    log(
+      `[Scoremer] Added matches from /fixtures/last (total: ${matches.length})`,
+    );
   } else {
     warn(`[Scoremer] Failed to fetch /fixtures/last`);
   }
@@ -175,7 +199,9 @@ async function fetchScoremerMatchList(): Promise<ScoremerMatch[]> {
 
 // ── Fetch matches from a team's page on Scoremer (has finished matches) ──
 
-export async function fetchTeamMatches(teamSlug: string): Promise<ScoremerMatch[]> {
+export async function fetchTeamMatches(
+  teamSlug: string,
+): Promise<ScoremerMatch[]> {
   const url = `${SCOREMER_TR_BASE}/football/team/${teamSlug}`;
   const html = await fetchDirectHttp(url);
   if (!html) return [];
@@ -220,21 +246,28 @@ export async function getScoremerMatchesForDateRange(
 
 export function filterScoremerMatchesByStatus(
   matches: ScoremerMatch[],
-  status: 'finished' | 'upcoming' | 'all' = 'all',
+  status: "finished" | "upcoming" | "all" = "all",
 ): ScoremerMatch[] {
-  if (status === 'all') return matches;
+  if (status === "all") return matches;
   return matches.filter((m) => {
     // Finished: status field marked (e.g. "MS", "Bitti") OR FT score present and non-zero
-    const statusSaysFinished = /^(MS|Bitti|FT|FT$|Finished|Ended)/i.test(m.status || '');
-    const hasFullTimeScore = (m.homeScore > 0 || m.awayScore > 0) && m.status !== 'VS';
+    const statusSaysFinished = /^(MS|Bitti|FT|FT$|Finished|Ended)/i.test(
+      m.status || "",
+    );
+    const hasFullTimeScore =
+      (m.homeScore > 0 || m.awayScore > 0) && m.status !== "VS";
     const isFinished = statusSaysFinished || hasFullTimeScore;
-    return status === 'finished' ? isFinished : !isFinished;
+    return status === "finished" ? isFinished : !isFinished;
   });
 }
 
 // ── Shared HTML parser for fixtures tables ──
 
-function parseFixturesHtml(html: string, matches: ScoremerMatch[], seenIds: Set<string>) {
+function parseFixturesHtml(
+  html: string,
+  matches: ScoremerMatch[],
+  seenIds: Set<string>,
+) {
   const rows = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
 
   for (const row of rows) {
@@ -247,25 +280,34 @@ function parseFixturesHtml(html: string, matches: ScoremerMatch[], seenIds: Set<
     seenIds.add(id);
 
     // Extract team names from /tr/football/team/ links
-    const teamMatches = [...row.matchAll(/<a[^>]*href="\/tr\/football\/team\/[^"]*"[^>]*>\s*([^<]+?)\s*<\/a>/gi)];
-    const homeTeam = teamMatches[0]?.[1]?.trim() || '';
-    const awayTeam = teamMatches[1]?.[1]?.trim() || '';
+    const teamMatches = [
+      ...row.matchAll(
+        /<a[^>]*href="\/tr\/football\/team\/[^"]*"[^>]*>\s*([^<]+?)\s*<\/a>/gi,
+      ),
+    ];
+    const homeTeam = teamMatches[0]?.[1]?.trim() || "";
+    const awayTeam = teamMatches[1]?.[1]?.trim() || "";
     if (!homeTeam || !awayTeam) continue;
 
     // Extract league name
-    const leagueMatch = row.match(/<a[^>]*href="\/tr\/football\/league\/[^"]*"[^>]*>\s*([^<]+?)\s*<\/a>/i);
-    const league = leagueMatch?.[1]?.trim() || '';
+    const leagueMatch = row.match(
+      /<a[^>]*href="\/tr\/football\/league\/[^"]*"[^>]*>\s*([^<]+?)\s*<\/a>/i,
+    );
+    const league = leagueMatch?.[1]?.trim() || "";
 
     // Extract time
     const timeMatch = row.match(/(\d{2}\/\d{2}\/\d{2}\s+\d{2}:\d{2})/);
-    const matchTime = timeMatch?.[1] || '';
+    const matchTime = timeMatch?.[1] || "";
 
     // Check status - VS means upcoming, MS/Bitti means finished
-    const isVS = row.includes('>VS<');
-    const isMS = row.includes('>MS<') || row.includes('>Bitti<');
+    const isVS = row.includes(">VS<");
+    const isMS = row.includes(">MS<") || row.includes(">Bitti<");
     // Also detect finished matches from score cells (blue-color or red-color class)
-    const hasScoreCell = /class="[^"]*(?:blue-color|red-color)[^"]*"[^>]*>\s*\d+\s*:\s*\d+/.test(row);
-    const status = isMS ? 'MS' : isVS ? 'VS' : hasScoreCell ? 'MS' : '';
+    const hasScoreCell =
+      /class="[^"]*(?:blue-color|red-color)[^"]*"[^>]*>\s*\d+\s*:\s*\d+/.test(
+        row,
+      );
+    const status = isMS ? "MS" : isVS ? "VS" : hasScoreCell ? "MS" : "";
 
     // Extract scores for finished matches
     let homeScore = 0;
@@ -274,7 +316,8 @@ function parseFixturesHtml(html: string, matches: ScoremerMatch[], seenIds: Set<
       // Strategy 1: Look for blue-color/red-color score cells (fixtures/last page format)
       // These appear as: <td class="text-center blue-color">0 : 2</td>
       // First score cell = HT score, Second = FT score
-      const scoreCellPattern = /class="[^"]*(?:blue-color|red-color)[^"]*"[^>]*>\s*(\d+)\s*:\s*(\d+)/g;
+      const scoreCellPattern =
+        /class="[^"]*(?:blue-color|red-color)[^"]*"[^>]*>\s*(\d+)\s*:\s*(\d+)/g;
       const scoreCells: { h: number; a: number }[] = [];
       let cellMatch;
       while ((cellMatch = scoreCellPattern.exec(row)) !== null) {
@@ -284,7 +327,7 @@ function parseFixturesHtml(html: string, matches: ScoremerMatch[], seenIds: Set<
           scoreCells.push({ h, a });
         }
       }
-      
+
       if (scoreCells.length >= 2) {
         // Last score cell = Full-time score (most reliable)
         homeScore = scoreCells[scoreCells.length - 1].h;
@@ -302,7 +345,11 @@ function parseFixturesHtml(html: string, matches: ScoremerMatch[], seenIds: Set<
               const h = parseInt(parts[1]);
               const a = parseInt(parts[2]);
               // Filter out time patterns (like 19:00, 20:30)
-              if (h <= 20 && a <= 20 && !(h >= 0 && h <= 23 && a <= 59 && a > 20)) {
+              if (
+                h <= 20 &&
+                a <= 20 &&
+                !(h >= 0 && h <= 23 && a <= 59 && a > 20)
+              ) {
                 homeScore = h;
                 awayScore = a;
                 break;
@@ -314,9 +361,6 @@ function parseFixturesHtml(html: string, matches: ScoremerMatch[], seenIds: Set<
     }
 
     // Also extract team slugs for future team page lookups
-    const homeSlugMatch = row.match(/href="\/tr\/football\/team\/([^"]+)"/i);
-    const awaySlugMatch = row.matchAll(/href="\/tr\/football\/team\/([^"]+)"/gi);
-    const awaySlugs = [...awaySlugMatch];
 
     // Parse inline raceDataPopup2 stats if present (embedded in fixtures row HTML)
     const inlineStats = parseInlineRaceData(row);
@@ -325,7 +369,8 @@ function parseFixturesHtml(html: string, matches: ScoremerMatch[], seenIds: Set<
     let htHomeScore = 0;
     let htAwayScore = 0;
     if (isMS || hasScoreCell || !isVS) {
-      const scoreCellPattern = /class="[^"]*(?:blue-color|red-color)[^"]*"[^>]*>\s*(\d+)\s*:\s*(\d+)/g;
+      const scoreCellPattern =
+        /class="[^"]*(?:blue-color|red-color)[^"]*"[^>]*>\s*(\d+)\s*:\s*(\d+)/g;
       const allScoreCells: { h: number; a: number }[] = [];
       let cellMatch;
       while ((cellMatch = scoreCellPattern.exec(row)) !== null) {
@@ -386,7 +431,11 @@ function parseFixturesHtml(html: string, matches: ScoremerMatch[], seenIds: Set<
 // Both English and Turkish labels may appear depending on page language.
 
 function parseInlineRaceData(rowHtml: string): ScoremerMatchStats | null {
-  if (!rowHtml.includes('raceDataPopup2') && !rowHtml.includes('score-bar-item')) return null;
+  if (
+    !rowHtml.includes("raceDataPopup2") &&
+    !rowHtml.includes("score-bar-item")
+  )
+    return null;
 
   const stats: ScoremerMatchStats = {
     shots_on_target: null,
@@ -405,19 +454,22 @@ function parseInlineRaceData(rowHtml: string): ScoremerMatchStats | null {
   };
 
   // Stat name mapping (both English and Turkish labels)
-  const statNameMap: Record<string, { key: keyof ScoremerMatchStats; isPct?: boolean }> = {
-    'On Target': { key: 'shots_on_target' },
-    'Off Target': { key: 'shots_off_target' },
-    'Dangerous Attacks': { key: 'dangerous_attacks' },
-    'Attacks': { key: 'attacks' },
-    'Possession %': { key: 'possession', isPct: true },
-    'Possession': { key: 'possession', isPct: true },
-    'Hedefe vuruşlar': { key: 'shots_on_target' },
-    'Hedef dışı vuruşlar': { key: 'shots_off_target' },
-    'Tehlikeli Saldırılar': { key: 'dangerous_attacks' },
-    'Saldırılar': { key: 'attacks' },
-    'Top sahipliği': { key: 'possession', isPct: true },
-    'Top sahipliği %': { key: 'possession', isPct: true },
+  const statNameMap: Record<
+    string,
+    { key: keyof ScoremerMatchStats; isPct?: boolean }
+  > = {
+    "On Target": { key: "shots_on_target" },
+    "Off Target": { key: "shots_off_target" },
+    "Dangerous Attacks": { key: "dangerous_attacks" },
+    Attacks: { key: "attacks" },
+    "Possession %": { key: "possession", isPct: true },
+    Possession: { key: "possession", isPct: true },
+    "Hedefe vuruşlar": { key: "shots_on_target" },
+    "Hedef dışı vuruşlar": { key: "shots_off_target" },
+    "Tehlikeli Saldırılar": { key: "dangerous_attacks" },
+    Saldırılar: { key: "attacks" },
+    "Top sahipliği": { key: "possession", isPct: true },
+    "Top sahipliği %": { key: "possession", isPct: true },
   };
 
   // Parse HT scores and corners from the header row
@@ -427,7 +479,10 @@ function parseInlineRaceData(rowHtml: string): ScoremerMatchStats | null {
   }
   const htCornersMatch = rowHtml.match(/H\s+Corners?\s+(\d+)\s*:\s*(\d+)/i);
   if (htCornersMatch) {
-    stats.ht_corners = { home: parseInt(htCornersMatch[1]), away: parseInt(htCornersMatch[2]) };
+    stats.ht_corners = {
+      home: parseInt(htCornersMatch[1]),
+      away: parseInt(htCornersMatch[2]),
+    };
   }
 
   // Parse stat items using h5 + small-2 columns pattern
@@ -443,7 +498,8 @@ function parseInlineRaceData(rowHtml: string): ScoremerMatchStats | null {
     const context = rowHtml.substring(contextStart, contextEnd);
 
     // Look for small-2 columns with values
-    const colRegex = /class="small-2[^"]*text-center[^"]*columns"[^>]*>([^<]+)<\/div>/gi;
+    const colRegex =
+      /class="small-2[^"]*text-center[^"]*columns"[^>]*>([^<]+)<\/div>/gi;
     const values: string[] = [];
     let colMatch;
     while ((colMatch = colRegex.exec(context)) !== null) {
@@ -460,13 +516,15 @@ function parseInlineRaceData(rowHtml: string): ScoremerMatchStats | null {
   }
 
   // Check if we got any meaningful stats
-  const hasAnyStat = Object.values(stats).some(v => v !== null);
+  const hasAnyStat = Object.values(stats).some((v) => v !== null);
   return hasAnyStat ? stats : null;
 }
 
 // ── Parse match detail stats from scoremer.com/tr/match_live/ID ──
 
-async function fetchScoremerMatchStats(matchId: string): Promise<ScoremerMatchStats | null> {
+async function fetchScoremerMatchStats(
+  matchId: string,
+): Promise<ScoremerMatchStats | null> {
   const url = `${SCOREMER_TR_BASE}/match_live/${matchId}`;
   const html = await fetchDirectHttp(url);
   if (!html) {
@@ -474,9 +532,15 @@ async function fetchScoremerMatchStats(matchId: string): Promise<ScoremerMatchSt
     return null;
   }
 
-  if (!html.includes('Hedefe vuruşlar') && !html.includes('Tehlikeli Saldırılar') &&
-      !html.includes('On Target') && !html.includes('Dangerous Attacks')) {
-    log(`[Scoremer] No stats found for match ${matchId} (likely not yet played)`);
+  if (
+    !html.includes("Hedefe vuruşlar") &&
+    !html.includes("Tehlikeli Saldırılar") &&
+    !html.includes("On Target") &&
+    !html.includes("Dangerous Attacks")
+  ) {
+    log(
+      `[Scoremer] No stats found for match ${matchId} (likely not yet played)`,
+    );
     return null;
   }
 
@@ -503,11 +567,12 @@ function parseStatsFromHtml(html: string): ScoremerMatchStats | null {
   };
 
   // Find the full-time stats section (before Yarım Zaman / Half Time)
-  const yarimZamanIdx = html.indexOf('Yarım Zaman');
-  const halfTimeIdx = html.indexOf('Half Time');
-  const splitIdx = yarimZamanIdx > 0 ? yarimZamanIdx : halfTimeIdx > 0 ? halfTimeIdx : -1;
+  const yarimZamanIdx = html.indexOf("Yarım Zaman");
+  const halfTimeIdx = html.indexOf("Half Time");
+  const splitIdx =
+    yarimZamanIdx > 0 ? yarimZamanIdx : halfTimeIdx > 0 ? halfTimeIdx : -1;
   const fullTimeHtml = splitIdx > 0 ? html.substring(0, splitIdx) : html;
-  const halfTimeHtml = splitIdx > 0 ? html.substring(splitIdx) : '';
+  const halfTimeHtml = splitIdx > 0 ? html.substring(splitIdx) : "";
 
   // Parse stats from full-time section
   parseStatSection(fullTimeHtml, stats, false);
@@ -515,35 +580,69 @@ function parseStatsFromHtml(html: string): ScoremerMatchStats | null {
   parseStatSection(halfTimeHtml, stats, true);
 
   // Check if we got any stats
-  const hasAnyStat = Object.values(stats).some(v => v !== null);
+  const hasAnyStat = Object.values(stats).some((v) => v !== null);
   if (!hasAnyStat) return null;
 
   return stats;
 }
 
-function parseStatSection(html: string, stats: ScoremerMatchStats, isHalfTime: boolean) {
-  const statNameMap: Record<string, { key: keyof ScoremerMatchStats; isPct?: boolean }> = {
+function parseStatSection(
+  html: string,
+  stats: ScoremerMatchStats,
+  isHalfTime: boolean,
+) {
+  const statNameMap: Record<
+    string,
+    { key: keyof ScoremerMatchStats; isPct?: boolean }
+  > = {
     // Turkish labels
-    'Hedefe vuruşlar': { key: isHalfTime ? 'ht_shots_on_target' : 'shots_on_target' },
-    'Hedef dışı vuruşlar': { key: isHalfTime ? 'ht_shots_off_target' : 'shots_off_target' },
-    'Tehlikeli Saldırılar': { key: isHalfTime ? 'ht_dangerous_attacks' : 'dangerous_attacks' },
-    'Saldırılar': { key: isHalfTime ? 'ht_attacks' : 'attacks' },
-    'Top sahipliği': { key: isHalfTime ? 'ht_possession' : 'possession', isPct: true },
-    'Top sahipliği %': { key: isHalfTime ? 'ht_possession' : 'possession', isPct: true },
-    'Expected Goals': { key: isHalfTime ? 'ht_expected_goals' as keyof ScoremerMatchStats : 'expected_goals' },
-    'Köşe vuruşlar': { key: isHalfTime ? 'ht_corners' : 'corners' },
+    "Hedefe vuruşlar": {
+      key: isHalfTime ? "ht_shots_on_target" : "shots_on_target",
+    },
+    "Hedef dışı vuruşlar": {
+      key: isHalfTime ? "ht_shots_off_target" : "shots_off_target",
+    },
+    "Tehlikeli Saldırılar": {
+      key: isHalfTime ? "ht_dangerous_attacks" : "dangerous_attacks",
+    },
+    Saldırılar: { key: isHalfTime ? "ht_attacks" : "attacks" },
+    "Top sahipliği": {
+      key: isHalfTime ? "ht_possession" : "possession",
+      isPct: true,
+    },
+    "Top sahipliği %": {
+      key: isHalfTime ? "ht_possession" : "possession",
+      isPct: true,
+    },
+    "Expected Goals": {
+      key: isHalfTime
+        ? ("ht_expected_goals" as keyof ScoremerMatchStats)
+        : "expected_goals",
+    },
+    "Köşe vuruşlar": { key: isHalfTime ? "ht_corners" : "corners" },
     // English labels (some pages use English)
-    'On Target': { key: isHalfTime ? 'ht_shots_on_target' : 'shots_on_target' },
-    'Off Target': { key: isHalfTime ? 'ht_shots_off_target' : 'shots_off_target' },
-    'Dangerous Attacks': { key: isHalfTime ? 'ht_dangerous_attacks' : 'dangerous_attacks' },
-    'Attacks': { key: isHalfTime ? 'ht_attacks' : 'attacks' },
-    'Possession %': { key: isHalfTime ? 'ht_possession' : 'possession', isPct: true },
-    'Possession': { key: isHalfTime ? 'ht_possession' : 'possession', isPct: true },
-    'Corners': { key: isHalfTime ? 'ht_corners' : 'corners' },
+    "On Target": { key: isHalfTime ? "ht_shots_on_target" : "shots_on_target" },
+    "Off Target": {
+      key: isHalfTime ? "ht_shots_off_target" : "shots_off_target",
+    },
+    "Dangerous Attacks": {
+      key: isHalfTime ? "ht_dangerous_attacks" : "dangerous_attacks",
+    },
+    Attacks: { key: isHalfTime ? "ht_attacks" : "attacks" },
+    "Possession %": {
+      key: isHalfTime ? "ht_possession" : "possession",
+      isPct: true,
+    },
+    Possession: {
+      key: isHalfTime ? "ht_possession" : "possession",
+      isPct: true,
+    },
+    Corners: { key: isHalfTime ? "ht_corners" : "corners" },
   };
 
   // Try Pattern 1 (flex layout) first
-  const flexRegex = /<div[^>]*style="display:\s*flex[^"]*"[^>]*>\s*<span>([^<]+)<\/span>\s*<span>([^<]+)<\/span>\s*<span>([^<]+)<\/span>\s*<\/div>/gi;
+  const flexRegex =
+    /<div[^>]*style="display:\s*flex[^"]*"[^>]*>\s*<span>([^<]+)<\/span>\s*<span>([^<]+)<\/span>\s*<span>([^<]+)<\/span>\s*<\/div>/gi;
   let flexMatch;
   while ((flexMatch = flexRegex.exec(html)) !== null) {
     const homeVal = flexMatch[1].trim();
@@ -561,7 +660,8 @@ function parseStatSection(html: string, stats: ScoremerMatchStats, isHalfTime: b
   }
 
   // Try Pattern 2 (classic layout with h5 and small-2 columns)
-  const classicRegex = /<h5>([^<]+)<\/h5>\s*<div[^>]*>\s*<div[^>]*class="small-2[^"]*"[^>]*>([^<]+)<\/div>\s*<div[^>]*class="small-8[^"]*"[^>]*>[\s\S]*?<\/div>\s*<div[^>]*class="small-2[^"]*"[^>]*>([^<]+)<\/div>/gi;
+  const classicRegex =
+    /<h5>([^<]+)<\/h5>\s*<div[^>]*>\s*<div[^>]*class="small-2[^"]*"[^>]*>([^<]+)<\/div>\s*<div[^>]*class="small-8[^"]*"[^>]*>[\s\S]*?<\/div>\s*<div[^>]*class="small-2[^"]*"[^>]*>([^<]+)<\/div>/gi;
   let classicMatch;
   while ((classicMatch = classicRegex.exec(html)) !== null) {
     const statName = classicMatch[1].trim();
@@ -579,7 +679,8 @@ function parseStatSection(html: string, stats: ScoremerMatchStats, isHalfTime: b
   }
 
   // Also try a simpler pattern for the h5-based layout (both Turkish and English labels)
-  const simpleH5Regex = /<h5>(Hedefe vuruşlar|Hedef dışı vuruşlar|Tehlikeli Saldırılar|Saldırılar|Top sahipliği|Top sahipliği %|Expected Goals|Köşe vuruşlar|On Target|Off Target|Dangerous Attacks|Attacks|Possession %|Possession|Corners)<\/h5>/gi;
+  const simpleH5Regex =
+    /<h5>(Hedefe vuruşlar|Hedef dışı vuruşlar|Tehlikeli Saldırılar|Saldırılar|Top sahipliği|Top sahipliği %|Expected Goals|Köşe vuruşlar|On Target|Off Target|Dangerous Attacks|Attacks|Possession %|Possession|Corners)<\/h5>/gi;
   let h5Match;
   while ((h5Match = simpleH5Regex.exec(html)) !== null) {
     const statName = h5Match[1];
@@ -590,7 +691,8 @@ function parseStatSection(html: string, stats: ScoremerMatchStats, isHalfTime: b
       const context = html.substring(contextStart, contextEnd);
 
       // Look for small-2 columns
-      const colRegex = /class="small-2[^"]*text-center[^"]*columns"[^>]*>([^<]+)<\/div>/gi;
+      const colRegex =
+        /class="small-2[^"]*text-center[^"]*columns"[^>]*>([^<]+)<\/div>/gi;
       const values: string[] = [];
       let colMatch;
       while ((colMatch = colRegex.exec(context)) !== null) {
@@ -607,9 +709,9 @@ function parseStatSection(html: string, stats: ScoremerMatchStats, isHalfTime: b
   }
 }
 
-function parseStatValue(val: string, isPct?: boolean): number | null {
+function parseStatValue(val: string, _isPct?: boolean): number | null {
   if (!val) return null;
-  const cleaned = val.replace('%', '').replace(',', '.').trim();
+  const cleaned = val.replace("%", "").replace(",", ".").trim();
   const num = parseFloat(cleaned);
   if (isNaN(num)) return null;
   return num;
@@ -620,7 +722,7 @@ function parseStatValue(val: string, isPct?: boolean): number | null {
 // ── Build Nesine→Scoremer match mapping ────────────────────────
 
 async function buildScoremerMappings(
-  nesineMatches: { code: number; home: string; away: string; time: string }[]
+  nesineMatches: { code: number; home: string; away: string; time: string }[],
 ): Promise<ScoremerMapping[]> {
   const scoremerMatches = await fetchScoremerMatchList();
   if (scoremerMatches.length === 0) {
@@ -643,7 +745,7 @@ async function buildScoremerMappings(
 
       const nameConf = Math.max(
         (homeSim + awaySim) / 2,
-        (homeSimSwap + awaySimSwap) / 2
+        (homeSimSwap + awaySimSwap) / 2,
       );
 
       // Score match bonus — disabled because nm only carries team names,
@@ -669,7 +771,9 @@ async function buildScoremerMappings(
     }
   }
 
-  log(`[Scoremer] Built ${mappings.length} mappings from ${nesineMatches.length} Nesine matches`);
+  log(
+    `[Scoremer] Built ${mappings.length} mappings from ${nesineMatches.length} Nesine matches`,
+  );
   return mappings;
 }
 
@@ -677,22 +781,47 @@ async function buildScoremerMappings(
 
 export function convertScoremerStatsToMatchStats(
   scoremerStats: ScoremerMatchStats | null,
-  isHalfTime: boolean = false
+  isHalfTime: boolean = false,
 ): Record<string, { home: number | null; away: number | null }> {
   if (!scoremerStats) return {};
 
-  const result: Record<string, { home: number | null; away: number | null }> = {};
+  const result: Record<string, { home: number | null; away: number | null }> =
+    {};
 
-  const prefix = isHalfTime ? 'ht_' : '';
+  const prefix = isHalfTime ? "ht_" : "";
 
-  const statMappings: { scoremerKey: keyof ScoremerMatchStats; appKey: string }[] = [
-    { scoremerKey: `${prefix}shots_on_target` as keyof ScoremerMatchStats, appKey: 'shots_on_target' },
-    { scoremerKey: `${prefix}shots_off_target` as keyof ScoremerMatchStats, appKey: 'shots_off_target' },
-    { scoremerKey: `${prefix}dangerous_attacks` as keyof ScoremerMatchStats, appKey: 'dangerous_attacks' },
-    { scoremerKey: `${prefix}attacks` as keyof ScoremerMatchStats, appKey: 'attacks' },
-    { scoremerKey: `${prefix}possession` as keyof ScoremerMatchStats, appKey: 'possession' },
-    { scoremerKey: `${prefix}expected_goals` as keyof ScoremerMatchStats, appKey: 'xg' },
-    { scoremerKey: `${prefix}corners` as keyof ScoremerMatchStats, appKey: 'corners' },
+  const statMappings: {
+    scoremerKey: keyof ScoremerMatchStats;
+    appKey: string;
+  }[] = [
+    {
+      scoremerKey: `${prefix}shots_on_target` as keyof ScoremerMatchStats,
+      appKey: "shots_on_target",
+    },
+    {
+      scoremerKey: `${prefix}shots_off_target` as keyof ScoremerMatchStats,
+      appKey: "shots_off_target",
+    },
+    {
+      scoremerKey: `${prefix}dangerous_attacks` as keyof ScoremerMatchStats,
+      appKey: "dangerous_attacks",
+    },
+    {
+      scoremerKey: `${prefix}attacks` as keyof ScoremerMatchStats,
+      appKey: "attacks",
+    },
+    {
+      scoremerKey: `${prefix}possession` as keyof ScoremerMatchStats,
+      appKey: "possession",
+    },
+    {
+      scoremerKey: `${prefix}expected_goals` as keyof ScoremerMatchStats,
+      appKey: "xg",
+    },
+    {
+      scoremerKey: `${prefix}corners` as keyof ScoremerMatchStats,
+      appKey: "corners",
+    },
   ];
 
   for (const mapping of statMappings) {
@@ -727,9 +856,13 @@ interface CacheEntry<T> {
   timestamp: number;
 }
 
-const matchListCache: { entry: CacheEntry<ScoremerMatch[]> | null } = { entry: null };
+const matchListCache: { entry: CacheEntry<ScoremerMatch[]> | null } = {
+  entry: null,
+};
 const statsCache = new Map<string, CacheEntry<ScoremerMatchStats>>();
-const mappingCache: { entry: CacheEntry<ScoremerMapping[]> | null } = { entry: null };
+const mappingCache: { entry: CacheEntry<ScoremerMapping[]> | null } = {
+  entry: null,
+};
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 const MAX_STATS_CACHE = 500;
@@ -744,7 +877,10 @@ function evictStatsIfOversized(): void {
 }
 
 export async function fetchScoremerMatchListCached(): Promise<ScoremerMatch[]> {
-  if (matchListCache.entry && Date.now() - matchListCache.entry.timestamp < CACHE_TTL) {
+  if (
+    matchListCache.entry &&
+    Date.now() - matchListCache.entry.timestamp < CACHE_TTL
+  ) {
     return matchListCache.entry.data;
   }
   const data = await fetchScoremerMatchList();
@@ -752,7 +888,9 @@ export async function fetchScoremerMatchListCached(): Promise<ScoremerMatch[]> {
   return data;
 }
 
-export async function fetchScoremerMatchStatsCached(matchId: string): Promise<ScoremerMatchStats | null> {
+export async function fetchScoremerMatchStatsCached(
+  matchId: string,
+): Promise<ScoremerMatchStats | null> {
   const cached = statsCache.get(matchId);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
@@ -766,9 +904,12 @@ export async function fetchScoremerMatchStatsCached(matchId: string): Promise<Sc
 }
 
 export async function buildScoremerMappingsCached(
-  nesineMatches: { code: number; home: string; away: string; time: string }[]
+  nesineMatches: { code: number; home: string; away: string; time: string }[],
 ): Promise<ScoremerMapping[]> {
-  if (mappingCache.entry && Date.now() - mappingCache.entry.timestamp < CACHE_TTL) {
+  if (
+    mappingCache.entry &&
+    Date.now() - mappingCache.entry.timestamp < CACHE_TTL
+  ) {
     return mappingCache.entry.data;
   }
   const data = await buildScoremerMappings(nesineMatches);

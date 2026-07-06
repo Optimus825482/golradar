@@ -1,5 +1,3 @@
-"use client";
-
 import type { GoalProbability } from "@/lib/nesine";
 import type { Match } from "./types";
 import { calculatePressure } from "./utils";
@@ -124,7 +122,7 @@ export function MatchCard({
                   <GoalRadarIcon level={goalProb.level} />
                 )}
             </div>
-            <span className="text-[13px] font-mono font-bold text-gray-900 px-2 min-w-[50px] text-center relative">
+            <span className="text-[13px] font-mono font-bold text-gray-900 px-2 min-w-12.5 text-center relative">
               {match.homeGoals} - {match.awayGoals}
               {hasGoals && hasGoalFlash && (
                 <span className="absolute -top-2 -right-2 goal-badge-flash">

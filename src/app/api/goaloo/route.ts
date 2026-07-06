@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { rateLimit, RATE_LIMIT_DEFAULTS } from "@/lib/rateLimit";
-import { logInfo } from "@/lib/devLog";
+import { logError, logInfo } from "@/lib/devLog";
 
 export const dynamic = "force-dynamic";
 
@@ -177,9 +177,9 @@ export async function GET(request: Request) {
         htAwayScore: number;
         asianHandicap: number | null;
         overUnder: number | null;
-        momentum: any;
-        events: any[];
-        odds: any;
+        momentum: unknown;
+        events: unknown[];
+        odds: unknown;
       }> = [];
       for (let i = 0; i < finishedMatches.length; i++) {
         const match = finishedMatches[i];
@@ -187,7 +187,7 @@ export async function GET(request: Request) {
           const enriched = await enrichGoalooMatch(match);
           enrichedMatches.push(enriched);
         } catch (err) {
-          console.error(`[Goaloo API] Error enriching match ${match.id}:`, err);
+          logError("Goaloo API", `Error enriching match ${match.id}:`, err);
           // Still include basic match data even if enrichment fails
           enrichedMatches.push({
             matchCode: match.id,
@@ -252,8 +252,9 @@ export async function GET(request: Request) {
       },
       { status: 400 },
     );
-  } catch (error: any) {
-    console.error("[Goaloo API] Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    logError("Goaloo API", error);
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -194,7 +194,6 @@ async function backfillFromGoaloo(
 
   async function worker() {
     while (true) {
-      const idx = jobs.length;
       const job = jobs.pop();
       if (!job) break;
 
@@ -288,7 +287,7 @@ async function backfillFromGoaloo(
   return { scraped, inserted, skippedDuplicate };
 }
 
-async function backfillFromGoalooLegacy(
+export async function backfillFromGoalooLegacy(
   startDate: Date,
   endDate: Date,
 ): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {

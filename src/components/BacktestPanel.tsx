@@ -39,7 +39,6 @@ export default function BacktestPanel() {
     null,
   );
   const [recentSignals, setRecentSignals] = useState<GoalSignalRecord[]>([]);
-  const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [simProgress, setSimProgress] = useState<SimulationProgress | null>(
@@ -90,7 +89,7 @@ export default function BacktestPanel() {
         setBacktestData(btData);
       }
     } catch (err) {
-      console.error("Backtest fetch error:", err);
+      logError("backtest", "Backtest fetch error:", err);
     }
     setRunning(false);
   }, [days]);
@@ -165,7 +164,7 @@ export default function BacktestPanel() {
   return (
     <div className="space-y-4">
       {/* ── Historical Simulation Card ── */}
-      <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-200 shadow-sm overflow-hidden">
+      <div className="bg-linear-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-200 shadow-sm overflow-hidden">
         <div className="px-4 pt-3 pb-2">
           <h3 className="text-sm font-bold text-indigo-800 flex items-center gap-1.5">
             <svg
@@ -286,7 +285,7 @@ export default function BacktestPanel() {
               {/* Progress bar */}
               <div className="h-2 bg-indigo-100 rounded-full overflow-hidden mb-2">
                 <div
-                  className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500"
+                  className="h-full bg-linear-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500"
                   style={{ width: `${simProgress.percentComplete}%` }}
                 />
               </div>
@@ -463,7 +462,7 @@ export default function BacktestPanel() {
         </div>
 
         {/* Live status bar */}
-        <div className="px-4 py-2 bg-gradient-to-r from-slate-50 to-gray-50 border-t border-gray-100 flex items-center justify-between text-[9px]">
+        <div className="px-4 py-2 bg-linear-to-r from-slate-50 to-gray-50 border-t border-gray-100 flex items-center justify-between text-[9px]">
           <div className="flex items-center gap-3">
             <span className="text-gray-500">
               <span className="font-bold text-gray-700">{signalCount}</span>{" "}

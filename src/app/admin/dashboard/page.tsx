@@ -5,10 +5,6 @@ import { authFetch } from "@/lib/adminAuth";
 import {
   LineChart,
   Line,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -17,16 +13,6 @@ import {
   Legend,
   ReferenceLine,
 } from "recharts";
-import {
-  TrendingUp,
-  TrendingDown,
-  Activity,
-  Target,
-  DollarSign,
-  BarChart3,
-  RefreshCw,
-  AlertTriangle,
-} from "lucide-react";
 
 const fmt = (v: number | null | undefined, d = 2): string =>
   v == null || !Number.isFinite(v) ? "—" : v.toFixed(d);

@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "@/lib/randomUUID";
 import { adminRoute } from "@/lib/adminRoute";
 import { db } from "@/lib/db";
+import { logError } from "@/lib/devLog";
 import { calculateGoalProbability } from "@/lib/goalRadar";
 import { extractFeatures, featuresToArray } from "@/lib/featureEngineering";
 import { getRating } from "@/lib/eloRating";
@@ -216,7 +217,7 @@ async function processMatch(
         },
       })
       .catch((e) => {
-        console.error("[backfill-predictions] matchEvent create error:", e);
+        logError("backfill-predictions", "matchEvent create error:", e);
       });
   }
 

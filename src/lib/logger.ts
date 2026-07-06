@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 // ── Logger ───────────────────────────────────────────────────────
 // Structured logger with pino (Node) and console fallback (Edge).
 // pino v10 uses its own TS types — no separate @types/pino needed.
@@ -28,7 +29,6 @@ export interface Logger {
 
 declare global {
   // Edge runtime exposes a global EdgeRuntime symbol; Node does not.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   var EdgeRuntime: string | undefined;
 }
 
@@ -47,7 +47,6 @@ function createConsoleLogger(): Logger {
       if (isDev) {
         const meta =
           Object.keys(obj).length > 0 ? " " + JSON.stringify(obj) : "";
-        // eslint-disable-next-line no-console
         (level === "error"
           ? console.error
           : level === "warn"
@@ -55,7 +54,6 @@ function createConsoleLogger(): Logger {
             : console.log)(`${text}${meta}`);
       } else {
         // Prod structured JSON for log search (Loki/Logtail)
-        // eslint-disable-next-line no-console
         (level === "error"
           ? console.error
           : level === "warn"

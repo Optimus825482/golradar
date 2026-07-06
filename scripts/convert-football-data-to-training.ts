@@ -1,5 +1,6 @@
+/* eslint-disable no-console */
 // ── Football-Data.co.uk → GBDT Training Record Dönüştürücü ──────
-// 
+//
 // football-data-fetch.py ile toplanan JSONL verisini alır, GBDT
 // modelinin beklediği TrainingRecord[] formatına çevirir.
 //
@@ -62,10 +63,6 @@ function cliArg(key: string, def: string): string {
   return def;
 }
 
-function cliBool(key: string): boolean {
-  return process.argv.includes(`--${key}`);
-}
-
 const INPUT = cliArg("input", "data/ml-training/football-data.jsonl");
 const OUTPUT = cliArg("output", "data/ml-models/training-data.json");
 const MIN_SEASON = cliArg("min-season", "2018-2019");
@@ -88,7 +85,7 @@ function rowToTrainingRecord(row: FootballDataRow): TrainingRecord | null {
 
   // --- Pressure & dominance (indeks 0-6) ---
   const possH = 50; // Football-Data'da possession yok, varsayılan 50
-  const possA = 50;
+
   const daH = safe(row.home_shots_on_target) * 3 + safe(row.home_corners) * 1.5;
   const daA = safe(row.away_shots_on_target) * 3 + safe(row.away_corners) * 1.5;
   const totDA = daH + daA || 1;
@@ -106,67 +103,67 @@ function rowToTrainingRecord(row: FootballDataRow): TrainingRecord | null {
 
   const pressureH =
     (possH / 100) * 0.075 * 100 +
-    (daH / totDA) * 0.30 * 100 +
+    (daH / totDA) * 0.3 * 100 +
     (shotH / totalShot) * 0.15 * 100 +
     (sotH / totalSot) * 0.25 * 100 +
     (cornH / totalCorn) * 0.125 * 100;
   const pressureA = 100 - pressureH;
 
-  features[0] = pressureH / 100;                     // pressure_home
-  features[1] = pressureA / 100;                     // pressure_away
+  features[0] = pressureH / 100; // pressure_home
+  features[1] = pressureA / 100; // pressure_away
   features[2] = Math.abs(pressureH - pressureA) / 100; // pressure_gap
-  features[3] = pressureH > 50 ? 1 : 0;             // pressure_dominant_side
-  features[4] = 0.5;                                 // possession_home (bilinmiyor)
-  features[5] = 0;                                   // possession_gap
-  features[6] = norm(daH / 90, 0, 8);               // dangerous_attacks_home_rate
+  features[3] = pressureH > 50 ? 1 : 0; // pressure_dominant_side
+  features[4] = 0.5; // possession_home (bilinmiyor)
+  features[5] = 0; // possession_gap
+  features[6] = norm(daH / 90, 0, 8); // dangerous_attacks_home_rate
 
   // --- Shot quality (indeks 7-14) ---
   const sotRateH = sotH / 90;
   const sotRateA = sotA / 90;
-  features[7] = norm(shotH / 90, 0, 8);             // shots_total_home_rate
-  features[8] = norm(shotA / 90, 0, 8);             // shots_total_away_rate
-  features[9] = norm(sotRateH, 0, 6);               // shots_on_target_home_rate
-  features[10] = norm(sotRateA, 0, 6);              // shots_on_target_away_rate
-  features[11] = shotH > 0 ? sotH / shotH : 0;     // sot_ratio_home
-  features[12] = shotA > 0 ? sotA / shotA : 0;     // sot_ratio_away
+  features[7] = norm(shotH / 90, 0, 8); // shots_total_home_rate
+  features[8] = norm(shotA / 90, 0, 8); // shots_total_away_rate
+  features[9] = norm(sotRateH, 0, 6); // shots_on_target_home_rate
+  features[10] = norm(sotRateA, 0, 6); // shots_on_target_away_rate
+  features[11] = shotH > 0 ? sotH / shotH : 0; // sot_ratio_home
+  features[12] = shotA > 0 ? sotA / shotA : 0; // sot_ratio_away
 
   // xG (Football-Data'da varsa PSxG kullan, yoksa SOT bazlı tahmin)
-  const xgH = safe(row.home_xg) || (sotH * 0.085 + (shotH - sotH) * 0.03);
-  const xgA = safe(row.away_xg) || (sotA * 0.085 + (shotA - sotA) * 0.03);
-  features[13] = norm(xgH, 0, 3.0);                // xg_home
-  features[14] = norm(xgA, 0, 3.0);                // xg_away
+  const xgH = safe(row.home_xg) || sotH * 0.085 + (shotH - sotH) * 0.03;
+  const xgA = safe(row.away_xg) || sotA * 0.085 + (shotA - sotA) * 0.03;
+  features[13] = norm(xgH, 0, 3.0); // xg_home
+  features[14] = norm(xgA, 0, 3.0); // xg_away
 
   // --- Set piece (indeks 15-18) ---
-  features[15] = norm(cornH / 90, 0, 5);           // corners_home_rate
-  features[16] = norm(cornA / 90, 0, 5);           // corners_away_rate
+  features[15] = norm(cornH / 90, 0, 5); // corners_home_rate
+  features[16] = norm(cornA / 90, 0, 5); // corners_away_rate
   features[17] = 0.5; // free_kicks_home_rate (Football-Data'da yok)
   features[18] = 0.5; // free_kicks_away_rate
 
   // --- Temporal features (indeks 25-28) ---
   // Maç sonu olduğu için 90. dakika
-  features[25] = 1.0;                               // match_minute_norm
-  features[26] = norm(1.3, 0.5, 1.5);              // time_multiplier (son 15dk)
-  features[27] = 0;                                 // is_first_half
-  features[28] = 1;                                 // is_peak_goal_time
+  features[25] = 1.0; // match_minute_norm
+  features[26] = norm(1.3, 0.5, 1.5); // time_multiplier (son 15dk)
+  features[27] = 0; // is_first_half
+  features[28] = 1; // is_peak_goal_time
 
   // --- Team strength features (indeks 29-34) ---
   // Football-Data'da Elo yok, nötr bırak
-  features[29] = 0;    // elo_diff_norm
-  features[30] = 0.5;  // home_form_index
-  features[31] = 0.5;  // away_form_index
-  features[32] = 0.5;  // home_elo_matches
-  features[33] = 0.5;  // away_elo_matches
+  features[29] = 0; // elo_diff_norm
+  features[30] = 0.5; // home_form_index
+  features[31] = 0.5; // away_form_index
+  features[32] = 0.5; // home_elo_matches
+  features[33] = 0.5; // away_elo_matches
   features[34] = 0.53; // home_advantage_factor
 
   // --- Context features (indeks 35-40) ---
   const hg = safe(row.home_goals);
   const ag = safe(row.away_goals);
-  features[35] = Math.abs(hg - ag) / 5;             // score_gap
-  features[36] = (hg + ag) / 6;                     // total_goals_norm
-  features[37] = hg === ag ? 1 : 0;                 // is_draw
-  features[38] = hg > ag ? 1 : 0;                   // home_leading
-  features[39] = safe(row.home_red) > 0 ? 1 : 0;   // red_cards_home
-  features[40] = safe(row.away_red) > 0 ? 1 : 0;   // red_cards_away
+  features[35] = Math.abs(hg - ag) / 5; // score_gap
+  features[36] = (hg + ag) / 6; // total_goals_norm
+  features[37] = hg === ag ? 1 : 0; // is_draw
+  features[38] = hg > ag ? 1 : 0; // home_leading
+  features[39] = safe(row.home_red) > 0 ? 1 : 0; // red_cards_home
+  features[40] = safe(row.away_red) > 0 ? 1 : 0; // red_cards_away
 
   // --- Weather (indeks 41-43) ---
   features[41] = 0.5; // temperature_norm (bilinmiyor)
@@ -175,10 +172,10 @@ function rowToTrainingRecord(row: FootballDataRow): TrainingRecord | null {
 
   // --- xG advanced (indeks 44-47) ---
   const totalXg = xgH + xgA || 1;
-  features[44] = norm(xgH / 90, 0, 0.5);           // xg_rate_home
-  features[45] = norm(xgA / 90, 0, 0.5);           // xg_rate_away
-  features[46] = xgH / totalXg;                     // xg_dominance_ratio
-  features[47] = 0;                                  // xg_spike (canlı veri gerekli)
+  features[44] = norm(xgH / 90, 0, 0.5); // xg_rate_home
+  features[45] = norm(xgA / 90, 0, 0.5); // xg_rate_away
+  features[46] = xgH / totalXg; // xg_dominance_ratio
+  features[47] = 0; // xg_spike (canlı veri gerekli)
 
   // --- Canlı veri gerektiren feature'lar (indeks 48-66) ---
   // xT, momentum, shot geometry, PPDA, field tilt, press, kalman, CLV, referee
@@ -187,13 +184,13 @@ function rowToTrainingRecord(row: FootballDataRow): TrainingRecord | null {
 
   // Etiket: bitmiş maçta gol olduysa ve sayı >= 1
   // 1=gol var, 0=gol yok
-  const label = (hg + ag) > 0 ? 1 : 0;
+  const label = hg + ag > 0 ? 1 : 0;
 
   return {
     features,
     label,
     matchCode: -1, // Football-Data maçları, matchCode yok
-    minute: 90,    // Bitmiş maç
+    minute: 90, // Bitmiş maç
     timestamp: new Date(row.date || "2020-01-01").getTime(),
     side: label === 1 ? (hg > ag ? "home" : hg < ag ? "away" : "both") : "both",
   };
@@ -207,7 +204,9 @@ async function convert() {
   if (!fs.existsSync(INPUT)) {
     console.error(`[Convert] Input file not found: ${INPUT}`);
     console.error(`[Convert] Run football-data-fetch.py first:`);
-    console.error(`  python3 scripts/football-data-fetch.py --action backfill --output ${INPUT}`);
+    console.error(
+      `  python3 scripts/football-data-fetch.py --action backfill --output ${INPUT}`,
+    );
     process.exit(1);
   }
 
@@ -238,7 +237,12 @@ async function convert() {
       }
 
       // Eksik veri filtresi
-      if (!row.home_team || !row.away_team || row.home_goals == null || row.away_goals == null) {
+      if (
+        !row.home_team ||
+        !row.away_team ||
+        row.home_goals == null ||
+        row.away_goals == null
+      ) {
         skipped++;
         continue;
       }
@@ -254,12 +258,16 @@ async function convert() {
     }
   }
 
-  console.log(`[Convert] ${records.length} valid training records (skipped ${skipped})`);
+  console.log(
+    `[Convert] ${records.length} valid training records (skipped ${skipped})`,
+  );
 
   // Sınıf dengesi kontrolü
   const goals = records.filter((r) => r.label === 1);
   const noGoals = records.filter((r) => r.label === 0);
-  console.log(`[Convert] Class balance: ${goals.length} goals / ${noGoals.length} no-goals`);
+  console.log(
+    `[Convert] Class balance: ${goals.length} goals / ${noGoals.length} no-goals`,
+  );
 
   if (goals.length < MIN_GOALS) {
     console.warn(
@@ -274,7 +282,9 @@ async function convert() {
   if (fs.existsSync(outputPath)) {
     try {
       existing = JSON.parse(fs.readFileSync(outputPath, "utf-8"));
-      console.log(`[Convert] Existing training data: ${existing.length} records`);
+      console.log(
+        `[Convert] Existing training data: ${existing.length} records`,
+      );
     } catch {
       console.log("[Convert] Failed to parse existing data, starting fresh");
     }
@@ -299,8 +309,12 @@ async function convert() {
   }
   fs.writeFileSync(outputPath, JSON.stringify(finalRecords, null, 2));
 
-  console.log(`[Convert] Written ${finalRecords.length} records to ${outputPath}`);
-  console.log(`[Convert] Added ${newRecords.length} new records from Football-Data.co.uk`);
+  console.log(
+    `[Convert] Written ${finalRecords.length} records to ${outputPath}`,
+  );
+  console.log(
+    `[Convert] Added ${newRecords.length} new records from Football-Data.co.uk`,
+  );
   console.log(`[Convert] Feature vector size: ${FEATURE_NAMES.length}`);
 }
 

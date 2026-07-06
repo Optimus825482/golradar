@@ -62,8 +62,6 @@ import { GoalRadarSection } from "@/components/match/GoalRadarSection";
 import { logError } from "@/lib/devLog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
-const GOAL_FLASH_DURATION = 15000;
-
 // Parse minute string handling stoppage time: "45+2" → 47, "90" → 90
 // Upper clamp to 120 (extra time), non-numeric input returns 45 as midpoint.
 export function parseGoalMinute(minute: string | number): number {
@@ -127,14 +125,14 @@ export default function OptimusGolRadariPage() {
   const [netscoresMapping, setNetscoresMapping] = useState<
     Record<number, string>
   >({});
-  const [fotmobTab, setFotmobTab] = useState<"events" | "stats" | "info">(
+  const [fotmobTab, _setFotmobTab] = useState<"events" | "stats" | "info">(
     "stats",
   );
 
   // Finished matches
   const [finishedMatches, setFinishedMatches] = useState<Match[]>([]);
   const [finishedLoading, setFinishedLoading] = useState(false);
-  const [finishedError, setFinishedError] = useState<string | null>(null);
+  const [_finishedError, setFinishedError] = useState<string | null>(null);
   const [finishedDate, setFinishedDate] = useState<string>("");
   const [finishedNetscoresMapping, setFinishedNetscoresMapping] = useState<
     Record<number, string>
@@ -394,7 +392,12 @@ export default function OptimusGolRadariPage() {
     const timeout = setTimeout(() => {
       setMatches((prev) => {
         if (!prev || prev.length === 0) return prev;
-        const wsMap = new Map(wsData.matches.map((m: any) => [m.code, m]));
+        const wsMap = new Map(
+          wsData.matches.map((m: Partial<Match> & { code: number }) => [
+            m.code,
+            m,
+          ]),
+        );
 
         return prev.map((m) => {
           const ws = wsMap.get(m.code);
@@ -420,9 +423,6 @@ export default function OptimusGolRadariPage() {
     }, 0);
     return () => clearTimeout(timeout);
   }, [lastUpdate, wsData]);
-
-  // WS indicator
-  const wsIndicator = wsConnected;
 
   // Bottom tab change handler
   const handleTabChange = useCallback((tab: BottomTab | "signal-history") => {

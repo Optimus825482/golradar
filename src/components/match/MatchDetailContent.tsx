@@ -16,7 +16,7 @@ import {
   StatBar,
   RedCardIndicator,
 } from "./shared-components";
-import { RADAR_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from "@/config";
+
 import { DangerousAttacksChart } from "@/components/charts/DangerousAttacksChart";
 import { UnifiedMatchMomentumChart } from "@/components/charts/UnifiedMatchMomentumChart";
 import {
@@ -185,15 +185,6 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       .finally(() => setRatingLoading(false));
   }, [match.home, match.away]);
 
-  // Parse form results → emoji + score
-  const formatLast5 = (last5: TeamRatingInfo["last5"]) => {
-    return last5.map((m) => {
-      const resultEmoji =
-        m.result === "W" ? "✅" : m.result === "L" ? "❌" : "➖";
-      return `${resultEmoji} ${m.goalsFor}-${m.goalsAgainst} ${m.isHome ? "vs" : "@"}${m.opponent.slice(0, 12)}`;
-    });
-  };
-
   // Map statsChartData → DangerousAttacksChart data format
   const daData = useMemo(
     () =>
@@ -218,7 +209,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
   return (
     <div style={{ contain: "paint layout style" }}>
       {/* Match Header */}
-      <div className="bg-gradient-to-r from-orange-50 via-white to-blue-50 p-4 sm:p-6 border-b border-gray-100">
+      <div className="bg-linear-to-r from-orange-50 via-white to-blue-50 p-4 sm:p-6 border-b border-gray-100">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <CountryFlag code={match.country} />
@@ -560,7 +551,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                       </div>
                     )}
                 </div>
-                <div className="bg-gradient-to-r from-slate-50 to-sky-50 rounded px-2.5 py-1.5 border border-slate-100">
+                <div className="bg-linear-to-r from-slate-50 to-sky-50 rounded px-2.5 py-1.5 border border-slate-100">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -765,7 +756,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               })()}
           </div>
         ) : fotmobLoading ? (
-          <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
+          <div className="h-40 flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
             <div className="text-center">
               <div className="animate-spin w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full mx-auto mb-2" />
               <p className="text-xs text-gray-400">
@@ -774,7 +765,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
             </div>
           </div>
         ) : (
-          <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
+          <div className="h-40 flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
             <div className="text-center">
               <div className="text-2xl mb-1 opacity-30">📡</div>
               <p className="text-xs text-gray-400 mb-1">
@@ -792,7 +783,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       {(homeRating || awayRating || ratingLoading) && (
         <div className="px-3 sm:px-4 pb-3 border-b border-gray-100">
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-purple-50">
               <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">
                 Takım Bilgileri
               </h3>
@@ -908,7 +899,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                                       ? "❌"
                                       : "➖"}
                                 </span>
-                                <span className="font-medium text-gray-700 truncate max-w-[80px]">
+                                <span className="font-medium text-gray-700 truncate max-w-20">
                                   {m.isHome ? "" : "@"}
                                   {m.opponent}
                                 </span>
@@ -1019,7 +1010,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                                       ? "❌"
                                       : "➖"}
                                 </span>
-                                <span className="font-medium text-gray-700 truncate max-w-[80px]">
+                                <span className="font-medium text-gray-700 truncate max-w-20">
                                   {m.isHome ? "" : "@"}
                                   {m.opponent}
                                 </span>
@@ -1275,7 +1266,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       {match.isUpcoming && prediction && (
         <div className="px-3 sm:px-4 pb-3">
           <div className="bg-white rounded-xl border border-indigo-200 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-indigo-100 bg-gradient-to-r from-indigo-50 to-purple-50">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-indigo-100 bg-linear-to-r from-indigo-50 to-purple-50">
               <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">
                 🔮 Mac Tahmini
               </h3>

@@ -1,5 +1,3 @@
-"use client";
-
 import type { Match } from "./types";
 import { calculatePressure } from "./utils";
 import { StarIcon } from "@/components/ui/icons";
@@ -59,7 +57,7 @@ export function FinishedMatchCard({
               </span>
             </div>
             <span
-              className={`text-[14px] font-mono font-black px-2 min-w-[50px] text-center relative ${
+              className={`text-[14px] font-mono font-black px-2 min-w-12.5 text-center relative ${
                 isDraw ? "text-gray-600" : "text-gray-900"
               }`}
             >

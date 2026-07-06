@@ -10,8 +10,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { db } from "./db";
-import { calibrateScore } from "./calibration";
-import { CALIBRATION_PARAMS } from "./calibration";
+
 import { logError, logInfo } from "@/lib/devLog";
 
 // ════════════════════════════════════════════════════════════════
@@ -105,14 +104,12 @@ export async function runBacktestFromDB(
   const thresholdAnalysis = [50, 55, 60, 65, 70, 75, 80].map((t) => {
     let _tp = 0,
       _fp = 0,
-      _tn = 0,
       _fn = 0;
     for (const l of logs) {
       const pred = l.rawScore >= t;
       const out = l.goalScored ? 1 : 0;
       if (pred && out) _tp++;
       else if (pred && !out) _fp++;
-      else if (!pred && !out) _tn++;
       else _fn++;
     }
     const p = _tp / Math.max(1, _tp + _fp);

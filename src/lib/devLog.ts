@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 // ── Universal Logger ───────────────────────────────────────────────
 // Logger that works in ALL environments (dev + production).
 // - devLog / devWarn / devError: gated to NODE_ENV === 'development' (original behavior)
@@ -9,15 +10,15 @@
 // or Sentry/Logtail for production observability.
 
 export const devLog = (...args: unknown[]) => {
-  if (process.env.NODE_ENV === 'development') console.log(...args);
+  if (process.env.NODE_ENV === "development") console.log(...args);
 };
 
 export const devWarn = (...args: unknown[]) => {
-  if (process.env.NODE_ENV === 'development') console.warn(...args);
+  if (process.env.NODE_ENV === "development") console.warn(...args);
 };
 
 export const devError = (...args: unknown[]) => {
-  if (process.env.NODE_ENV === 'development') console.error(...args);
+  if (process.env.NODE_ENV === "development") console.error(...args);
 };
 
 /**
@@ -51,7 +52,7 @@ export function logInfo(context: string, ...args: unknown[]) {
  * Use for verbose per-tick / per-poll logs that spam otherwise.
  */
 export function logDev(context: string, ...args: unknown[]) {
-  if (process.env.NODE_ENV !== 'development') return;
+  if (process.env.NODE_ENV !== "development") return;
   const prefix = `[${context}]`;
   console.log(prefix, ...args);
 }

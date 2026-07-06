@@ -1,3 +1,4 @@
+/* eslint-disable no-console, @typescript-eslint/no-explicit-any */
 // ── Historical Backtest Simulator ───────────────────────────────────
 // Replays finished matches using Scoremer HT/FT stats + Goaloo momentum
 // to simulate the Goal Radar signal detection and measure accuracy.
@@ -134,11 +135,11 @@ export interface SimInputMatch {
 let currentProgress: SimulationProgress | null = null;
 let isSimulating = false;
 
-function getSimulationProgress(): SimulationProgress | null {
+export function getSimulationProgress(): SimulationProgress | null {
   return currentProgress;
 }
 
-function isSimulationRunning(): boolean {
+export function isSimulationRunning(): boolean {
   return isSimulating;
 }
 
@@ -151,8 +152,8 @@ function convertGoalooMomentumToSnapshots(
   awayScore: number,
   ftStats: MatchStats,
   htStats: MatchStats | null,
-  htHomeScore: number,
-  htAwayScore: number,
+  _htHomeScore: number,
+  _htAwayScore: number,
 ): PressureSnapshot[] {
   const snapshots: PressureSnapshot[] = [];
   const totalMinutes = momentum.totalMinutes || 90;
@@ -495,7 +496,6 @@ async function simulateSingleMatch(
     for (let i = 0; i < snapshots.length; i++) {
       const snap = snapshots[i];
       const minuteStr = snap.minute;
-      const minNum = parseInt(minuteStr.replace(/[^0-9]/g, ""), 10) || i * 5;
 
       result.snapshotsAnalyzed++;
 

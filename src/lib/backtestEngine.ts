@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // ── Backtest Engine ────────────────────────────────────────────────
 
 import * as fs from "fs";
@@ -8,11 +9,6 @@ import type {
   QuickBacktestSummary,
   BacktestConfig,
   BacktestResult,
-  ThresholdAnalysis,
-  BacktestBucket,
-  LevelStats,
-  SideAccuracyAnalysis,
-  EscalationAnalysis,
   DailyPerformance,
   BrierDecomposition,
 } from "./backtestTypes";
@@ -202,11 +198,8 @@ function runBacktestImpl(config: BacktestConfig = {}): any {
 }
 
 function runBacktestImplCore(signals: any[], config: BacktestConfig = {}): any {
-  const {
-    minSignals = 10,
-    thresholdRange = [55, 60, 65, 70, 75, 80],
-    bucketCount = 10,
-  } = config;
+  const { thresholdRange = [55, 60, 65, 70, 75, 80], bucketCount = 10 } =
+    config;
   if (signals.length === 0) {
     return {
       totalSignals: 0,

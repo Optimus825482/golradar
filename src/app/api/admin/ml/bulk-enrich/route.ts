@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // ── Admin: Bulk Enrich (Goaloo Phase 2) ──────────────────────────
 // After TeamHistoryMatch is populated with Goaloo match results
 // (Phase 1 via /admin/ml/data-import), this endpoint enriches each
@@ -21,12 +22,7 @@ import { NextResponse } from "next/server";
 import { adminRoute } from "@/lib/adminRoute";
 import { db } from "@/lib/db";
 import { GOALOO_LEAGUES } from "@/lib/ml/goalooLeagues";
-import {
-  startEnrich,
-  tickEnrich,
-  finishEnrich,
-  getEnrichProgress,
-} from "@/lib/enrichProgress";
+import { startEnrich, tickEnrich, finishEnrich } from "@/lib/enrichProgress";
 import { statsFromGoaloo } from "@/lib/ml/goalooStats";
 import { logInfo, logWarn } from "@/lib/devLog";
 
@@ -70,7 +66,7 @@ export const POST = adminRoute(async (req: Request) => {
   const season = body.season ?? defaultSeason;
 
   // Resolve leagues
-  let targetLeagues = body.leagueIds?.length
+  const targetLeagues = body.leagueIds?.length
     ? GOALOO_LEAGUES.filter((l) => body.leagueIds!.includes(l.id))
     : [...GOALOO_LEAGUES];
 
@@ -93,7 +89,6 @@ export const POST = adminRoute(async (req: Request) => {
   const { getRating } = await import("@/lib/eloRating");
 
   const results: LeagueResult[] = [];
-  let totalProcessed = 0;
   let totalPredictions = 0;
   let totalEvents = 0;
   let totalErrors = 0;

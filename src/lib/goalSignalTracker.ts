@@ -292,14 +292,16 @@ export async function checkAndRecordSignal(
     }
   } else {
     // Score-only mode (modelAgreement unknown = default 1)
+    // FIX 2026-07-06: "elite" kaldırıldı — elite tier N-of-M model consensus
+    // gerektirir, modelAgreement=1 ile anlamsız. Ayrıca threshold sırası
+    // ters idi: watch(60)→confirmed(55)→elite(50) — elite en düşük skorla
+    // en yüksek tier ismine sahipti. Artık watch→confirmed→radar hiyerarşisi.
     // ponytail: use configurable thresholds directly.
     // Upgrade: per-league calibration of these thresholds.
     if (goalProbability.score >= TIER_WATCH_THRESHOLD) {
       signalTier = "watch";
     } else if (goalProbability.score >= TIER_CONFIRMED_THRESHOLD) {
       signalTier = "confirmed";
-    } else if (goalProbability.score >= TIER_ELITE_THRESHOLD) {
-      signalTier = "elite";
     } else if (goalProbability.score >= threshold) {
       signalTier = "radar";
     }

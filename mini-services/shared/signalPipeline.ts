@@ -10,6 +10,7 @@ import { assessMatchQuality } from '../../src/lib/matchQuality';
 import { forceVerdict, type ModelVote } from '../../src/lib/signalVerdict';
 import { createThesis, resolveThesis } from '../../src/lib/signalThesis';
 import type { GoalSignalRecord } from '../../src/lib/goalSignalTracker';
+import { parseStats } from './nesineLiveTypes';
 
 // In-memory match state store (shared across pipeline consumers)
 export interface MatchState {
@@ -77,7 +78,6 @@ export function processMatchUpdate(payload: any): {
   state.homeGoals = homeGoals;
   state.awayGoals = awayGoals;
   if (payload.SE) {
-    const { parseStats } = require('../shared/nesineLiveTypes');
     state.stats = parseStats(payload.SE);
   }
 

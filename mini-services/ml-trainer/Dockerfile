@@ -27,7 +27,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY app.py .
 
-RUN useradd -m trainer && chown -R trainer:trainer /trainer
+RUN useradd -m -u 1001 trainer && chown -R trainer:trainer /trainer
 USER trainer
 
 EXPOSE 9100

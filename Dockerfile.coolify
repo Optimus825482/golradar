@@ -64,6 +64,7 @@ COPY --from=builder /app/node_modules/@prisma /app/node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma /app/node_modules/prisma
 COPY --from=builder /app/docs/fotmob_teams.csv /app/docs/fotmob_teams.csv
 COPY --from=builder /app/scripts /app/scripts
+RUN chmod +x /app/scripts/*.sh
 
 # Create non-root user
 RUN addgroup -S golradar -g 1001 && \

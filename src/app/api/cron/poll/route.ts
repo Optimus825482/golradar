@@ -53,6 +53,7 @@ import { db } from "@/lib/db";
 import { predictFromElo } from "@/lib/eloRating";
 import { RADAR_THRESHOLD } from "@/config";
 import { pipelineLogger } from "@/lib/pipelineLogger";
+import { predictEnsemble } from "@/lib/ensemble";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 dakika — 400+ maç sequential işlenince 60sn yetmiyordu
@@ -319,6 +320,34 @@ async function processMatch(
   let signalsCreated = 0;
   // both sinyallerine de izin ver — yön belirsiz ama gol olasılığı yüksek olabilir
   if (prob && prob.score >= RADAR_THRESHOLD && prob.side && !inExcludedZone) {
+    // ── ML Ensemble: model agreement sayısını al ─────────────────
+    // Tüm modeller (XGB, Poisson, Elo, GAP, Pi-Rating, Glicko-2, Kalman)
+    // aynı veriyle çalıştırılır. modelAgreementCount N-of-M tier
+    // sistemini besler: elite=5/9, confirmed=3/9, watch=2/9.
+    // Ensemble hatası sinyal üretimini engellemez — modelAgreement=1 fallback.
+    let modelAgreement = 1;
+    try {
+      const snapshotsForEnsemble = getSnapshots(matchCode);
+      if (snapshotsForEnsemble.length > 0) {
+        const ensembleResult = await predictEnsemble({
+          stats,
+          minute,
+          isLive: true,
+          homeGoals,
+          awayGoals,
+          homeTeam: home,
+          awayTeam: away,
+          pressureHistory: snapshotsForEnsemble as any,
+          ruleBasedScore: prob.score,
+          ruleBasedLevel: prob.level,
+          ruleBasedSide: prob.side,
+        });
+        modelAgreement = ensembleResult.modelAgreementCount;
+      }
+    } catch {
+      // Ensemble hatası sessiz geç — modelAgreement=1 ile N-of-M atlanır
+    }
+
     try {
       const result = await checkAndRecordSignal(
         matchCode,
@@ -339,6 +368,7 @@ async function processMatch(
         },
         homeGoals,
         awayGoals,
+        modelAgreement, // ← FIX: ML model agreement N-of-M tier sistemini besler
       );
       if (result) {
         signalsCreated = 1;

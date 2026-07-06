@@ -9,46 +9,39 @@ interface FeatureFlag {
 // ── Mermaid diagram source ───────────────────────────────────────
 const SIGNAL_FLOW_DIAGRAM = `
 flowchart TD
-    Start([⏱️ Poll cycle<br/>15-60sn]) --> Nesine[Nesine API<br/>GET /matches]
+    Start([⏱️ Poll cycle<br/>30-60sn]) --> Nesine[Nesine API<br/>GET /matches]
     Nesine --> Parse{Status}
 
     Parse -->|Live| Stats[Parse stats<br/>21 alan]
     Parse -->|Bitti/Devre| Skip[Skip]
 
-    Stats --> FotMob[FotMob enrichment<br/>200ms timeout]
-    FotMob --> ShotXG[Shot-level xG<br/>shotmap.sum]
-    ShotXG --> Goaloo[Goaloo enrichment<br/>300ms timeout]
+    Stats --> CalcGoal[calculateGoalProbability<br/>21 factor heuristic]
+    CalcGoal --> Poisson[Poisson blend<br/>Dixon-Coles + inPlay]
+    Poisson --> Elo[Elo adjustment<br/>Dynamic K=50]
     
-    Goaloo --> Odds[oddsMovement<br/>initial vs live]
-    Odds --> Momentum[Momentum trend<br/>son 5dk ortalama]
+    Elo --> SignalCheck{score >= threshold<br/>side != null?}
+    SignalCheck -->|Hayır| Next
+    SignalCheck -->|Evet| Ensemble[🧠 ML Ensemble: 9 model<br/>XGB/GBDT + Poisson + Elo<br/>+ Kalman + GAP + Pi + Glicko-2<br/>+ Team Strength + In-Play]
     
-	    Momentum --> CalcGoal[calculateGoalProbability<br/>21 factor heuristic]
-		    CalcGoal --> Poisson[Poisson blend<br/>Dixon-Coles + inPlay]
-	    Poisson --> Elo[Elo adjustment<br/>Dynamic K=50]
-	    Elo --> Ensemble[Ensemble 9 model<br/>rule-poisson-elo-ml-ts-inplay-gap-pi-glicko2]
-	    Ensemble --> Calib[Calibration<br/>PAVA / Sigmoid]
-	    
-	    Pi["Pi-Rating ✅<br/>default ON"]
-	    Glicko2["Glicko-2 ✅<br/>default ON"]
-	    Corrector["ZISM Corrector ✅<br/>default ON"]
-	    Stacking["Stacking α ✅<br/>default ON (α=0.5)"]
-	    Gap["Lite GAP ✅<br/>default ON"]
-	    
-		    Calib --> SignalCheck{score >= threshold<br/>side != null?}
-	    SignalCheck -->|Hayır| Next
-	    SignalCheck -->|Evet| Cooldown{Son 3dk<br/>cooldown?}
-	    Cooldown -->|Evet| Update[Update last values]
-	    Cooldown -->|Hayır| DB[(PostgreSQL<br/>Signal)]
+    Ensemble --> Agreement{modelAgreement<br/>>= 2?}
+    Agreement -->|Evet| NofM[N-of-M Tier:<br/>elite 5/9 · confirmed 3/9<br/>watch 2/9 · radar 1/9]
+    Agreement -->|Hayır| ScoreOnly[Score-only Tier:<br/>watch ≥60 · radar ≥threshold]
+    NofM --> Cooldown{Son 3dk<br/>cooldown?}
+    ScoreOnly --> Cooldown
+    
+    Cooldown -->|Evet| Update[Update last values]
+    Cooldown -->|Hayır| TierCheck{Tier assigned?}
+    TierCheck -->|Hayır| Next
+    TierCheck -->|Evet| DB[(PostgreSQL<br/>Signal)]
 
     DB --> PollBack[Next poll]
 
     style Start fill:#6366f1,stroke:#4f46e5,color:#fff
     style Nesine fill:#3b82f6,stroke:#2563eb,color:#fff
-    style FotMob fill:#06b6d4,stroke:#0891b2,color:#fff
-    style Goaloo fill:#f59e0b,stroke:#d97706,color:#fff
     style CalcGoal fill:#8b5cf6,stroke:#7c3aed,color:#fff
     style Ensemble fill:#a855f7,stroke:#9333ea,color:#fff
-    style Calib fill:#10b981,stroke:#059669,color:#fff
+    style NofM fill:#f59e0b,stroke:#d97706,color:#fff
+    style ScoreOnly fill:#f59e0b,stroke:#d97706,color:#ff8
     style DB fill:#ef4444,stroke:#dc2626,color:#fff
 `;
 

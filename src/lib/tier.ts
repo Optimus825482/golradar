@@ -34,8 +34,8 @@ const TIER_TABLE: Record<Tier, TierConfig> = {
     cronIntervalMs: 45_000,
   },
   FULL: {
-    pollIntervalMs: 15_000,
-    snapshotMinuteEvery: 1,
+    pollIntervalMs: 30_000,
+    snapshotMinuteEvery: 2,
     mlPredictAllMatches: true,
     heavyAnalytics: true,
     cronIntervalMs: 20_000,

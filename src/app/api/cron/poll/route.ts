@@ -35,6 +35,7 @@ import {
   checkAndRecordSignal,
   reportGoal,
   expireSignalsForHalftime,
+  parseMinute as parseMinuteSafe,
 } from "@/lib/goalSignalTracker";
 import { activeUserCount } from "@/lib/presence";
 import { resolveTier, tierConfig, type TierConfig } from "@/lib/tier";
@@ -201,31 +202,49 @@ async function processMatch(
     };
   }
 
-  // Parse stats — raw shape varies by Nesine; defensive defaults
-  const stats: MatchStats = {
-    possession: { home: 50, away: 50 },
-    dangerous_attacks: {
-      home: (raw.DAH as number) || 0,
-      away: (raw.DAA as number) || 0,
-    },
-    shots_total: {
-      home: (raw.SH as number) || 0,
-      away: (raw.SA as number) || 0,
-    },
-    shots_on_target: { home: 0, away: 0 },
-    shots_off_target: { home: 0, away: 0 },
-    shots_blocked: { home: 0, away: 0 },
-    corners: {
-      home: (raw.CH as number) || 0,
-      away: (raw.CA as number) || 0,
-    },
-    offsides: { home: 0, away: 0 },
-    fouls: { home: 0, away: 0 },
-    free_kicks: { home: 0, away: 0 },
-    yellow_cards: { home: 0, away: 0 },
-    red_cards: { home: 0, away: 0 },
-    xg: { home: 0, away: 0 },
-  };
+  // Parse stats — Nesine SE array'i tercih edilir (tüm alanlar: xg, SOT, kart, fouls...)
+  // Shorthand field'lar (DAH/DAA, SH/SA, CH/CA) varsa override eder.
+  // Fallback: sadece shorthand field'lar (eski davranış).
+  const stats: MatchStats = await (async () => {
+    const se = raw.SE;
+    if (Array.isArray(se) && se.length > 0) {
+      const { parseStats: _parseStats } = await import('@/lib/nesine');
+      const parsed = _parseStats(se) as MatchStats;
+      // Shorthand field'lar varsa override et (HTTP cron path)
+      const dah = raw.DAH as number | undefined;
+      const daa = raw.DAA as number | undefined;
+      if (dah != null || daa != null) {
+        parsed.dangerous_attacks = { home: dah || 0, away: daa || 0 };
+      }
+      const sh = raw.SH as number | undefined;
+      const sa = raw.SA as number | undefined;
+      if (sh != null || sa != null) {
+        parsed.shots_total = { home: sh || 0, away: sa || 0 };
+      }
+      const ch = raw.CH as number | undefined;
+      const ca = raw.CA as number | undefined;
+      if (ch != null || ca != null) {
+        parsed.corners = { home: ch || 0, away: ca || 0 };
+      }
+      return parsed;
+    }
+    // Legacy fallback: shorthand field'lar
+    return {
+      possession: { home: 50, away: 50 },
+      dangerous_attacks: { home: (raw.DAH as number) || 0, away: (raw.DAA as number) || 0 },
+      shots_total: { home: (raw.SH as number) || 0, away: (raw.SA as number) || 0 },
+      shots_on_target: { home: 0, away: 0 },
+      shots_off_target: { home: 0, away: 0 },
+      shots_blocked: { home: 0, away: 0 },
+      corners: { home: (raw.CH as number) || 0, away: (raw.CA as number) || 0 },
+      offsides: { home: 0, away: 0 },
+      fouls: { home: 0, away: 0 },
+      free_kicks: { home: 0, away: 0 },
+      yellow_cards: { home: 0, away: 0 },
+      red_cards: { home: 0, away: 0 },
+      xg: { home: 0, away: 0 },
+    };
+  })();
 
   const pressure = calculatePressure(stats);
 
@@ -284,11 +303,15 @@ async function processMatch(
   );
 
   // Signal recording — exclude unreliable minute zones:
-  //   0-2 min:    match context still forming
-  //   43-45 min:  pre-halftime tactical uncertainty
-  //   89-120 min: extra-time swings
-  const sigMin = parseInt(minute.replace(/[^0-9]/g, ""), 10) || 0;
-  const inExcludedZone = sigMin <= 2 || (sigMin >= 43 && sigMin <= 45) || sigMin >= 89;
+  //   0-2 min:    match context still forming (early filter)
+  //   43-45 min:  pre-halftime tactical uncertainty (DB-backed in checkAndRecordSignal)
+  //   93-120 min: excessive stoppage time (DB-backed in checkAndRecordSignal)
+  // FIX 2026-07-07: use parseMinute() instead of broken digit-concatenation
+  // ("45+2" → 452 was being excluded by sigMin>=89). Minute-based exclusion
+  // is handled by DB-backed excludedMinutes.ts inside checkAndRecordSignal.
+  // This is a pre-filter for the immediate post-kickoff noise window only.
+  const sigMin = parseMinuteSafe(minute);
+  const inExcludedZone = sigMin <= 2;
 
   let signalsCreated = 0;
   // both sinyallerine de izin ver — yön belirsiz ama gol olasılığı yüksek olabilir
@@ -609,7 +632,7 @@ export async function POST(request: Request) {
 
     try {
       const body = await request.json();
-      const { matchCode, homeTeam, awayTeam, league, minute, homeGoals, awayGoals, status } = body;
+      const { matchCode, homeTeam, awayTeam, league, minute, homeGoals, awayGoals, stats: bodyStats, status } = body;
 
       if (!matchCode || !homeTeam || !awayTeam) {
         // Pipeline service partial update gönderebilir (Nesine WS'de HT/AT eksik olabilir).
@@ -618,13 +641,14 @@ export async function POST(request: Request) {
       }
 
       // Process single match through the pipeline
-      const raw = {
+      const raw: Record<string, unknown> = {
         C: matchCode,
         HT: homeTeam,
         AT: awayTeam,
         L: league,
         M: minute,
         ES: [{ H: homeGoals, A: awayGoals }],
+        SE: bodyStats,  // ← FIX: pipeline'dan gelen SE array'i processMatch'e ilet
         S: status ?? 4,
         T: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
       };

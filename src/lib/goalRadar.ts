@@ -212,7 +212,7 @@ export function calculateGoalProbability(
   let eloAdj: { homeAdjust: number; awayAdjust: number } | null = null;
   if (homeTeam && awayTeam) {
     try {
-      eloAdj = eloGoalAdjustment(homeTeam, awayTeam);
+      eloAdj = eloGoalAdjustment(homeTeam, awayTeam, minNum);
       if (eloAdj) {
         ctx.hs += eloAdj.homeAdjust; ctx.as += eloAdj.awayAdjust;
         if (Math.abs(eloAdj.homeAdjust) >= 4)

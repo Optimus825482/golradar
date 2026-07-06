@@ -293,15 +293,13 @@ export async function checkAndRecordSignal(
   } else {
     // Score-only mode (modelAgreement unknown = default 1)
     // FIX 2026-07-06: "elite" kaldırıldı — elite tier N-of-M model consensus
-    // gerektirir, modelAgreement=1 ile anlamsız. Ayrıca threshold sırası
-    // ters idi: watch(60)→confirmed(55)→elite(50) — elite en düşük skorla
-    // en yüksek tier ismine sahipti. Artık watch→confirmed→radar hiyerarşisi.
+    // gerektirir, modelAgreement=1 ile anlamsız.
+    // FIX 2026-07-07: "confirmed" kaldırıldı — aynı sebeple (N-of-M gerekir).
+    // Score-only modda sadece watch (yüksek skor) ve radar (eşik) kullanılır.
     // ponytail: use configurable thresholds directly.
     // Upgrade: per-league calibration of these thresholds.
     if (goalProbability.score >= TIER_WATCH_THRESHOLD) {
       signalTier = "watch";
-    } else if (goalProbability.score >= TIER_CONFIRMED_THRESHOLD) {
-      signalTier = "confirmed";
     } else if (goalProbability.score >= threshold) {
       signalTier = "radar";
     }
@@ -807,6 +805,15 @@ async function backfillPredictionLogLabels(
   });
   if (unlabeled.length === 0) return;
 
+  // FIX 2026-07-07: goalTimestamp için maç bitiş zamanını kullan (Date.now() yerine)
+  // MatchEvent fulltime kaydı varsa onun createdAt'i referans alınır.
+  const fulltimeEvent = await db.matchEvent.findFirst({
+    where: { matchCode, eventType: 'fulltime' },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  });
+  const matchEndTime = fulltimeEvent?.createdAt?.getTime() ?? Date.now();
+
   for (const row of unlabeled) {
     const rMin = row.minute ?? 0;
     if (noGoal || goalMinutes.length === 0) {
@@ -840,7 +847,7 @@ async function backfillPredictionLogLabels(
       data: {
         goalScored: true,
         minutesToGoal: delta,
-        goalTimestamp: new Date(Date.now() - delta * 60_000),
+        goalTimestamp: new Date(matchEndTime - delta * 60_000),
       },
     });
   }

@@ -490,7 +490,6 @@ export async function expirePendingBatchForCodes(
       where: { matchCode: { in: matchCodes }, goalHappened: null },
       data: {
         goalHappened: false,
-        minutesAfterSignal: SIGNAL_EXPIRY_MINUTES,
       },
     });
     return result.count;

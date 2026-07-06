@@ -112,7 +112,7 @@ export interface ParsedMatch {
   awayRedCards: number;
 }
 
-function parseStats(seArray: any[]): _MatchStats {
+export function parseStats(seArray: any[]): _MatchStats {
   const stats: _MatchStats = {};
   for (const e of seArray || []) {
     const et = e.ET as number;

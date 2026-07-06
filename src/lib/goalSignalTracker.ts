@@ -57,6 +57,7 @@ import { loadExcludedMinutes, isExcludedMinute } from "./excludedMinutes";
 import { onGoal as feedbackOnGoal, recordSignalOutcomes, categorizeSignalOutcome, type SignalOutcome } from "./feedbackLoops";
 import { recordPrediction } from "./ml/weightTuner";
 import { logInfo } from "./devLog";
+import { pipelineLogger } from "./pipelineLogger";
 
 // ponytail: inline debug helper. Upgrade: structured logging with sampling.
 const SIGNAL_DEBUG = process.env.SIGNAL_DEBUG === 'true';
@@ -347,6 +348,9 @@ export async function checkAndRecordSignal(
   // ponytail: bu ~%90 DB sorgusunu keser (30sn poll'de çoğu cooldown içinde).
   //Upgrade path: Redis if distributed workers
   if (checkCooldownCache(matchCode, signalSide)) {
+    pipelineLogger.info('signal', 'Cooldown skip', matchCode, {
+      signalSide, score: goalProbability.score, tier: goalProbability.level,
+    });
     signalDebug('SIGNAL_DROP:cooldown', {
       matchCode, homeTeam, awayTeam, signalSide,
       score: goalProbability.score,
@@ -426,6 +430,12 @@ export async function checkAndRecordSignal(
   };
 
   const created = await repoCreate(record);
+  if (created) {
+    pipelineLogger.info('signal', `Signal ${signalTier} created`, matchCode, {
+      signalSide, score: goalProbability.score, calibratedP: goalProbability.calibratedP,
+      minute: minNum, tier: signalTier, level: goalProbability.level,
+    });
+  }
   signalDebug('SIGNAL_CREATED', {
     matchCode, homeTeam, awayTeam, signalSide,
     score: goalProbability.score, calibratedP: goalProbability.calibratedP,
@@ -477,6 +487,10 @@ export async function reportGoal(
   goalMinute: number,
 ): Promise<void> {
   try {
+    pipelineLogger.info('reportGoal', `Goal detected: ${goalSide} at ${goalMinute}'`, matchCode, {
+      goalSide, goalMinute, pendingCount: 0,
+    });
+
     // ── Golden sonrası zorunlu 3 dk sinyal yasağı ──
     // Gol atan taraf VE rakip taraf için cooldown cache yaz.
     // "Hücum patlaması" faktörü golden sonra anlık spike yapıp
@@ -487,6 +501,12 @@ export async function reportGoal(
 
     const allPending = await repoFindAllPending(matchCode);
     const withId = allPending.filter((s): s is GoalSignalRecord & { id: string } => !!s.id);
+
+    if (withId.length > 0) {
+      pipelineLogger.info('reportGoal', `${withId.length} pending signal(s) resolved for match ${matchCode}`, matchCode, {
+        goalSide, goalMinute, pendingCount: withId.length,
+      });
+    }
     const useFallback = !goalMinute || goalMinute <= 0;
 
     if (useFallback && withId.length > 0) {

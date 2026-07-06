@@ -40,6 +40,24 @@ const io = new Server(PORT, {
 const matchUpdates = new Map<number, any>();
 const EXCLUDED_STATUSES = new Set([15, 17, 23, 27, 46, 47, 54, 55, 56, 57]);
 
+// ── Helper: log to pipeline events API ─────────────────────────
+async function logPipelineEvent(
+  level: string,
+  source: string,
+  message: string,
+  matchCode?: number | null,
+  details?: Record<string, unknown> | null,
+): Promise<void> {
+  try {
+    await fetch(`${NEXTJS_API}/api/admin/pipeline-events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level, source, matchCode, message, details }),
+      signal: AbortSignal.timeout(2000),
+    });
+  } catch { /* logger hatası sessiz geç */ }
+}
+
 // ── Signal Processing via Next.js API ──
 // Her match update'te Next.js'e sinyal işleme isteği gönder.
 // Bu HTTP çağrısı, 30sn'de bir tüm maçları poll etmekten DAHA HAFİF.
@@ -67,6 +85,9 @@ async function processSignal(bid: number, payload: any): Promise<void> {
     });
     if (!response.ok) {
       console.error(`[PIPELINE] Signal processing failed for ${bid}: ${response.status}`);
+      logPipelineEvent('error', 'pipeline-ws', `POST failed: ${response.status}`, bid, { status: response.status });
+    } else {
+      logPipelineEvent('info', 'pipeline-ws', `Signal processed for match ${bid}`, bid);
     }
   } catch (err: any) {
     // Sessiz geç — Next.js hazır değilse (ilk başlangıç) hata fırlatma
@@ -96,12 +117,14 @@ setInterval(flushBatch, 10000);
 // ── Nesine Socket Events ──
 nesineSocket.on("connect", () => {
   console.log("[PIPELINE] Connected to rt.nesine.com via WebSocket");
+  logPipelineEvent('info', 'pipeline-ws', 'Connected to rt.nesine.com');
   nesineSocket.emit("joinroom", "Football_V3");
   console.log("[PIPELINE] Joined room: Football_V3");
 });
 
 nesineSocket.on("disconnect", (reason) => {
   console.log(`[PIPELINE] Disconnected: ${reason}`);
+  logPipelineEvent('warn', 'pipeline-ws', `Disconnected: ${reason}`);
 });
 
 nesineSocket.on("connect_error", (err) => {

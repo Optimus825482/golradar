@@ -424,6 +424,27 @@ model SignalPnL {
   @@index([signalTier])
 }
 
+// ── Pipeline Event Log ─────────────────────────────────────────
+// Her önemli pipeline olayı buraya kaydedilir. Admin panelinde
+// canlı izleme ve hata analizi için kullanılır.
+// Düzeyler: info, warn, error
+// Kaynaklar: cron, pipeline-ws, signal, reportGoal, expiry, ml
+model PipelineEvent {
+  id        String   @id @default(cuid())
+  level     String   // "info" | "warn" | "error"
+  source    String   // "cron" | "pipeline-ws" | "signal" | "reportGoal" | "expiry" | "ml"
+  matchCode Int?     // ilgili maç kodu (nullable — her olayın maçı olmayabilir)
+  message   String
+  details   Json?    // extra data: score, tier, status code, etc.
+  createdAt DateTime @default(now())
+
+  @@index([level])
+  @@index([source])
+  @@index([matchCode])
+  @@index([createdAt])
+  @@index([level, source, createdAt])
+}
+
 // ── Gol Radarı: FotMob Match Cache ───────────────────────────────
 // Cached FotMob match details (weather, squad, H2H, form) for the
 // goalRadar FotMob intelligence layer. TTL default 5 min; refresh

@@ -52,6 +52,7 @@ import { onGoal, onFulltime } from "@/lib/feedbackLoops";
 import { db } from "@/lib/db";
 import { predictFromElo } from "@/lib/eloRating";
 import { RADAR_THRESHOLD } from "@/config";
+import { pipelineLogger } from "@/lib/pipelineLogger";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 dakika — 400+ maç sequential işlenince 60sn yetmiyordu
@@ -470,6 +471,7 @@ async function runCronTick(): Promise<{
     });
   } catch (e) {
     logError("Cron", "fetch failed:", e);
+    pipelineLogger.error('cron', 'Nesine API fetch failed', null, { error: (e as Error)?.message });
     return {
       ok: false,
       tier,
@@ -655,6 +657,12 @@ export async function POST(request: Request) {
 
       const cfg = tierConfig(resolveTier(activeUserCount()));
       const result = await processMatch(raw, cfg);
+
+      if (result.signalsCreated > 0) {
+        pipelineLogger.info('pipeline-ws', `Signal created for match ${matchCode}`, matchCode, {
+          score: result.signalsCreated,
+        });
+      }
 
       return NextResponse.json({ ok: true, ...result });
     } catch (e) {

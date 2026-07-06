@@ -45,6 +45,7 @@ import {
   pruneStale,
 } from "@/lib/pressureHistory";
 import { logError, logInfo } from "@/lib/devLog";
+import { logger } from "@/lib/logger";
 import { createThesis } from "@/lib/signalThesis";
 import { onGoal, onFulltime } from "@/lib/feedbackLoops";
 import { db } from "@/lib/db";
@@ -55,12 +56,33 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 dakika — 400+ maç sequential işlenince 60sn yetmiyordu
 
 // ── Singleton guard ──────────────────────────────────────────────
+// NOTE: globalThis lock alone does NOT work in multi-replica deployments.
+// Uses DB-based distributed lock (CronLock table) as primary, memory lock
+// as secondary fast-path for single-replica.
 const g = globalThis as unknown as {
   __cronInFlight?: boolean;
   __cronLastRun?: number;
 };
 
-function acquireLock(): boolean {
+async function acquireLock(): Promise<boolean> {
+  // 1. Try DB distributed lock (works across replicas)
+  try {
+    const existing = await db.cronLock.findUnique({ where: { key: 'cron-poll' } });
+    if (existing && existing.expiresAt > new Date()) {
+      return false; // Another replica holds the lock
+    }
+    // Upsert: acquire or extend
+    await db.cronLock.upsert({
+      where: { key: 'cron-poll' },
+      create: { key: 'cron-poll', lockedAt: new Date(), expiresAt: new Date(Date.now() + 300_000) },
+      update: { lockedAt: new Date(), expiresAt: new Date(Date.now() + 300_000) },
+    });
+  } catch (e) {
+    // DB unavailable — fall back to memory lock only
+    if (process.env.NODE_ENV === 'development') logger.warn({ err: (e as Error)?.message }, '[CronLock] DB lock failed, fallback to memory');
+  }
+
+  // 2. Memory lock (fast intra-process guard)
   if (g.__cronInFlight) return false;
   g.__cronInFlight = true;
   return true;
@@ -69,6 +91,12 @@ function acquireLock(): boolean {
 function releaseLock(): void {
   g.__cronInFlight = false;
   g.__cronLastRun = Date.now();
+  // DB lock expires naturally via TTL — no explicit release needed
+  // for crash-safety. Explicit release is best-effort.
+  db.cronLock.update({
+    where: { key: 'cron-poll' },
+    data: { expiresAt: new Date(0) },
+  }).catch(() => {});
 }
 
 // ── Auth ─────────────────────────────────────────────────────────
@@ -79,12 +107,11 @@ function isAuthorized(request: Request): boolean {
     return process.env.NODE_ENV !== "production";
   }
   const header = request.headers.get("x-cron-secret") ?? "";
-  if (header.length !== secret.length) return false;
-  try {
-    return crypto.timingSafeEqual(Buffer.from(header), Buffer.from(secret));
-  } catch {
-    return false;
-  }
+  // Hash both to fixed 32-byte length before timing-safe compare.
+  // Prevents length side-channel leak from early return on mismatch.
+  const hashHeader = crypto.createHash("sha256").update(header).digest();
+  const hashSecret = crypto.createHash("sha256").update(secret).digest();
+  return crypto.timingSafeEqual(hashHeader, hashSecret);
 }
 
 // ── Goal detection ───────────────────────────────────────────────
@@ -316,7 +343,9 @@ async function processMatch(
           const eloPred = predictFromElo(home, away);
           homeElo = eloPred.homeRating;
           awayElo = eloPred.awayRating;
-        } catch { /* Elo optional */ }
+        } catch (e) {
+          if (process.env.NODE_ENV === 'development') logger.warn({ err: (e as Error)?.message }, '[Cron] Elo predict failed');
+        }
 
         await db.predictionLog.create({
           data: {
@@ -343,7 +372,7 @@ async function processMatch(
       } catch (e) {
         // PredictionLog yazımı ana akışı bloklamaz
         if (process.env.NODE_ENV === 'development') {
-          console.warn('[Cron] PredictionLog write failed:', (e as Error).message);
+          logger.warn({ err: (e as Error).message }, '[Cron] PredictionLog write failed');
         }
       }
     } catch (e) {

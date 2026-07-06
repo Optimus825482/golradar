@@ -120,7 +120,7 @@ export async function GET(request: Request) {
 
         // Parse date
         const [d, m, y] = item.D.split('.');
-        const matchDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+        const matchDate = new Date(Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d)));
         if (isNaN(matchDate.getTime())) return false;
 
         // Only upcoming (today or future, within maxDays)
@@ -152,8 +152,8 @@ export async function GET(request: Request) {
         // Sort by date then time
         const [ad, am, ay] = a.date.split('.');
         const [bd, bm, by] = b.date.split('.');
-        const da = new Date(parseInt(ay), parseInt(am) - 1, parseInt(ad));
-        const db = new Date(parseInt(by), parseInt(bm) - 1, parseInt(bd));
+        const da = new Date(Date.UTC(parseInt(ay), parseInt(am) - 1, parseInt(ad)));
+        const db = new Date(Date.UTC(parseInt(by), parseInt(bm) - 1, parseInt(bd)));
         if (da.getTime() !== db.getTime()) return da.getTime() - db.getTime();
         return a.time.localeCompare(b.time);
       });

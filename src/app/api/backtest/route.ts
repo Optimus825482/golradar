@@ -9,6 +9,7 @@ import {
 import { rateLimit, RATE_LIMIT_DEFAULTS } from "@/lib/rateLimit";
 import { db as prisma } from "@/lib/db";
 import { logError } from '@/lib/devLog';
+import { logger } from '@/lib/logger';
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unknown action. Use: run, summary, list" }, { status: 400 });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'unknown error';
-    console.error("[Backtest API] Error:", message);
+    logger.error({ err: message }, "[Backtest API] Error");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -99,7 +100,7 @@ export async function POST(request: Request) {
       const signalThreshold = Math.min(100, Math.max(0, parseInt(body.signalThreshold, 10) || 55));
       const useGoaloo = body.useGoaloo !== false; // Default: true
 
-      console.log(`[Backtest API] Starting simulation: daysBack=${daysBack}, maxMatches=${maxMatches}, useGoaloo=${useGoaloo}`);
+      logger.info({ daysBack, maxMatches, useGoaloo }, `[Backtest API] Starting simulation`);
 
       // ── Step 1: Fetch finished matches from Nesine ──
       const { UNLIVE_API, HEADERS, parseMatch } = await import("@/lib/nesine");
@@ -132,12 +133,12 @@ export async function POST(request: Request) {
             } catch (e) { logError('route', e); /* skip bad json */ }
           }
         } catch (err) {
-          console.error(`[Backtest API] Nesine fetch failed for ${date}:`, err);
+          logger.error({ err, date }, `[Backtest API] Nesine fetch failed`);
         }
       }
 
       const matchesToProcess = allParsed.slice(0, maxMatches);
-      console.log(`[Backtest API] Found ${allParsed.length} matches, processing ${matchesToProcess.length}`);
+      logger.info({ total: allParsed.length, processing: matchesToProcess.length }, `[Backtest API] Matches found`);
 
       // ── Step 2: Build input for simulator ──
       const simMatches: any[] = [];
@@ -155,7 +156,7 @@ export async function POST(request: Request) {
             analyzeOddsMovement,
           } = await import("@/lib/goaloo");
 
-          console.log(`[Backtest API] Fetching Goaloo data for enrichment...`);
+          logger.info({}, `[Backtest API] Fetching Goaloo data for enrichment...`);
           const goalooMatches = await fetchGoalooMatchesRecent(daysBack);
           const finishedGoaloo = goalooMatches.filter(m => m.state === -1 || m.state === 5);
 
@@ -212,7 +213,7 @@ export async function POST(request: Request) {
 
                 enrichedCount++;
               } catch (err) {
-                console.error(`[Backtest API] Goaloo enrichment failed for ${m.home} vs ${m.away}:`, err);
+                logger.error({ err, home: m.home, away: m.away }, `[Backtest API] Goaloo enrichment failed`);
               }
 
               // Small delay between Goaloo requests
@@ -220,9 +221,9 @@ export async function POST(request: Request) {
             }
           }
 
-          console.log(`[Backtest API] Enriched ${enrichedCount}/${matchesToProcess.length} matches with Goaloo data`);
+          logger.info({ enrichedCount, total: matchesToProcess.length }, `[Backtest API] Goaloo enrichment summary`);
         } catch (err) {
-          console.error(`[Backtest API] Goaloo enrichment failed:`, err);
+          logger.error({ err }, `[Backtest API] Goaloo enrichment failed`);
           // Continue without Goaloo data
         }
       }
@@ -261,7 +262,7 @@ export async function POST(request: Request) {
       }
 
       // ── Step 3: Run simulation ──
-      console.log(`[Backtest API] Running simulation on ${simMatches.length} matches...`);
+      logger.info({ matchCount: simMatches.length }, `[Backtest API] Running simulation`);
 
       const { runHistoricalSimulation } = await import("@/lib/backtestSimulator");
 
@@ -305,7 +306,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Unknown POST action. Use: simulate" }, { status: 400 });
   } catch (error: any) {
-    console.error("[Backtest API] POST Error:", error);
+    logger.error({ err: error?.message }, "[Backtest API] POST Error");
     return NextResponse.json({ error: error.message || "Backtest failed" }, { status: 500 });
   }
 }

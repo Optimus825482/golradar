@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { adminRoute } from '@/lib/adminRoute';
 import { db } from '@/lib/db';
+import { logError } from '@/lib/devLog';
+
 export const dynamic = 'force-dynamic';
+
 export const GET = adminRoute(async (request: Request) => {
   const { searchParams } = new URL(request.url);
   const format = searchParams.get('format') ?? 'json';
@@ -20,5 +23,8 @@ export const GET = adminRoute(async (request: Request) => {
       return new NextResponse(`${headers}\n${body}`, { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': `attachment; filename=golradar-${entity}-${days}d.csv` } });
     }
     return NextResponse.json({ entity, count: rows.length, rows });
-  } catch (e) { return NextResponse.json({ error: String(e) }, { status: 500 }); }
+  } catch (e) {
+    logError('Export', 'export failed:', e);
+    return NextResponse.json({ error: 'Export failed. Check server logs.' }, { status: 500 });
+  }
 });

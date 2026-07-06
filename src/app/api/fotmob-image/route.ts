@@ -48,14 +48,12 @@ export async function GET(request: NextRequest) {
     const contentType = resp.headers.get('content-type') || 'image/png'
     const data = Buffer.from(await resp.arrayBuffer())
 
-    IMAGE_CACHE.set(cacheKey, { data, contentType, timestamp: Date.now() })
+    const now = Date.now()
+    IMAGE_CACHE.set(cacheKey, { data, contentType, timestamp: now })
 
-    // Clean old cache entries
-    if (IMAGE_CACHE.size > 500) {
-      const now = Date.now()
-      for (const [key, value] of IMAGE_CACHE) {
-        if (now - value.timestamp > CACHE_TTL) IMAGE_CACHE.delete(key)
-      }
+    // TTL-based cleanup: sweep expired entries on every add
+    for (const [key, value] of IMAGE_CACHE) {
+      if (now - value.timestamp > CACHE_TTL) IMAGE_CACHE.delete(key)
     }
 
     return new NextResponse(data, {

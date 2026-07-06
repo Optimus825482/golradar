@@ -95,12 +95,32 @@ model User {
   passwordHash       String // pbkdf2 hex
   passwordSalt       String // random hex salt
   mustChangePassword Boolean   @default(true)
-  sessionToken       String?   @unique // current login token
-  sessionExpiresAt   DateTime?
+  sessionToken       String?   @unique // legacy — use Session table
+  sessionExpiresAt   DateTime? // legacy — use Session table
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
+  sessions Session[]
+
   @@index([username])
+}
+
+// ── Session Management ────────────────────────────────────────────
+// One row per active session. tokenHash stores SHA-256 of the session
+// token (never plaintext). Supports individual session revocation.
+// Backward-compat: User.sessionToken still works until migration.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique // SHA-256(token), never plain token
+  expiresAt DateTime
+  lastUsedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
 }
 
 // ── Admin Audit Log ──────────────────────────────────────────────
@@ -150,6 +170,7 @@ model MatchSnapshot {
   @@unique([matchCode, minute])
   @@index([matchCode, minute])
   @@index([matchCode, createdAt])
+  @@index([createdAt])
 }
 
 // ── Gol Radarı: Match Events ─────────────────────────────────────
@@ -198,6 +219,7 @@ model PredictionLog {
 
   @@index([matchCode, minute])
   @@index([calibratedP, goalScored])
+  @@index([goalScored, calibratedP])
   @@index([createdAt])
   @@index([modelVariant])
   @@index([matchCode, createdAt])
@@ -229,7 +251,7 @@ model TeamRating {
   id              String   @id @default(cuid())
   teamName        String   @unique // Normalized team name
   teamNameTr      String? // Turkish name for lookup
-  elo             Int      @default(1500) @db.SmallInt
+  elo             Int      @default(1500)
   attackStrength  Float    @default(1.0) // α: relative to league avg
   defenseWeakness Float    @default(1.0) // β: relative to league avg
   matchesPlayed   Int      @default(0)
@@ -371,6 +393,7 @@ model Signal {
   @@unique([matchCode, date, signalSide])
   @@index([date])
   @@index([matchCode])
+  @@index([matchCode, date])
   @@index([goalHappened])
   @@index([goalHappened, createdAt])
   @@index([signalSide])
@@ -671,4 +694,17 @@ model RefereeStats {
   lastUpdated    DateTime @updatedAt
 
   @@index([refereeName])
+}
+
+// ── Distributed Cron Lock ─────────────────────────────────────────
+// One row: key (unique), lockedAt, expiresAt. Used by cron/poll/route
+// for multi-replica safe locking. Expired locks are stale and can be
+// acquired by another replica. TTL = 5 minutes.
+model CronLock {
+  key       String   @id
+  lockedAt  DateTime
+  expiresAt DateTime
+
+  @@index([expiresAt])
+  @@map("CronLock")
 }

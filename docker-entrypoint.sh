@@ -89,25 +89,7 @@ await p.\$disconnect();
 " 2>&1 || echo "[WARN] FotMob import başarısız"
 fi
 
-# ── Admin Seed (init.ts ile zaten yapılır, bu ek güvence) ────────
-echo "[AUTH] Admin kullanıcısı kontrol ediliyor..."
-NODE_ENV=production DATABASE_URL="$DATABASE_URL" \
-    node -e "
-(async()=>{
-const{PrismaClient}=require('@prisma/client'),crypto=require('crypto');
-const p=new PrismaClient({datasourceUrl:process.env.DATABASE_URL});
-const existing=await p.user.findUnique({where:{username:'admin'}});
-if(!existing){
-  const salt=crypto.randomBytes(32).toString('hex');
-  const hash=crypto.pbkdf2Sync('admin123',salt,100000,64,'sha256').toString('hex');
-  await p.user.create({data:{username:'admin',passwordHash:hash,passwordSalt:salt,mustChangePassword:true}});
-  console.log('[AUTH] ✅ Admin kullanıcısı oluşturuldu (admin / admin123)');
-}else{
-  console.log('[AUTH] ✅ Admin kullanıcısı zaten var');
-}
-await p.\$disconnect();
-})()
-" 2>&1 || echo "[WARN] Admin seed başarısız"
+# Admin seed handled by init.ts via ADMIN_DEFAULT_PASSWORD env var
 
 
 # Ensure legacy artifact paths resolve (survives redeploy)
@@ -130,8 +112,8 @@ done
 # on the directory tree (NOT recursive on files — that would mmap
 # existing model files). Use find to chmod directories only.
 if [ -d /app/data ]; then
-  find /app/data -type d -exec chmod 777 {} + 2>/dev/null || true
-  find /app/data -type f -name '*.json' -exec chmod 666 {} + 2>/dev/null || true
+  find /app/data -type d -exec chmod 750 {} + 2>/dev/null || true
+  find /app/data -type f -name '*.json' -exec chmod 640 {} + 2>/dev/null || true
 fi
 
 # ── Python / Scrapling Check ──────────────────────────────────────
@@ -178,7 +160,6 @@ echo "════════════════════════�
 echo "  OPTIMUS GOL RADARI"
 echo "  Domain: https://radar.erkanerdem.online"
 echo "  Admin:  /admin"
-echo "  Login:  admin / admin123"
 echo "═══════════════════════════════════════════════"
 echo ""
 

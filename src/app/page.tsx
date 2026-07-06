@@ -34,12 +34,11 @@ import SignalsCenter from '@/components/SignalsCenter'
 import { usePresence } from '@/hooks/usePresence'
 import { useRealtime } from '@/hooks/useRealtime'
 import { tierConfig } from '@/lib/tier'
-import { useMatchList } from '@/hooks/useMatchList'
 import { useGoalDetection } from '@/hooks/useGoalDetection'
 import { armAudioUnlock } from '@/lib/playGoalSound'
 
 import { Badge } from '@/components/ui/badge'
-import type { Match, PressureSnapshot, GoalNotification, BottomTab } from '@/components/match/types'
+import type { Match, MatchStats, PressureSnapshot, GoalNotification, BottomTab } from '@/components/match/types'
 import { HALFTIME_STATUSES } from '@/components/match/types'
 import { calculatePressure, loadFavorites, saveFavorites } from '@/components/match/utils'
 import { CountryFlag, MatchStatusBadge } from '@/components/match/shared-components'
@@ -49,6 +48,7 @@ import type { MatchDetailContentProps } from '@/components/match/MatchDetailCont
 import { BottomNavBar } from '@/components/match/BottomNavBar'
 import { GoalRadarSection } from '@/components/match/GoalRadarSection'
 import { logError } from '@/lib/devLog';
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 const GOAL_FLASH_DURATION = 15000
 
@@ -80,7 +80,11 @@ export default function OptimusGolRadariPage() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const notifTimersRef = useRef<Set<NodeJS.Timeout>>(new Set())
   const retryCountRef = useRef(0)
-  const MAX_RETRIES = 5
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  // Retry policy: show final error after ERROR_THRESHOLD,
+  // but keep retrying up to MAX_TOTAL_RETRIES (the +3 extension).
+  const ERROR_THRESHOLD = 5
+  const MAX_TOTAL_RETRIES = 8
 
   // Favorites
   const [favorites, setFavorites] = useState<Set<number>>(new Set())
@@ -110,7 +114,19 @@ export default function OptimusGolRadariPage() {
   const [finishedNetscoresMapping, setFinishedNetscoresMapping] = useState<Record<number, string>>({})
 
   // ── Upcoming matches from Nesine prebulten ──
-  const [upcomingList, setUpcomingList] = useState<any[]>([]);
+  interface UpcomingMatch {
+    code: number;
+    home: string;
+    away: string;
+    league: string;
+    date: string;
+    time: string;
+    day: string;
+    homeOdds: number | null;
+    drawOdds: number | null;
+    awayOdds: number | null;
+  }
+  const [upcomingList, setUpcomingList] = useState<UpcomingMatch[]>([]);
   useEffect(() => {
     fetch('/api/upcoming-matches?days=3')
       .then(r => r.json())
@@ -194,7 +210,27 @@ export default function OptimusGolRadariPage() {
       const newPressureData: Record<number, PressureSnapshot[]> = data.pressureData || {}
 
       setMatches(newMatches)
-      setAllPressureData(newPressureData)
+
+      // Prune pressure data for finished matches to prevent memory leak
+      const finishedCodes = new Set<number>()
+      for (const m of newMatches) {
+        if (FINISHED_STATUSES.has(m.status)) finishedCodes.add(m.code)
+      }
+      const selectedCode = selectedMatchRef.current?.code
+      if (finishedCodes.size > 0) {
+        const pruned: Record<number, PressureSnapshot[]> = {}
+        for (const [codeStr, snaps] of Object.entries(newPressureData)) {
+          const code = Number(codeStr)
+          // Keep if match is not finished OR it's the currently selected match
+          if (!finishedCodes.has(code) || code === selectedCode) {
+            pruned[code] = snaps
+          }
+        }
+        setAllPressureData(pruned)
+      } else {
+        setAllPressureData(newPressureData)
+      }
+
       setLastUpdate(new Date())
       setError(null)
       retryCountRef.current = 0
@@ -234,16 +270,20 @@ export default function OptimusGolRadariPage() {
       logError('page', 'Fetch error:', err)
       retryCountRef.current += 1
       if (matchesRef.current.length === 0) {
-        if (retryCountRef.current > MAX_RETRIES) {
+        if (retryCountRef.current > ERROR_THRESHOLD) {
           setError('Sunucuya bağlanılamadı. Lütfen daha sonra tekrar deneyin.')
         } else {
           setError('Veri alınamadı. Tekrar denenecek...')
         }
       }
       setIsLoading(false)
-      if (retryCountRef.current <= MAX_RETRIES + 3 && mountedRef.current) {
+      // +3 extension: keep retrying beyond ERROR_THRESHOLD up to MAX_TOTAL_RETRIES
+      if (retryCountRef.current <= MAX_TOTAL_RETRIES && mountedRef.current) {
         const delay = Math.min(3000 * Math.pow(2, Math.min(retryCountRef.current - 1, 5)), 120000)
-        setTimeout(() => { if (mountedRef.current) fetchMatches() }, delay)
+        retryTimeoutRef.current = setTimeout(() => {
+          retryTimeoutRef.current = null
+          if (mountedRef.current) fetchMatches()
+        }, delay)
       }
     }
   }, []) // Stable: no state deps, uses refs for latest values
@@ -254,6 +294,8 @@ export default function OptimusGolRadariPage() {
     intervalRef.current = setInterval(fetchMatches, tierConfig(tier).pollIntervalMs)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      // Clean up retry timeout
+      if (retryTimeoutRef.current) { clearTimeout(retryTimeoutRef.current); retryTimeoutRef.current = null }
       // Clean up any pending notification timeouts
       for (const t of notifTimersRef.current) clearTimeout(t)
       notifTimersRef.current.clear()
@@ -310,7 +352,14 @@ export default function OptimusGolRadariPage() {
   // WS indicator
   const wsIndicator = wsConnected;
 
-  // Daily metrics fetch — refresh every 5 minutes
+  // Bottom tab change handler
+  const handleTabChange = useCallback((tab: BottomTab | 'signal-history') => {
+    setActiveTab(tab as BottomTab);
+    setSelectedMatch(null);
+    setDrawerOpen(false);
+  }, [])
+
+  // Close match handler — also used by drawer onOpenChange
   const handleCloseMatch = useCallback(() => {
     setDrawerOpen(false)
     setTimeout(() => setSelectedMatch(null), 300)
@@ -495,7 +544,7 @@ export default function OptimusGolRadariPage() {
     if (matches.length === 0 && finishedMatches.length === 0 && !finishedLoading) {
       fetchFinishedMatches()
     }
-  }, [matches.length, finishedMatches.length, fetchFinishedMatches, finishedLoading, tier])
+  }, [matches.length, finishedMatches.length, fetchFinishedMatches, finishedLoading])
 
   // ── Goal Detection ─────────────────────────────────────────────
   // Compares current scores with prevGoalsRef to detect goals.
@@ -549,13 +598,18 @@ export default function OptimusGolRadariPage() {
             const scorer = homeScored ? m.home : m.away;
             const opponent = homeScored ? m.away : m.home;
             try {
+              // Permission might have been revoked after initial grant
+              if (Notification.permission !== 'granted') { /* skip */ } else {
               new Notification(`⚽ Gol! ${scorer}`, {
                 body: `${scorer} ${m.homeGoals}-${m.awayGoals} ${opponent} · ${m.league}`,
                 icon: '/logo-192.png',
                 tag: `goal-${m.code}`,
                 silent: true,
               });
-            } catch {}
+              }
+            } catch (e) {
+              logError('page', 'Notification error:', e);
+            }
           }
 
           const timer = setTimeout(() => {
@@ -979,7 +1033,7 @@ export default function OptimusGolRadariPage() {
           <span className="text-[10px] text-gray-400 ml-auto">{upcomingMatches.length}</span>
         </div>
         <div className="bg-white rounded-xl border border-indigo-100 overflow-hidden shadow-sm">
-          {upcomingMatches.map((m: any) => (
+          {upcomingMatches.map((m) => (
             <div key={m.code} className="px-3 py-2.5 border-b border-gray-50 last:border-0 hover:bg-indigo-50/30 transition-colors cursor-pointer"
               onClick={() => {
                 const liveMatch = matches.find(mm => mm.code === m.code);
@@ -991,10 +1045,10 @@ export default function OptimusGolRadariPage() {
                   homeGoals: 0, awayGoals: 0, firstHalfScore: '-',
                   minute: m.time, status: 1, statusText: 'Baslamadi',
                   time: m.time || '', isLive: false, isFinished: false, isUpcoming: true,
-                  country: '', stats: {}, hasStats: false,
+                  country: '', stats: {} as MatchStats, hasStats: false,
                   homeColor: null, awayColor: null, homeAbbrev: null, awayAbbrev: null,
                   homeLogoUrl: null, awayLogoUrl: null, homeRedCards: 0, awayRedCards: 0,
-                } as any);
+                } as Match);
               }}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1071,6 +1125,7 @@ export default function OptimusGolRadariPage() {
     }
 
   return (
+    <ErrorBoundary context="OptimusGolRadariPage" fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="text-center p-8"><div className="text-5xl mb-4">📡</div><p className="text-red-500 text-sm mb-2">Bir hata oluştu. Sayfayı yenileyin.</p><button onClick={() => window.location.reload()} className="text-emerald-600 text-sm underline hover:no-underline">Sayfayı yenile</button></div></div>}>
     <div className="min-h-screen bg-gray-50 flex flex-col touch-manipulation">
       {/* ── Compact App Header ─────────────────────────────────── */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm safe-top">
@@ -1197,11 +1252,7 @@ export default function OptimusGolRadariPage() {
         liveCount={liveCount}
         radarCount={radarCount}
         favCount={favCount}
-        onTabChange={(tab) => {
-          setActiveTab(tab);
-          setSelectedMatch(null);
-          setDrawerOpen(false);
-        }}
+        onTabChange={handleTabChange}
       />
 
       {/* Goal Notifications Portal */}
@@ -1209,8 +1260,7 @@ export default function OptimusGolRadariPage() {
         <div className="fixed top-16 right-3 z-100 flex flex-col gap-2 pointer-events-none" style={{ maxWidth: '340px' }}>
           {goalNotifications.map(notif => (
             <div key={notif.id}
-              className="pointer-events-auto animate-[slideInRight_0.4s_ease-out] bg-linear-to-r from-green-500 via-emerald-500 to-green-600 rounded-xl shadow-2xl border border-green-400 p-3 text-white"
-              style={{ animation: 'slideInRight 0.4s ease-out' }}>
+              className="pointer-events-auto animate-[slideInRight_0.4s_ease-out] bg-linear-to-r from-green-500 via-emerald-500 to-green-600 rounded-xl shadow-2xl border border-green-400 p-3 text-white">
               <div className="flex items-center gap-2 mb-1">
                 <div className="relative">
                   <div className="text-lg">⚽</div>
@@ -1231,5 +1281,6 @@ export default function OptimusGolRadariPage() {
         document.body
       )}
     </div>
+    </ErrorBoundary>
   )
 }

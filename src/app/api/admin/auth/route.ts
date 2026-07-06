@@ -85,11 +85,19 @@ export async function POST(request: Request) {
       }
 
       const token = await createSession(user.id);
-      return NextResponse.json({
-        ok: true,
-        token,
-        mustChange: user.mustChangePassword,
-      });
+	      const res = NextResponse.json({
+	        ok: true,
+	        token,
+	        mustChange: user.mustChangePassword,
+	      });
+	      res.cookies.set("admin_token", token, {
+	        httpOnly: true,
+	        secure: process.env.NODE_ENV === "production",
+	        sameSite: "strict",
+	        path: "/",
+	        maxAge: 86400,
+	      });
+	      return res;
     }
 
     // ── Logout ────────────────────────────────────────────────

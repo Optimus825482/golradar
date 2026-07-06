@@ -1,17 +1,26 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Middleware: force browser cache busting in dev mode + guard admin routes.
-// DEV-ONLY cache rule; production serves versioned, immutable assets.
-//
-// Admin gate model (two-tier):
-//   1. Middleware (Edge): cookie presence + shape check. Fast reject for
-//      missing tokens. Expired/malformed tokens get the cookie cleared
-//      and the request redirected to login.
-//   2. Server component / route handler (Node runtime): requireAdmin()
-//      does the full PBKDF2/Db-backed session validation. This is the
-//      real gate — middleware only optimizes the common case.
-//
+// Middleware: security headers + admin auth guard + dev cache busting.
+
+// ── Security headers ──────────────────────────────────────────────
+const SECURITY_HEADERS: Record<string, string> = {
+  "Content-Security-Policy":
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+  "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "X-DNS-Prefetch-Control": "off",
+};
+
+function applySecurityHeaders(response: NextResponse): void {
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    response.headers.set(key, value);
+  }
+}
+
+// ── Admin auth guard ──────────────────────────────────────────────
 // Edge runtime cannot run Prisma, so cookie contents are validated by
 // shape (length, hex charset) here and by DB lookup inside route handlers.
 const TOKEN_MIN_LEN = 64; // crypto.randomBytes(32).toString("hex") == 64 chars
@@ -59,6 +68,7 @@ export function middleware(request: NextRequest) {
           secure: process.env.NODE_ENV === "production",
         });
       }
+      applySecurityHeaders(response);
       return response;
     }
 
@@ -79,12 +89,18 @@ export function middleware(request: NextRequest) {
     );
     response.headers.set("Pragma", "no-cache");
     response.headers.set("Expires", "0");
+    applySecurityHeaders(response);
     return response;
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  applySecurityHeaders(response);
+  return response;
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/_next/static/chunks/:path*"],
+  matcher: [
+    // Security headers on all responses
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|api/cron).*)",
+  ],
 };

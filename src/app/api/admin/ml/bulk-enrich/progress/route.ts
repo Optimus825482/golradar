@@ -4,10 +4,11 @@
 
 import { NextResponse } from 'next/server';
 import { getEnrichProgress } from '@/lib/enrichProgress';
+import { adminRoute } from '@/lib/adminRoute';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export const GET = adminRoute(async () => {
   const progress = getEnrichProgress();
   const pct = progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : 0;
 
@@ -18,4 +19,4 @@ export async function GET() {
       ? Math.round((Date.now() - progress.startTime) / 1000)
       : 0,
   });
-}
+});

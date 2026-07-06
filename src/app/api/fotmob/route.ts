@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import {
   fetchFotMobMatches,
   fetchMatchDetails,
@@ -97,7 +98,7 @@ export async function GET(request: Request) {
 
     if (!fotmobId && homeParam && awayParam) {
       try {
-        console.log(`[FotMob] Auto-rebuilding mapping for match ${matchCode}: ${homeParam} vs ${awayParam}`);
+        logger.info({ matchCode, homeParam, awayParam }, `[FotMob] Auto-rebuilding mapping`);
         const nesineMatch = [{
           code: code,
           home: homeParam,
@@ -117,12 +118,12 @@ export async function GET(request: Request) {
             };
           }
           globalForCache.fotmobMappingCache.mappings.set(code, fotmobId);
-          console.log(`[FotMob] Auto-mapping success for ${matchCode}: fotmobId=${fotmobId} (confidence: ${mappings[0].confidence.toFixed(2)})`);
+          logger.info({ matchCode, fotmobId, confidence: mappings[0].confidence.toFixed(2) }, `[FotMob] Auto-mapping success`);
         } else {
-          console.warn(`[FotMob] Auto-mapping failed for match ${matchCode}: no match found`);
+          logger.warn({ matchCode }, `[FotMob] Auto-mapping failed: no match found`);
         }
       } catch (err) {
-        console.error(`[FotMob] Auto-mapping error for match ${matchCode}:`, err);
+        logger.error({ err, matchCode }, `[FotMob] Auto-mapping error`);
       }
     }
 

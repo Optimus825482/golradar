@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import {
   fetchNetScoresGames,
   fetchGameDetail,
@@ -11,9 +12,9 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5min — NetScores fetch + mapping can be slow
 
-const log = process.env.NODE_ENV === 'development' ? console.log : () => {};
-const warnN = process.env.NODE_ENV === 'development' ? console.warn : () => {};
-const devError = process.env.NODE_ENV === 'development' ? console.error : () => {};
+const log = process.env.NODE_ENV === 'development' ? (s: string) => logger.info({}, s) : () => {};
+const warnN = process.env.NODE_ENV === 'development' ? (s: string, ...args: unknown[]) => logger.warn({ args }, s) : () => {};
+const devError = process.env.NODE_ENV === 'development' ? (s: string, ...args: unknown[]) => logger.error({ args }, s) : () => {};
 
 const globalForCache = globalThis as unknown as {
   netscoresMappingCache: {

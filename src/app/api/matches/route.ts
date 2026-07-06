@@ -38,6 +38,7 @@ import {
 } from "@/lib/pressureHistory";
 import type { PressureSnapshot } from "@/lib/advancedAnalytics";
 import { logError } from '@/lib/devLog';
+import { logger } from '@/lib/logger';
 import { getMatchesCache, setMatchesCache } from '@/lib/server/matchesCache';
 import { publishMatchEvent } from '@/lib/server/matchEvents';
 
@@ -60,7 +61,7 @@ const lastSeenGoals = new Map<number, { home: number; away: number }>();
 // ── Bounded prediction-write queue (OOM guard) ──────────────────
 // Prevents unbounded promise accumulation when DB writes lag.
 // Drops oldest pending write when queue exceeds max depth.
-const PREDICTION_QUEUE_MAX = 50;
+const PREDICTION_QUEUE_MAX = 500;
 const predictionQueue: Array<() => Promise<void>> = [];
 let predictionWritesInFlight = 0;
 let isDraining = false;
@@ -83,7 +84,8 @@ async function drainPredictionQueue(): Promise<void> {
 function enqueuePredictionWrite(fn: () => Promise<void>): void {
   predictionQueue.push(fn);
   if (predictionQueue.length > PREDICTION_QUEUE_MAX) {
-    predictionQueue.shift(); // drop oldest pending
+    const dropped = predictionQueue.shift(); // drop oldest pending
+    logger.warn({ queueLength: predictionQueue.length, max: PREDICTION_QUEUE_MAX }, `[PredictionQueue] Dropped oldest pending write`);
   }
   // Fire-and-forget drain — await not needed, concurrency bounded by
   // the in-flight counter. Sequential execution within the drain loop
@@ -361,9 +363,9 @@ export async function GET(request: Request) {
       	            goalooData = { oddsMovement: goalooOddsBoost, momentumTrend: null };
       	          }
       	        }
-      	      } catch {
-      	        // Goaloo timeout veya hata — sessiz geç
-	      }
+	      	      } catch (e) {
+	      	        logError('route-goaloo', e);
+		      }
 	      }
 
 	      goalRadar = calculateGoalProbability(
@@ -473,9 +475,9 @@ export async function GET(request: Request) {
 	                goalRadar.modelAgreementCount = ensemble.modelAgreementCount;
 	              }
 	            } catch (e) { logError('route-ensemble', e); /* best-effort */ }
-	          } catch {
-	            // features not available — log without featuresJson
-	          }
+		          } catch (e) {
+		            logError('route-features', e);
+		          }
 	          // P0.3: Unified calibration path — route through isotonic/sigmoid
 	          // regardless of source. ML raw championP no longer bypasses calibration.
 	          const finalCalibratedP =
@@ -567,6 +569,9 @@ export async function GET(request: Request) {
         take: 200,
       });
 
+      // OPTIMIZE: `contains` + `insensitive` = full table scan, can't use index.
+      // Add a `normalizedName` column with pg_trgm GIN index for LIKE/ILIKE
+      // and do exact match first, then trigram similarity fallback.
       // DB'de logo bulunanları ekle
       for (const mapping of mappings) {
         if (mapping.fotmobLogoUrl) {
@@ -586,8 +591,8 @@ export async function GET(request: Request) {
           if (url) teamLogos[teamName] = url;
         }
       }
-    } catch {
-      // Silent — logos are cosmetic
+    } catch (e) {
+      logError('route-logos', e);
     }
   }
 

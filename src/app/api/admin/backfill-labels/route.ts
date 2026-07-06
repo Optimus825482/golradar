@@ -253,12 +253,11 @@ export const POST = adminRoute(async (request: Request) => {
   // ── Worker pool ────────────────────────────────────────────────
   // Her worker sıradaki matchCode'u alır, işler, progress günceller.
   // workers=N aynı anda N tane işlem koşturur.
+  // Single-process Node.js: sync increment is atomic (no await between read/write).
   async function worker(): Promise<void> {
     while (true) {
-      const idx = completedLock; // atomic index al
-      // eslint-disable-next-line require-atomic-updates
+      const idx = completedLock++; // atomic: sync increment, no await between
       if (idx >= matchCodes.length) break;
-      completedLock = idx + 1;
       const matchCode = matchCodes[idx];
 
       const result = await processOne(matchCode);

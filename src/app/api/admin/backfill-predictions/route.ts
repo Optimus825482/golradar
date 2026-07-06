@@ -7,6 +7,7 @@
 // POST body: { league: 34, season: "2025-2026", maxMatches: 500 }
 
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { adminRoute } from "@/lib/adminRoute";
 import { db } from "@/lib/db";
 import { calculateGoalProbability } from "@/lib/goalRadar";
@@ -195,7 +196,7 @@ export const POST = adminRoute(async (request: Request) => {
   const league = parseInt(body.league) || 34;
   const season = body.season || "2025-2026";
   const maxMatches = Math.min(2000, Math.max(10, parseInt(body.maxMatches) || 500));
-  const jobId = body.jobId || crypto.randomUUID();
+  const jobId = body.jobId || randomUUID();
 
   const LEAGUE_NAMES: Record<number, string> = {
     34: "Italy Serie A", 36: "England Premier League", 31: "Spain LaLiga",

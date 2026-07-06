@@ -2,7 +2,7 @@
 // Limits concurrent Python subprocesses to prevent resource exhaustion.
 // Queues excess calls instead of spawning unlimited processes.
 
-const { execFile } = require("child_process") as any;;
+import { execFile } from 'child_process'
 
 const MAX_CONCURRENT = 3;
 let active = 0;

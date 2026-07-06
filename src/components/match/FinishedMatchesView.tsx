@@ -3,7 +3,6 @@
 import { CountryFlag, MatchStatusBadge } from './shared-components'
 import { FinishedMatchCard } from './FinishedMatchCard'
 import SignalStatsPanel from '@/components/SignalStatsPanel'
-import SignalHistoryPanel from '@/components/SignalHistoryPanel'
 import type { Match, GoalNotification } from './types'
 
 interface FinishedMatchesViewProps {

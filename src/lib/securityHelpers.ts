@@ -97,9 +97,9 @@ export function getClientIp(request: Request): string {
 
 /**
  * Require a valid admin session token.
- * Reads from `Authorization: Bearer <token>` first, then falls back to
- * the `admin_token` cookie so browser-served admin pages don't have to
- * duplicate the token into a header.
+ * Reads ONLY from `Authorization: Bearer <token>`.
+ * Cookie path removed to prevent CSRF — browser automatically sends
+ * cookies on cross-origin requests, but cannot set Bearer headers.
  */
 export async function requireAdmin(
   request: Request,
@@ -108,11 +108,6 @@ export async function requireAdmin(
   if (auth) {
     const m = auth.match(/^Bearer\s+(.+)$/i);
     if (m) return validateSession(m[1]!.trim());
-  }
-  const cookie = request.headers.get("cookie");
-  if (cookie) {
-    const m = cookie.match(/admin_token=([^;]+)/);
-    if (m) return validateSession(m[1].trim());
   }
   return { ok: false, reason: "no auth" };
 }

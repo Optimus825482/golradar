@@ -126,15 +126,22 @@ export const POST = adminRoute(async (request: Request) => {
     let enrichResult = null;
     if (source === 'goaloo' && backfill.inserted && backfill.inserted > 0) {
       try {
+        // Forward auth from the original request — bulk-enrich uses adminRoute wrapper
+        const authHeader = request.headers.get('authorization') || '';
         const enrichUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3012'}/api/admin/ml/bulk-enrich`;
         const enrichRes = await fetch(enrichUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Cron-Secret': process.env.CRON_SECRET || '' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(authHeader ? { 'Authorization': authHeader } : {}),
+            'X-Cron-Secret': process.env.CRON_SECRET || '',
+          },
           body: JSON.stringify({ maxMatches: Math.min(backfill.inserted, 100000) }),
           signal: AbortSignal.timeout(30000),
         });
         if (enrichRes.ok) enrichResult = await enrichRes.json();
-      } catch {
+      } catch (e) {
+        console.warn('[DataImport] Bulk-enrich call failed (best-effort):', (e as Error)?.message);
         // Enrichment is best-effort — don't fail the import
       }
     }

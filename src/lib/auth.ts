@@ -1,6 +1,10 @@
 // ── Admin Auth Library ─────────────────────────────────────────────
 // Username/password auth with PBKDF2 hashing and session tokens.
-// Replaces the old ADMIN_API_TOKEN env-var-based auth.
+// Uses Session table for token storage (SHA-256 hashed tokens).
+// Backward-compat: legacy User.sessionToken still supported.
+//
+// Session model: id, userId, tokenHash (SHA-256), expiresAt, lastUsedAt, createdAt
+// Individual session revocation: DELETE FROM Session WHERE id = ?
 
 import { db } from "./db";
 import crypto from "crypto";
@@ -15,6 +19,10 @@ const DIGEST = "sha256";
 const SESSION_BYTES = 64;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const SESSION_REFRESH_MS = 1 * 60 * 60 * 1000; // refresh after 1 hour
+
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
 
 // ── Password Hashing ──────────────────────────────────────────────
 
@@ -45,6 +53,16 @@ export async function verifyPassword(
 
 export async function createSession(userId: string): Promise<string> {
   const token = crypto.randomBytes(SESSION_BYTES).toString("hex");
+  const tokenHash = hashToken(token);
+  // Write to Session table (new path)
+  await db.session.create({
+    data: {
+      userId,
+      tokenHash,
+      expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+    },
+  });
+  // Backward-compat: also write to User.sessionToken
   await db.user.update({
     where: { id: userId },
     data: {
@@ -63,6 +81,36 @@ export async function validateSession(
   mustChange?: boolean;
   reason?: string;
 }> {
+  if (!token) return { ok: false, reason: "no token" };
+
+  // Primary path: look up in Session table by tokenHash
+  const tokenHash = hashToken(token);
+  const session = await db.session.findUnique({
+    where: { tokenHash },
+    include: { user: true },
+  });
+
+  if (session) {
+    if (new Date() > session.expiresAt) {
+      // Expired — clean up
+      await db.session.delete({ where: { id: session.id } }).catch(() => {});
+      return { ok: false, reason: "session expired" };
+    }
+    // Auto-refresh if > SESSION_REFRESH_MS since lastUsedAt
+    const needsRefresh = (Date.now() - session.lastUsedAt.getTime()) > SESSION_REFRESH_MS;
+    if (needsRefresh) {
+      await db.session.update({
+        where: { id: session.id },
+        data: {
+          expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+          lastUsedAt: new Date(),
+        },
+      });
+    }
+    return { ok: true, userId: session.userId, mustChange: session.user.mustChangePassword };
+  }
+
+  // Fallback: legacy User.sessionToken path (backward compat)
   const user = await db.user.findUnique({ where: { sessionToken: token } });
   if (!user) return { ok: false, reason: "invalid token" };
   if (user.sessionExpiresAt && new Date() > user.sessionExpiresAt) {
@@ -72,29 +120,46 @@ export async function validateSession(
     });
     return { ok: false, reason: "session expired" };
   }
-  // Auto-refresh if > SESSION_REFRESH_MS (1h) since last refresh
   const lastRefresh = user.sessionExpiresAt
     ? user.sessionExpiresAt.getTime() - SESSION_TTL_MS
     : 0;
   const needsRefresh = user.sessionExpiresAt && (Date.now() - lastRefresh) > SESSION_REFRESH_MS;
   if (needsRefresh) {
-    const newExpiry = new Date(Date.now() + SESSION_TTL_MS);
     await db.user.update({
       where: { id: user.id },
-      data: { sessionExpiresAt: newExpiry },
+      data: { sessionExpiresAt: new Date(Date.now() + SESSION_TTL_MS) },
     });
   }
   return { ok: true, userId: user.id, mustChange: user.mustChangePassword };
 }
 
 export async function destroySession(token: string): Promise<void> {
-  const user = await db.user.findUnique({ where: { sessionToken: token } });
+  if (!token) return;
+  // Primary: delete from Session table by tokenHash
+  const tokenHash = hashToken(token);
+  await db.session.deleteMany({ where: { tokenHash } }).catch(() => {});
+  // Fallback: clear legacy User.sessionToken
+  const user = await db.user.findUnique({ where: { sessionToken: token } }).catch(() => null);
   if (user) {
     await db.user.update({
       where: { id: user.id },
       data: { sessionToken: null, sessionExpiresAt: null },
     });
   }
+}
+
+// ── Revoke individual session by ID ───────────────────────────────
+export async function revokeSession(sessionId: string): Promise<void> {
+  await db.session.delete({ where: { id: sessionId } }).catch(() => {});
+}
+
+// ── List all active sessions for a user ───────────────────────────
+export async function listSessions(userId: string) {
+  return db.session.findMany({
+    where: { userId, expiresAt: { gt: new Date() } },
+    orderBy: { lastUsedAt: "desc" },
+    select: { id: true, createdAt: true, lastUsedAt: true, expiresAt: true },
+  });
 }
 
 // ── Seed Default Admin ────────────────────────────────────────────

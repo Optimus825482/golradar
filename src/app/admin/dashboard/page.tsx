@@ -9,9 +9,49 @@ const fmt = (v: number | null | undefined, d = 2): string => v == null || !Numbe
 const fmtPct = (v: number | null | undefined, d = 1): string => v == null ? '—' : `${(v * 100).toFixed(d)}%`;
 
 export default function SuccessDashboard() {
-  const [signals, setSignals] = useState<any>(null);
-  const [pnl, setPnl] = useState<any>(null);
-  const [modelMetrics, setModelMetrics] = useState<any>(null);
+  interface ChampionMetrics {
+    version: number;
+    metrics?: {
+      auc: number;
+      brier: number;
+      accuracy: number;
+    };
+  }
+  interface TierStats {
+    total: number;
+    correct: number;
+    goals: number;
+    avgPredicted: number;
+    brier: number;
+  }
+  interface SignalStats {
+    overall: {
+      totalSignals: number;
+      accuracyRate: number;
+      brierScore: number;
+      goalAfterSignalRate: number;
+      signalsWithGoal: number;
+    };
+    tiers: Record<string, TierStats>;
+    dailyMetrics: Array<{ date: string; brier: number; accuracy: number }>;
+  }
+  interface PnlStats {
+    stats: {
+      totalPnl: number;
+      totalSignals: number;
+      winRate: number;
+      won: number;
+      roi: number;
+      sharpeRatio: number;
+    };
+  }
+  interface ModelStatus {
+    champions: Record<string, ChampionMetrics>;
+  }
+
+  const [signals, setSignals] = useState<SignalStats | null>(null);
+  const [pnl, setPnl] = useState<PnlStats | null>(null);
+  const [modelMetrics, setModelMetrics] = useState<ModelStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(14);
 
@@ -92,7 +132,7 @@ export default function SuccessDashboard() {
                     <th className="text-right py-2 font-semibold">Brier</th>
                   </tr></thead>
                   <tbody>
-                    {Object.entries(tiers).filter(([k]) => k !== 'unknown' && k !== 'radar').map(([key, t]: any) => {
+                    {Object.entries(tiers as Record<string, TierStats>).filter(([k]) => k !== 'unknown' && k !== 'radar').map(([key, t]) => {
                       const nonZero = t.total > 0;
                       const acc = nonZero ? t.correct / t.total : 0;
                       const goalRate = nonZero ? t.goals / t.total : 0;

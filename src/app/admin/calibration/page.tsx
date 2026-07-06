@@ -56,7 +56,7 @@ import { authFetch, KPICard } from '@/lib/adminAuth';
 	  if (loading) return <div className="flex justify-center py-20"><div className="animate-spin w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full" /></div>;
 	  if (!stats) return <div className="text-center py-20 text-gray-400">Veri yüklenemedi</div>;
 
-	  const buckets = (stats as any).bins?.filter((b: any) => b.count > 0) || [];
+	  const buckets = stats.bins?.filter((b: CalibrationBucket) => b.count > 0) || [];
 
 	  return (
     <div className="space-y-5">

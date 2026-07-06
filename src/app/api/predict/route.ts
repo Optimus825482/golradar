@@ -7,6 +7,7 @@ import { fetchMatchDetails } from '@/lib/fotmob';
 import { rateLimit, RATE_LIMIT_DEFAULTS } from '@/lib/rateLimit';
 import type { MatchStats } from '@/lib/nesineTypes';
 import { logError } from '@/lib/devLog';
+import { logger } from '@/lib/logger';
 import {
   recordTrainingSchema,
   predictFullSchema,
@@ -54,9 +55,9 @@ export async function GET(request: Request) {
             if (fotmobData) {
               intelligence = extractMatchIntelligence(fotmobData);
             }
-	    } catch (e: unknown) {
-	      console.warn('[Predict] FotMob intelligence failed:', e instanceof Error ? e.message : e);
-	        }
+		    } catch (e: unknown) {
+		      logger.warn({ err: e instanceof Error ? e.message : e }, '[Predict] FotMob intelligence failed');
+		        }
         }
 
         let result;
@@ -75,7 +76,7 @@ export async function GET(request: Request) {
           result = await predictEnsemble(input);
         } catch (e: unknown) {
           const eMsg = e instanceof Error ? e.message : 'unknown';
-          console.error('[Predict] Ensemble failed:', eMsg);
+          logger.error({ err: eMsg }, '[Predict] Ensemble failed');
           // Fallback to simple calibrated score
           const simpleP = ruleScore > 0 ? ruleScore / 100 * 0.3 : 0.15;
           result = {
@@ -190,9 +191,9 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Unknown action. Use: predict, model, train, features' }, { status: 400 });
     }
 	  } catch (error: unknown) {
-	    const message = error instanceof Error ? error.message : 'unknown error';
-	    console.error('[Predict API] Error:', message);
-	    return NextResponse.json({ error: message }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'unknown error';
+    logger.error({ err: message }, '[Predict API] Error');
+    return NextResponse.json({ error: message }, { status: 500 });
 	  }
 }
 
@@ -232,7 +233,7 @@ export async function POST(request: Request) {
             intelligence = extractMatchIntelligence(fotmobData);
           }
         } catch (e) {
-          console.warn('[Predict] FotMob intelligence failed:', e);
+          logger.warn({ err: e }, '[Predict] FotMob intelligence failed');
         }
       }
 
@@ -269,8 +270,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: 'Invalid action. Use: record, predict-full' }, { status: 400 });
 	  } catch (error: unknown) {
-	    const message = error instanceof Error ? error.message : 'unknown error';
-	    console.error('[Predict API POST] Error:', message);
-	    return NextResponse.json({ error: message }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'unknown error';
+    logger.error({ err: message }, '[Predict API POST] Error');
+    return NextResponse.json({ error: message }, { status: 500 });
 	  }
 }

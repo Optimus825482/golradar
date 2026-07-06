@@ -70,7 +70,7 @@ services:
     volumes:
       - golradar_ml_data:/app/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3012/api >/dev/null 2>&1 || curl -sf http://localhost:3012/api >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:3012/api')\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

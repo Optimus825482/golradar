@@ -24,12 +24,10 @@ function LoginForm() {
         body: JSON.stringify({ action: 'login', username, password }),
       });
       const data = await res.json();
-      if (data.ok) {
-        // Set cookie + token. Full reload ensures server-side layout
-        // re-evaluates cookies() and renders AdminSidebar correctly.
-        document.cookie = `admin_token=${data.token}; path=/; max-age=86400; SameSite=Lax`;
-        sessionStorage.setItem('admin_token', data.token);
-        if (data.mustChange) {
+	      if (data.ok) {
+	        // Server set httpOnly cookie. Full reload ensures layout
+	        // re-evaluates session and renders AdminSidebar correctly.
+	        if (data.mustChange) {
           window.location.href = '/admin/change-password';
         } else {
           window.location.href = nextPath;

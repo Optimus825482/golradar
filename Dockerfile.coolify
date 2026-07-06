@@ -1,15 +1,13 @@
-# ── Stage 1: Build ──
+# ── Stage 1: Build (Next.js + Python deps) ──
 FROM oven/bun:1-alpine AS builder
 WORKDIR /app
 
-RUN apk add --no-cache openssl-dev nodejs
+RUN apk add --no-cache openssl-dev nodejs python3 py3-pip gcc musl-dev libstdc++ cargo
 
 COPY package.json bun.lock ./
-# --frozen-lockfile kaldırıldı çünkü lockfile repo'da güncel olmayabilir
 RUN bun install
 
 COPY prisma ./prisma
-# Bun's WASM validation sometimes fails on Alpine; use Node.js runtime
 ENV PRISMA_CLIENT_ENGINE_TYPE=binary
 RUN bunx prisma generate
 
@@ -17,6 +15,24 @@ COPY . .
 
 ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN bun run build
+
+# Install Python packages to known path
+RUN pip3 install --no-cache-dir --break-system-packages --target /python-packages \
+      'urllib3>=2,<3' \
+      'certifi>=2024' \
+      'idna>=3.6' \
+      'requests>=2.31' \
+      'charset-normalizer>=3' \
+      && pip3 install --no-cache-dir --break-system-packages --target /python-packages \
+      'scrapling>=0.4' \
+      'curl_cffi>=0.7' \
+      'orjson>=3.10' \
+      'lxml>=5' \
+      'w3lib>=2' \
+      'tld>=0.13' \
+      'tldextract>=5' \
+      'datafc>=2.7,<3' \
+      'httpx>=0.27'
 
 # ── Stage 2: Runtime ──
 FROM oven/bun:1-alpine
@@ -27,39 +43,16 @@ ENV PORT=3012
 ENV HOSTNAME=0.0.0.0
 ENV PRISMA_CLIENT_ENGINE_TYPE=binary
 
-# Python + Node + Prisma için gerekli paketler
-# libstdc++: curl_cffi prebuilt wheels için gerekli
-# cargo: Scrapling C extension compile için
+# Minimal runtime — NO build tools (no gcc, cargo, musl-dev, py3-pip)
 RUN apk add --no-cache \
-      openssl-dev \
-      ca-certificates \
-      wget curl \
-      nodejs \
       python3 \
-      py3-pip \
-      gcc \
-      musl-dev \
       libstdc++ \
-      cargo
+      nodejs \
+      openssl
 
-# Pre-install Scrapling + curl_cffi at image-build time
-# Python bridge (goaloo.ts, netscores.ts) için gerekli
-RUN pip3 install --no-cache-dir --break-system-packages \
-      'urllib3>=2,<3' \
-      'certifi>=2024' \
-      'idna>=3.6' \
-      'requests>=2.31' \
-      'charset-normalizer>=3' \
-      && pip3 install --no-cache-dir --break-system-packages \
-      'scrapling>=0.4' \
-      'curl_cffi>=0.7' \
-      'orjson>=3.10' \
-      'lxml>=5' \
-      'w3lib>=2' \
-      'tld>=0.13' \
-      'tldextract>=5' \
-      'datafc>=2.7,<3' \
-      'httpx>=0.27'
+# Copy pre-built Python packages
+COPY --from=builder /python-packages /python-packages
+ENV PYTHONPATH=/python-packages
 
 # Next.js standalone output
 COPY --from=builder /app/.next/standalone /app
@@ -72,10 +65,22 @@ COPY --from=builder /app/node_modules/prisma /app/node_modules/prisma
 COPY --from=builder /app/docs/fotmob_teams.csv /app/docs/fotmob_teams.csv
 COPY --from=builder /app/scripts /app/scripts
 
+# Create non-root user
+RUN addgroup -S golradar -g 1001 && \
+    adduser -S golradar -u 1001 -G golradar && \
+    chown -R golradar:golradar /app
+
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 WORKDIR /app
-EXPOSE 3012
 
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:3012/api', timeout=5)" || exit 1
+
+# Drop root
+USER golradar
+
+EXPOSE 3012
 CMD ["/docker-entrypoint.sh"]

@@ -16,6 +16,13 @@ import { BucketsTab } from '@/components/backtest/BucketsTab'
 import { FactorsTab } from '@/components/backtest/FactorsTab'
 import { TimeTab } from '@/components/backtest/TimeTab'
 
+const formatElapsed = (ms: number) => {
+  const sec = Math.floor(ms / 1000)
+  const min = Math.floor(sec / 60)
+  if (min > 0) return `${min}dk ${sec % 60}sn`
+  return `${sec}sn`
+}
+
 export default function BacktestPanel() {
   const [backtestData, setBacktestData] = useState<BacktestResult | null>(null)
   const [signalStats, setSignalStats] = useState<SignalAccuracyStats | null>(null)
@@ -58,10 +65,7 @@ export default function BacktestPanel() {
   const runBacktest = useCallback(async () => {
     setRunning(true)
     try {
-      const [btResp] = await Promise.all([
-        fetch(`/api/backtest?action=run&days=${days}`),
-        fetchSignalData(),
-      ])
+      const btResp = await fetch(`/api/backtest?action=run&days=${days}`)
       if (btResp.ok) {
         const btData = await btResp.json()
         setBacktestData(btData)
@@ -70,7 +74,7 @@ export default function BacktestPanel() {
       console.error('Backtest fetch error:', err)
     }
     setRunning(false)
-  }, [days, fetchSignalData])
+  }, [days])
 
   // Start historical simulation
   const startSimulation = useCallback(async () => {
@@ -109,7 +113,8 @@ export default function BacktestPanel() {
   // Initial load
   useEffect(() => {
     runBacktest()
-  }, [runBacktest])
+    fetchSignalData()
+  }, [runBacktest, fetchSignalData])
 
   // Auto-refresh every 15 seconds
   useEffect(() => {
@@ -134,13 +139,6 @@ export default function BacktestPanel() {
   const pendingCount = signalStats?.signalsPending || 0
   const hasNewSignals = signalCount > prevSignalCountRef.current
   useEffect(() => { prevSignalCountRef.current = signalCount }, [signalCount])
-
-  const formatElapsed = (ms: number) => {
-    const sec = Math.floor(ms / 1000)
-    const min = Math.floor(sec / 60)
-    if (min > 0) return `${min}dk ${sec % 60}sn`
-    return `${sec}sn`
-  }
 
   return (
     <div className="space-y-4">

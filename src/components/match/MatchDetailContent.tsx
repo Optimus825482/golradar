@@ -73,13 +73,32 @@ export const MatchDetailContent = memo(function MatchDetailContent({
   const [ratingLoading, setRatingLoading] = useState(true);
 
   // ── Upcoming match prediction ──
-  const [prediction, setPrediction] = useState<any>(null);
+  interface PredictionResult {
+    homeElo: number;
+    awayElo: number;
+    eloPrediction: {
+      homeWinP: number;
+      drawP: number;
+      awayWinP: number;
+    };
+    mostLikelyScore: string;
+    poissonPrediction: {
+      lambdaHome: number;
+      lambdaAway: number;
+      over25: number;
+      btts: number;
+      anyGoal: number;
+    };
+    topScores: Array<{ score: string; prob: number }>;
+  }
+  const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [predLoading, setPredLoading] = useState(false);
 
   useEffect(() => {
     if (!match.isUpcoming || !match.home || !match.away) return;
     setPredLoading(true);
-    fetch(`/api/predict-upcoming?home=${encodeURIComponent(match.home)}&away=${encodeURIComponent(match.away)}`)
+    const p = new URLSearchParams({ home: match.home, away: match.away });
+    fetch(`/api/predict-upcoming?${p}`)
       .then(r => r.json())
       .then(d => { if (d.eloPrediction) setPrediction(d); })
       .catch(() => {})
@@ -89,9 +108,11 @@ export const MatchDetailContent = memo(function MatchDetailContent({
   useEffect(() => {
     if (!match.home || !match.away) return;
     setRatingLoading(true);
+    const hp = new URLSearchParams({ team: match.home });
+    const ap = new URLSearchParams({ team: match.away });
     Promise.all([
-      fetch(`/api/team-detail?team=${encodeURIComponent(match.home)}`).then(r => r.json()).catch(() => null),
-      fetch(`/api/team-detail?team=${encodeURIComponent(match.away)}`).then(r => r.json()).catch(() => null),
+      fetch(`/api/team-detail?${hp}`).then(r => r.json()).catch(() => null),
+      fetch(`/api/team-detail?${ap}`).then(r => r.json()).catch(() => null),
     ]).then(([h, a]) => {
       if (h?.team) setHomeRating(h);
       if (a?.team) setAwayRating(a);
@@ -728,7 +749,7 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               <div>
                 <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">En Olası Skorlar</div>
                 <div className="flex flex-wrap gap-1.5">
-                  {prediction.topScores.map((s: any, i: number) => (
+                  {prediction.topScores.map((s, i) => (
                     <span key={i} className={`text-[11px] font-mono font-bold px-2 py-1 rounded-lg border ${
                       i === 0 ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-gray-50 text-gray-600 border-gray-200'
                     }`}>

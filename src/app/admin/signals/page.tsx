@@ -49,7 +49,10 @@ export default function AdminSignalsPage() {
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch(`/api/goal-signals?action=records&date=${date}&page=${pageNum}&limit=${limit}`);
+      const params = new URLSearchParams({ action: 'records', date, page: String(pageNum), limit: String(limit) });
+      if (filterLevel) params.set('level', filterLevel);
+      if (filterResult) params.set('result', filterResult);
+      const resp = await fetch(`/api/goal-signals?${params}`);
       if (!resp.ok) { setError('Veri alinamadi'); setSignals([]); return; }
       const data = await resp.json();
       const records = data.records ?? [];
@@ -73,7 +76,7 @@ export default function AdminSignalsPage() {
       }
     } catch { setError('Baglanti hatasi'); setSignals([]); }
     setLoading(false);
-  }, []);
+  }, [filterLevel, filterResult]);
 
   useEffect(() => { load(selectedDate, 1); }, [selectedDate, limit, load]);
 

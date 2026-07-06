@@ -66,11 +66,11 @@ function signalDebug(msg: string, ctx?: Record<string, unknown>): void {
   logInfo('SignalTracker', msg, ctx);
 }
 
-// ── Local date helper ────────────────────────────────────
+// ── UTC date helper (C11: midnight consistency) ──────────────
 export const getLocalDateString = (d: Date = new Date()): string => {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
 
@@ -895,13 +895,15 @@ export async function getSignalRecordsForDate(
   date: string,
   page?: number,
   limit?: number,
+  filterLevel?: string,
+  filterResult?: string,
 ): Promise<GoalSignalRecord[]> {
-  return repoFindByDate(date, page, limit);
+  return repoFindByDate(date, page, limit, filterLevel, filterResult);
 }
 
 /** P4: Count signals for a date (used with pagination). */
-export async function getSignalCountForDate(date: string): Promise<number> {
-  return repoCountByDate(date);
+export async function getSignalCountForDate(date: string, filterLevel?: string, filterResult?: string): Promise<number> {
+  return repoCountByDate(date, filterLevel, filterResult);
 }
 
 export async function getSignalForMatch(

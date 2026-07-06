@@ -4,8 +4,6 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 // Server-side init runs once on module load (seed admin, etc.)
 import "@/lib/init";
-import { Suspense } from "react";
-import Loading from "./loading";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -67,9 +65,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground overscroll-none`}
       >
-        <Suspense fallback={<Loading />}>
-          {children}
-        </Suspense>
+        {children}
         <Toaster />
         {/* PWA Service Worker Registration */}
         <script

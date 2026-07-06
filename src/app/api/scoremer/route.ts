@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import {
   fetchScoremerMatchListCached,
   fetchScoremerMatchStatsCached,
@@ -52,7 +53,7 @@ async function findMatchViaTeamPage(
         }
       }
     } catch (err) {
-      console.error(`[Scoremer] Team page search error for ${teamName}:`, err);
+      logger.error({ err, teamName }, `[Scoremer] Team page search error`);
     }
   }
   return null;
@@ -160,7 +161,7 @@ async function handleScoremerRequest(request: Request, isPost: boolean) {
     // Auto-rebuild mapping if not found and team names provided
     if (!sId && matchCode && homeParam && awayParam) {
       try {
-        console.log(`[Scoremer] Auto-mapping for match ${matchCode}: ${homeParam} vs ${awayParam}`);
+        logger.info({ matchCode, homeParam, awayParam }, `[Scoremer] Auto-mapping`);
         const timeParam = searchParams.get("time") || "00:00";
         const nesineMatch = [{
           code: parseInt(matchCode, 10),
@@ -187,12 +188,12 @@ async function handleScoremerRequest(request: Request, isPost: boolean) {
             scoremerUrl: found.scoremerUrl,
             confidence: found.confidence,
           });
-          console.log(`[Scoremer] Auto-mapping (fixtures) for ${matchCode}: ${sId} (confidence: ${found.confidence.toFixed(2)})`);
+          logger.info({ matchCode, sId, confidence: found.confidence.toFixed(2) }, `[Scoremer] Auto-mapping (fixtures)`);
         }
 
         // Second try: search via team page
         if (!sId) {
-          console.log(`[Scoremer] Fixtures mapping failed, trying team page for ${homeParam}`);
+          logger.info({ homeParam }, `[Scoremer] Fixtures mapping failed, trying team page`);
           const teamResult = await findMatchViaTeamPage(homeParam, awayParam);
           if (teamResult) {
             sId = teamResult.scoremerId;
@@ -207,15 +208,15 @@ async function handleScoremerRequest(request: Request, isPost: boolean) {
               scoremerUrl: `/tr/match/${teamResult.scoremerId}`,
               confidence: teamResult.confidence,
             });
-            console.log(`[Scoremer] Auto-mapping (team page) for ${matchCode}: ${sId}`);
+            logger.info({ matchCode, sId }, `[Scoremer] Auto-mapping (team page)`);
           }
         }
 
         if (!sId) {
-          console.warn(`[Scoremer] Auto-mapping failed for match ${matchCode}: no match found`);
+          logger.warn({ matchCode }, `[Scoremer] Auto-mapping failed: no match found`);
         }
       } catch (err) {
-        console.error(`[Scoremer] Auto-mapping error for match ${matchCode}:`, err);
+        logger.error({ err, matchCode }, `[Scoremer] Auto-mapping error`);
       }
     }
 
@@ -236,7 +237,7 @@ async function handleScoremerRequest(request: Request, isPost: boolean) {
       if (matchWithInlineStats?.stats) {
         // Use inline stats from the match list (faster, no extra request)
         stats = matchWithInlineStats.stats;
-        console.log(`[Scoremer] Using inline stats for ${sId} (no extra fetch needed)`);
+        logger.info({ sId }, `[Scoremer] Using inline stats (no extra fetch)`);
       } else {
         // Fallback: fetch from match_live page
         stats = await fetchScoremerMatchStatsCached(sId);

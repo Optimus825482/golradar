@@ -153,7 +153,9 @@ export const POST = adminRoute(async (req: Request) => {
             modelVariant: 'goaloo-bulk', featuresJson: JSON.stringify(featuresToArray(features)),
             goalScored: nextGoal != null, minutesToGoal: nextGoal != null ? nextGoal - minNum : null,
           });
-        } catch { /* skip */ }
+          } catch (e) {
+            console.warn('[BulkEnrich] predLog skip:', (e as Error)?.message);
+          }
       }
 
       if (predLogs.length > 0) {
@@ -163,7 +165,8 @@ export const POST = adminRoute(async (req: Request) => {
       enriched = 1;
       totalPredictions += predLogs.length;
       totalEvents += goalEvents.length;
-    } catch {
+    } catch (e) {
+      console.warn('[BulkEnrich] processOne error:', (e as Error)?.message);
       errCount = 1;
     }
 
@@ -182,7 +185,9 @@ export const POST = adminRoute(async (req: Request) => {
     try {
       const sm = await fetchGoalooSeasonMatches(league.id, season);
       totalAllMatches += sm.filter((m: any) => m.state === -1).length;
-    } catch {}
+    } catch (e) {
+      console.warn('[BulkEnrich] count matches failed:', (e as Error)?.message);
+    }
   }
   startEnrich(Math.min(maxMatches, totalAllMatches));
 

@@ -136,11 +136,22 @@ function fromGoalSignalRecord(record: GoalSignalRecord) {
 /**
  * All signals for a single date. Ordered by signalTimestamp ASC.
  */
-export async function findByDate(date: string, page?: number, limit?: number): Promise<GoalSignalRecord[]> {
+function buildDateWhere(date: string, filterLevel?: string, filterResult?: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const where: any = { date };
+  if (filterLevel) where.signalLevel = filterLevel;
+  if (filterResult === 'goal') where.goalHappened = true;
+  else if (filterResult === 'nogoal') where.goalHappened = false;
+  else if (filterResult === 'pending') where.goalHappened = null;
+  return where;
+}
+
+export async function findByDate(date: string, page?: number, limit?: number, filterLevel?: string, filterResult?: string): Promise<GoalSignalRecord[]> {
   const skip = page != null && limit != null ? (page - 1) * limit : undefined;
   const take = limit ?? undefined;
+  const where = buildDateWhere(date, filterLevel, filterResult);
   const rows = await db.signal.findMany({
-    where: { date },
+    where,
     orderBy: { signalTimestamp: 'asc' },
     skip,
     take,
@@ -151,8 +162,9 @@ export async function findByDate(date: string, page?: number, limit?: number): P
 /**
  * Count signals for a given date. Used with findByDate for pagination.
  */
-export async function countByDate(date: string): Promise<number> {
-  return db.signal.count({ where: { date } });
+export async function countByDate(date: string, filterLevel?: string, filterResult?: string): Promise<number> {
+  const where = buildDateWhere(date, filterLevel, filterResult);
+  return db.signal.count({ where });
 }
 
 /**
@@ -301,19 +313,36 @@ export async function updateLastValues(
 // ── Writes ──────────────────────────────────────────────────────
 
 /**
- * Create a new signal record. Used only for brand-new signals.
- * (matchCode, date, signalSide) unique constraint prevents duplicates.
+ * Create or update a signal record atomically. Uses upsert on the
+ * (matchCode, date, signalSide) unique constraint so two concurrent
+ * polls never race. C12: replaced try-catch-P2002 with upsert.
  */
 export async function createSignal(
   record: GoalSignalRecord,
 ): Promise<GoalSignalRecord | null> {
   const data = fromGoalSignalRecord(record);
   try {
-    const row = await db.signal.create({ data });
+    const row = await db.signal.upsert({
+      where: {
+        matchCode_date_signalSide: {
+          matchCode: data.matchCode,
+          date: data.date,
+          signalSide: data.signalSide,
+        },
+      },
+      update: {
+        lastScore: data.lastScore,
+        lastCalibratedP: data.lastCalibratedP,
+        lastPoissonP: data.lastPoissonP,
+        lastFactors: data.lastFactors,
+        lastSignalTimestamp: data.lastSignalTimestamp,
+      },
+      create: data,
+    });
     return toGoalSignalRecord(row);
   } catch (err: unknown) {
-    if (isPrismaUniqueViolation(err)) return null;
-    throw err;
+    logError('signalRepository', 'createSignal upsert failed:', err);
+    return null;
   }
 }
 
@@ -525,15 +554,6 @@ export async function expireHalftimeBatch(
 }
 
 // ── Error guards ────────────────────────────────────────────────
-
-function isPrismaUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    (err as { code?: string }).code === 'P2002'
-  );
-}
 
 function isPrismaNotFound(err: unknown): boolean {
   return (

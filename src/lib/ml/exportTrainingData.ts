@@ -20,21 +20,28 @@
 // a flat file. Errors are recorded on the TrainingDataset row so the
 // scheduler can skip + alert on failed exports.
 
-import { createHash } from 'crypto';
-import { mkdir, writeFile } from 'fs/promises';
-import { join } from 'path';
-import { db } from '../db';
-import { extractFeatures, featuresToArray, FEATURE_NAMES, horizonAwareLabel, type MatchFeatures } from '../featureEngineering';
-import type { FeatureExtractionInput } from '../featureEngineering';
+import { createHash } from "crypto";
+import { mkdir, writeFile } from "fs/promises";
+import { join } from "path";
+import { db } from "../db";
+import { logInfo } from "../devLog";
+import {
+  extractFeatures,
+  featuresToArray,
+  FEATURE_NAMES,
+  horizonAwareLabel,
+  type MatchFeatures,
+} from "../featureEngineering";
+import type { FeatureExtractionInput } from "../featureEngineering";
 
 // Use the Docker volume mount path (/app/data/ml-training) so the file is
 // visible to the ml-trainer sidecar which mounts the same volume at /data.
 // Falls back to cwd-relative path for local development.
 export const TRAINING_DIR = process.env.ML_DATA_DIR
-  ? join(process.env.ML_DATA_DIR, 'ml-training')
-  : process.env.NODE_ENV === 'production'
-  ? '/app/data/ml-training'
-  : join(process.cwd(), 'data', 'ml-training');
+  ? join(process.env.ML_DATA_DIR, "ml-training")
+  : process.env.NODE_ENV === "production"
+    ? "/app/data/ml-training"
+    : join(process.cwd(), "data", "ml-training");
 
 export type TrainingHorizon = 5 | 10 | 15;
 
@@ -102,9 +109,7 @@ function reconstructFeatureInput(log: any): FeatureExtractionInput | null {
 }
 
 function hashRows(rows: TrainingRow[]): string {
-  return createHash('sha256')
-    .update(JSON.stringify(rows))
-    .digest('hex');
+  return createHash("sha256").update(JSON.stringify(rows)).digest("hex");
 }
 
 /**
@@ -172,7 +177,7 @@ export async function exportTrainingData(
     where: {
       createdAt: { gte: cutoff },
       // Bulk enrichment verilerini eğitimden çıkar (boş stat'lı eski kayıtlar)
-      modelVariant: { not: 'goaloo-bulk' },
+      modelVariant: { not: "goaloo-bulk" },
     },
     select: {
       id: true,
@@ -225,15 +230,15 @@ export async function exportTrainingData(
   let labeledFromEvents = 0;
   let recomputedLabels = 0;
 
-	for (const log of predictionLogs) {
-	    // Cron ile train-inference skew'u önle: cron'un sinyal üretmediği
-	    // dakikaları (0-2, 43-45, 89+) eğitim verisinden de çıkar.
-	    const logMin = log.minute ?? 0;
-	    if (logMin <= 2 || (logMin >= 43 && logMin <= 45) || logMin >= 89) {
-	      continue;
-	    }
+  for (const log of predictionLogs) {
+    // Cron ile train-inference skew'u önle: cron'un sinyal üretmediği
+    // dakikaları (0-2, 43-45, 89+) eğitim verisinden de çıkar.
+    const logMin = log.minute ?? 0;
+    if (logMin <= 2 || (logMin >= 43 && logMin <= 45) || logMin >= 89) {
+      continue;
+    }
 
-	    if (!log.featuresJson) {
+    if (!log.featuresJson) {
       skippedMissingFeatures++;
       continue;
     }
@@ -245,7 +250,9 @@ export async function exportTrainingData(
     try {
       const rawParsed = JSON.parse(log.featuresJson);
       // DB'de array olarak kaydedilmişse direkt kullan, object ise featuresToArray
-      features = Array.isArray(rawParsed) ? rawParsed : featuresToArray(rawParsed as MatchFeatures);
+      features = Array.isArray(rawParsed)
+        ? rawParsed
+        : featuresToArray(rawParsed as MatchFeatures);
     } catch {
       const input = reconstructFeatureInput(log);
       if (!input) {
@@ -255,46 +262,49 @@ export async function exportTrainingData(
       const extracted = await extractFeatures(input);
       features = featuresToArray(extracted);
     }
-	    // NaN/Inf temizleme (Fix D1): XGBoost NaN değerleri tolere etmez
-	    features = features.map(v => Number.isFinite(v) ? v : 0);
+    // NaN/Inf temizleme (Fix D1): XGBoost NaN değerleri tolere etmez
+    features = features.map((v) => (Number.isFinite(v) ? v : 0));
 
-	    // Feature boyutunu FEATURE_NAMES'e sabitle + sapma alarmı
-	    const TARGET_FEATURE_COUNT = FEATURE_NAMES.length;
-	    if (features.length !== TARGET_FEATURE_COUNT) {
-	      console.warn(
-	        `[Export] WARNING: feature count mismatch ${features.length} vs expected ${TARGET_FEATURE_COUNT} ` +
-	        `for matchCode=${log.matchCode} minute=${log.minute}. ` +
-	        `Pad/trim applied but investigate featuresJson source.`,
-	      );
-	      if (features.length > TARGET_FEATURE_COUNT) {
-	        features = features.slice(0, TARGET_FEATURE_COUNT);
-	      } else {
-	        features = [...features, ...Array(TARGET_FEATURE_COUNT - features.length).fill(0.5)];
-	      }
-	    }
+    // Feature boyutunu FEATURE_NAMES'e sabitle + sapma alarmı
+    const TARGET_FEATURE_COUNT = FEATURE_NAMES.length;
+    if (features.length !== TARGET_FEATURE_COUNT) {
+      console.warn(
+        `[Export] WARNING: feature count mismatch ${features.length} vs expected ${TARGET_FEATURE_COUNT} ` +
+          `for matchCode=${log.matchCode} minute=${log.minute}. ` +
+          `Pad/trim applied but investigate featuresJson source.`,
+      );
+      if (features.length > TARGET_FEATURE_COUNT) {
+        features = features.slice(0, TARGET_FEATURE_COUNT);
+      } else {
+        features = [
+          ...features,
+          ...Array(TARGET_FEATURE_COUNT - features.length).fill(0.5),
+        ];
+      }
+    }
 
-	    // Primary label: PredictionLog.goalScored + minutesToGoal (backfill).
-	    // FIX (2026-07-05): backfillPredictionLogLabels uses a 15-min horizon
-	    // for ALL rows, but short-horizon models need horizon-aware labels.
-	    // Use horizonAwareLabel to recompute when minutesToGoal is available.
-	    // Secondary: MatchEvent join for logs where goalScored is still null.
-	    let label: number;
-	    let recomputedLabel = false;
-	    if (log.goalScored !== null) {
-	      const corrected = horizonAwareLabel(
-	        log.goalScored,
-	        log.minutesToGoal ?? null,
-	        horizon,
-	      );
-	      label = corrected.label;
-	      recomputedLabel = corrected.recomputed;
-	      if (recomputedLabel) recomputedLabels++;
-	      labeledFromDb++;
-	    } else {
-	      const matchGoals = goalsByMatch.get(log.matchCode) ?? [];
-	      label = labelForLog(log.createdAt, horizon, matchGoals);
-	      labeledFromEvents++;
-	    }
+    // Primary label: PredictionLog.goalScored + minutesToGoal (backfill).
+    // FIX (2026-07-05): backfillPredictionLogLabels uses a 15-min horizon
+    // for ALL rows, but short-horizon models need horizon-aware labels.
+    // Use horizonAwareLabel to recompute when minutesToGoal is available.
+    // Secondary: MatchEvent join for logs where goalScored is still null.
+    let label: number;
+    let recomputedLabel = false;
+    if (log.goalScored !== null) {
+      const corrected = horizonAwareLabel(
+        log.goalScored,
+        log.minutesToGoal ?? null,
+        horizon,
+      );
+      label = corrected.label;
+      recomputedLabel = corrected.recomputed;
+      if (recomputedLabel) recomputedLabels++;
+      labeledFromDb++;
+    } else {
+      const matchGoals = goalsByMatch.get(log.matchCode) ?? [];
+      label = labelForLog(log.createdAt, horizon, matchGoals);
+      labeledFromEvents++;
+    }
 
     rows.push({
       matchCode: log.matchCode,
@@ -320,9 +330,11 @@ export async function exportTrainingData(
   // Label distribution sanity check
   const positives = rows.filter((r) => r.label === 1).length;
   const negatives = rows.length - positives;
-  const nullRate = predictionLogs.length > 0
-    ? predictionLogs.filter(l => l.goalScored === null).length / predictionLogs.length
-    : 0;
+  const nullRate =
+    predictionLogs.length > 0
+      ? predictionLogs.filter((l) => l.goalScored === null).length /
+        predictionLogs.length
+      : 0;
 
   // P2 alarm: >90% null goalScored AND no MatchEvent fallback → backfill broken
   // ponytail: MatchEvent fallback is the primary label path for active matches.
@@ -330,16 +342,18 @@ export async function exportTrainingData(
   if (nullRate > 0.9 && positives === 0) {
     console.warn(
       `[Export] ALERT: ${(nullRate * 100).toFixed(0)}% null goalScored AND 0 labeled rows. ` +
-      `Both backfill and MatchEvent paths are broken. Check finalizeMatchSignals.`,
+        `Both backfill and MatchEvent paths are broken. Check finalizeMatchSignals.`,
     );
   } else if (nullRate > 0.9 && positives > 0) {
-    console.log(
-      `[Export] goalScored=${(nullRate * 100).toFixed(0)}% null — using MatchEvent fallback (${positives} positives OK)`,
+    logInfo(
+      "Export",
+      `goalScored=${(nullRate * 100).toFixed(0)}% null — using MatchEvent fallback (${positives} positives OK)`,
     );
   }
 
-  console.log(
-    `[Export] ${rows.length} rows, ${positives} positives (${((positives / rows.length) * 100).toFixed(1)}%), ` +
+  logInfo(
+    "Export",
+    `${rows.length} rows, ${positives} positives (${((positives / rows.length) * 100).toFixed(1)}%), ` +
       `${negatives} negatives for horizon=${horizon}min` +
       (labeledFromDb > 0
         ? ` (${labeledFromDb} from DB goalScored${recomputedLabels > 0 ? `, ${recomputedLabels} horizon-corrected` : ""}, ${labeledFromEvents} from MatchEvent)`
@@ -397,23 +411,23 @@ export async function exportTrainingData(
       0,
     ) / rows.length;
 
-	  // Dedup: aynı gün+horizon için eski dataset varsa sil (her 15dk tick'te
-	  // yeni kayıt oluşmasın). Son 3 kaydı koru (güvenlik).
-	  const existingRows = await db.trainingDataset.findMany({
-	    where: { horizonMin: horizon },
-	    select: { id: true, createdAt: true },
-	    orderBy: { createdAt: 'desc' },
-	  });
-        if (existingRows.length >= 3) {
-          const toDelete = existingRows.slice(3); // keep top 3 newest
-		    // FIX: deleteMany — delete() record yoksa prisma:error firlatir,
-		    // .catch() sessize alsa bile log'a yazilir.
-		    const idsToDelete = toDelete.map(x => x.id);
-		    await db.trainingDataset.deleteMany({ where: { id: { in: idsToDelete } } });
-		  }
+  // Dedup: aynı gün+horizon için eski dataset varsa sil (her 15dk tick'te
+  // yeni kayıt oluşmasın). Son 3 kaydı koru (güvenlik).
+  const existingRows = await db.trainingDataset.findMany({
+    where: { horizonMin: horizon },
+    select: { id: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+  if (existingRows.length >= 3) {
+    const toDelete = existingRows.slice(3); // keep top 3 newest
+    // FIX: deleteMany — delete() record yoksa prisma:error firlatir,
+    // .catch() sessize alsa bile log'a yazilir.
+    const idsToDelete = toDelete.map((x) => x.id);
+    await db.trainingDataset.deleteMany({ where: { id: { in: idsToDelete } } });
+  }
 
-	  // Create the TrainingDataset row
-	  const dataset = await db.trainingDataset.create({
+  // Create the TrainingDataset row
+  const dataset = await db.trainingDataset.create({
     data: {
       horizonMin: horizon,
       rowCount: rows.length,
@@ -443,12 +457,10 @@ export async function exportTrainingData(
  * after a successful train job). Helps the scheduler skip
  * already-trained datasets.
  */
-export async function markDatasetConsumed(
-  datasetId: string,
-): Promise<void> {
+export async function markDatasetConsumed(datasetId: string): Promise<void> {
   await db.trainingDataset.update({
     where: { id: datasetId },
-    data: { status: 'consumed' },
+    data: { status: "consumed" },
   });
 }
 
@@ -462,7 +474,7 @@ export async function markDatasetFailed(
 ): Promise<void> {
   await db.trainingDataset.update({
     where: { id: datasetId },
-    data: { status: 'failed', errorMsg },
+    data: { status: "failed", errorMsg },
   });
 }
 
@@ -479,8 +491,8 @@ export async function recordExportFailure(
       horizonMin: horizon,
       rowCount: 0,
       path: join(TRAINING_DIR, `${horizon}min-failed-${Date.now()}.jsonl`),
-      sha256: '',
-      status: 'failed',
+      sha256: "",
+      status: "failed",
       errorMsg,
     },
   });

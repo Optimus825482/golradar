@@ -1,47 +1,68 @@
-'use client'
+"use client";
 
-import type { Match } from './types'
-import { calculatePressure } from './utils'
-import { StarIcon } from '@/components/ui/icons'
+import type { Match } from "./types";
+import { calculatePressure } from "./utils";
+import { StarIcon } from "@/components/ui/icons";
 
-export function FinishedMatchCard({ match, onClick, isSelected, isFavorite, onToggleFavorite, hasNetScores, hasScoremer }: {
-  match: Match
-  onClick: () => void
-  isSelected?: boolean
-  isFavorite?: boolean
-  onToggleFavorite?: (e: React.MouseEvent) => void
-  hasNetScores?: boolean
-  hasScoremer?: boolean
+export function FinishedMatchCard({
+  match,
+  onClick,
+  isSelected,
+  isFavorite,
+  onToggleFavorite,
+  hasNetScores,
+  hasScoremer,
+}: {
+  match: Match;
+  onClick: () => void;
+  isSelected?: boolean;
+  isFavorite?: boolean;
+  onToggleFavorite?: (e: React.MouseEvent) => void;
+  hasNetScores?: boolean;
+  hasScoremer?: boolean;
 }) {
-  const pressure = match.hasStats ? calculatePressure(match.stats) : null
-  const homeWon = match.homeGoals > match.awayGoals
-  const awayWon = match.awayGoals > match.homeGoals
-  const isDraw = match.homeGoals === match.awayGoals
-  const hasGoals = match.homeGoals > 0 || match.awayGoals > 0
+  const pressure = match.hasStats ? calculatePressure(match.stats) : null;
+  const homeWon = match.homeGoals > match.awayGoals;
+  const awayWon = match.awayGoals > match.homeGoals;
+  const isDraw = match.homeGoals === match.awayGoals;
+  const hasGoals = match.homeGoals > 0 || match.awayGoals > 0;
 
   return (
     <div
       onClick={onClick}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       className={`px-3 py-2.5 cursor-pointer border-b border-gray-50 last:border-0 transition-all duration-150 hover:bg-blue-50/40 active:bg-blue-50 relative ${
-        isSelected ? 'bg-blue-50/60 border-l-4 border-l-blue-500' : ''
+        isSelected ? "bg-blue-50/60 border-l-4 border-l-blue-500" : ""
       }`}
     >
       <div className="flex items-center gap-2">
         <div className="w-10 text-center shrink-0">
-          <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">MS</span>
+          <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+            MS
+          </span>
         </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 max-w-[35%]">
-              <span className={`text-[13px] truncate font-medium ${homeWon ? 'font-bold text-emerald-700' : 'text-gray-600'}`}>{match.home}</span>
+              <span
+                className={`text-[13px] truncate font-medium ${homeWon ? "font-bold text-emerald-700" : "text-gray-600"}`}
+              >
+                {match.home}
+              </span>
             </div>
-            <span className={`text-[14px] font-mono font-black px-2 min-w-[50px] text-center relative ${
-              isDraw ? 'text-gray-600' : 'text-gray-900'
-            }`}>
+            <span
+              className={`text-[14px] font-mono font-black px-2 min-w-[50px] text-center relative ${
+                isDraw ? "text-gray-600" : "text-gray-900"
+              }`}
+            >
               {match.homeGoals} - {match.awayGoals}
               {hasGoals && (
                 <span
@@ -56,35 +77,46 @@ export function FinishedMatchCard({ match, onClick, isSelected, isFavorite, onTo
               )}
             </span>
             <div className="flex items-center gap-1 max-w-[35%] justify-end">
-              <span className={`text-[13px] truncate text-right font-medium ${awayWon ? 'font-bold text-emerald-700' : 'text-gray-600'}`}>{match.away}</span>
+              <span
+                className={`text-[13px] truncate text-right font-medium ${awayWon ? "font-bold text-emerald-700" : "text-gray-600"}`}
+              >
+                {match.away}
+              </span>
             </div>
           </div>
 
           <div className="flex items-center justify-center gap-2 mt-0.5">
-            {match.firstHalfScore !== '-' && (
-              <span className="text-[9px] text-gray-400">İY: {match.firstHalfScore}</span>
+            {match.firstHalfScore !== "-" && (
+              <span className="text-[9px] text-gray-400">
+                İY: {match.firstHalfScore}
+              </span>
             )}
             {pressure && (
               <span className="text-[9px] text-gray-400">
-                Baskı: <span className="text-orange-500">{pressure.home}%</span> - <span className="text-blue-500">{pressure.away}%</span>
+                Baskı: <span className="text-orange-500">{pressure.home}%</span>{" "}
+                - <span className="text-blue-500">{pressure.away}%</span>
               </span>
             )}
             {hasNetScores && (
-              <span className="text-[9px] text-emerald-500 font-semibold">⚓ Detaylı</span>
+              <span className="text-[9px] text-emerald-500 font-semibold">
+                ⚓ Detaylı
+              </span>
             )}
             {hasScoremer && (
-              <span className="text-[9px] text-purple-500 font-semibold">📊 İstatistik</span>
+              <span className="text-[9px] text-purple-500 font-semibold">
+                📊 İstatistik
+              </span>
             )}
           </div>
         </div>
 
-        <button
-          onClick={onToggleFavorite}
-          className="shrink-0 p-1"
-        >
-          <StarIcon filled={isFavorite} className={`w-4 h-4 ${isFavorite ? 'text-amber-400' : 'text-gray-300'}`} />
+        <button onClick={onToggleFavorite} className="shrink-0 p-1">
+          <StarIcon
+            filled={!!isFavorite}
+            className={`w-4 h-4 ${isFavorite ? "text-amber-400" : "text-gray-300"}`}
+          />
         </button>
       </div>
     </div>
-  )
+  );
 }

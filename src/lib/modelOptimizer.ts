@@ -7,10 +7,12 @@
 //   3. optimizeEnsembleWeights() — grid search best weight combination
 //   4. OptimizeAndPersist() — run all + persist results
 
+import * as fs from "fs";
+import * as path from "path";
 import { db } from "./db";
 import { calibrateScore } from "./calibration";
 import { CALIBRATION_PARAMS } from "./calibration";
-import { logError } from '@/lib/devLog';
+import { logError, logInfo } from "@/lib/devLog";
 
 // ════════════════════════════════════════════════════════════════
 // 1. BACKTEST FROM DB
@@ -51,16 +53,16 @@ export async function runBacktestFromDB(
       modelVariant,
       minute: { gte: minMinute },
     },
-	    select: {
-	      rawScore: true,
-	      calibratedP: true,
-	      goalScored: true,
-	      minute: true,
-	      homeElo: true,
-	      awayElo: true,
-	      poissonHomeP: true,
-	      poissonAwayP: true,
-	    },
+    select: {
+      rawScore: true,
+      calibratedP: true,
+      goalScored: true,
+      minute: true,
+      homeElo: true,
+      awayElo: true,
+      poissonHomeP: true,
+      poissonAwayP: true,
+    },
     orderBy: { createdAt: "desc" },
     take: 20000,
   });
@@ -242,8 +244,6 @@ export async function fitPoissonTeamStrengths(
 
   // Persist
   try {
-    const fs = require("fs");
-    const path = require("path");
     const dir = path.join(process.cwd(), "data", "poisson");
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `strengths_${season}_${leagueId}.json`);
@@ -251,10 +251,13 @@ export async function fitPoissonTeamStrengths(
       file,
       JSON.stringify(Array.from(strengths.entries()), null, 2),
     );
-    console.log(
-      `[PoissonFit] Saved ${strengths.size} team strengths for league ${leagueId} season ${season}`,
+    logInfo(
+      "PoissonFit",
+      `Saved ${strengths.size} team strengths for league ${leagueId} season ${season}`,
     );
-  } catch (e) { logError('modelOptimizer', e); }
+  } catch (e) {
+    logError("modelOptimizer", e);
+  }
 
   return strengths;
 }
@@ -280,15 +283,15 @@ export async function optimizeEnsembleWeights(
       goalScored: { not: null },
       modelVariant,
     },
-	    select: {
-	      rawScore: true,
-	      calibratedP: true,
-	      goalScored: true,
-	      homeElo: true,
-	      awayElo: true,
-	      poissonHomeP: true,
-	      poissonAwayP: true,
-	    },
+    select: {
+      rawScore: true,
+      calibratedP: true,
+      goalScored: true,
+      homeElo: true,
+      awayElo: true,
+      poissonHomeP: true,
+      poissonAwayP: true,
+    },
     take: 5000,
   });
 
@@ -311,43 +314,48 @@ export async function optimizeEnsembleWeights(
         const wm = 1 - wr - wp - we;
         if (wm < 0) continue;
 
-	          // For each log, compute ensemble probability = weighted average
-	          let brierSum = 0;
-	          for (const log of logs) {
-	            // Estimate per-model probabilities from available signals:
-	            // - ruleP: rawScore mapped to 0-1 via sigmoid
-	            // - poissonP: from stored Poisson model output (actual Dixon-Coles)
-	            // - eloP: from stored Elo ratings
-	            // - mlP: calibratedP as ML-informed baseline
-	            const ruleP = Math.max(0.01, Math.min(0.99, log.rawScore / 100));
-	            
-	            // Gerçek Poisson model çıktısı (PredictionLog.poissonHomeP/poissonAwayP)
-	            // Hiçbiri yoksa Elo'dan proxy (fallback)
-	            let poissonP: number;
-	            if (log.poissonHomeP != null && log.poissonAwayP != null) {
-	              // Any goal probability: 1 - P(no home goal) * P(no away goal)
-	              poissonP = 1 - (1 - log.poissonHomeP) * (1 - log.poissonAwayP);
-	            } else if (log.poissonHomeP != null) {
-	              poissonP = log.poissonHomeP;
-	            } else {
-	              // Fallback: Elo proxy
-	              const eloDiff = (log.homeElo ?? 1500) - (log.awayElo ?? 1500);
-	              poissonP = Math.max(0.01, Math.min(0.99, 0.15 + (eloDiff / 400) * 0.1));
-	            }
-	            poissonP = Math.max(0.01, Math.min(0.99, poissonP));
-	            
-	            // Elo-based estimate (bağımsız sinyal)
-	            const eloDiff = (log.homeElo ?? 1500) - (log.awayElo ?? 1500);
-	            const eloP = Math.max(0.01, Math.min(0.99, 
-	              0.12 + (eloDiff / 400) * 0.15));
-            
-            // ML estimate: calibratedP is the best single estimate
-            const mlP = Math.max(0.01, Math.min(0.99, log.calibratedP));
+        // For each log, compute ensemble probability = weighted average
+        let brierSum = 0;
+        for (const log of logs) {
+          // Estimate per-model probabilities from available signals:
+          // - ruleP: rawScore mapped to 0-1 via sigmoid
+          // - poissonP: from stored Poisson model output (actual Dixon-Coles)
+          // - eloP: from stored Elo ratings
+          // - mlP: calibratedP as ML-informed baseline
+          const ruleP = Math.max(0.01, Math.min(0.99, log.rawScore / 100));
 
-            // Weighted ensemble
-            const ensembleP = wr * ruleP + wp * poissonP + we * eloP + wm * mlP;
-            brierSum += (ensembleP - (log.goalScored ? 1 : 0)) ** 2;
+          // Gerçek Poisson model çıktısı (PredictionLog.poissonHomeP/poissonAwayP)
+          // Hiçbiri yoksa Elo'dan proxy (fallback)
+          let poissonP: number;
+          if (log.poissonHomeP != null && log.poissonAwayP != null) {
+            // Any goal probability: 1 - P(no home goal) * P(no away goal)
+            poissonP = 1 - (1 - log.poissonHomeP) * (1 - log.poissonAwayP);
+          } else if (log.poissonHomeP != null) {
+            poissonP = log.poissonHomeP;
+          } else {
+            // Fallback: Elo proxy
+            const eloDiff = (log.homeElo ?? 1500) - (log.awayElo ?? 1500);
+            poissonP = Math.max(
+              0.01,
+              Math.min(0.99, 0.15 + (eloDiff / 400) * 0.1),
+            );
           }
+          poissonP = Math.max(0.01, Math.min(0.99, poissonP));
+
+          // Elo-based estimate (bağımsız sinyal)
+          const eloDiff = (log.homeElo ?? 1500) - (log.awayElo ?? 1500);
+          const eloP = Math.max(
+            0.01,
+            Math.min(0.99, 0.12 + (eloDiff / 400) * 0.15),
+          );
+
+          // ML estimate: calibratedP is the best single estimate
+          const mlP = Math.max(0.01, Math.min(0.99, log.calibratedP));
+
+          // Weighted ensemble
+          const ensembleP = wr * ruleP + wp * poissonP + we * eloP + wm * mlP;
+          brierSum += (ensembleP - (log.goalScored ? 1 : 0)) ** 2;
+        }
 
         const brier = brierSum / logs.length;
         if (brier < bestBrier) {
@@ -364,8 +372,9 @@ export async function optimizeEnsembleWeights(
     }
   }
 
-  console.log(
-    `[EnsembleOpt] Best weights: rule=${bestWeights.ruleBased} poisson=${bestWeights.poisson} elo=${bestWeights.elo} ml=${bestWeights.ml} Brier=${bestWeights.brierScore}`,
+  logInfo(
+    "EnsembleOpt",
+    `Best weights: rule=${bestWeights.ruleBased} poisson=${bestWeights.poisson} elo=${bestWeights.elo} ml=${bestWeights.ml} Brier=${bestWeights.brierScore}`,
   );
   return bestWeights;
 }
@@ -391,7 +400,7 @@ export async function runFullOptimization(
   leagueId: number = 34,
   season: string = "2025-2026",
 ): Promise<OptimizationReport> {
-  console.log("[Optimizer] Starting full optimization...");
+  logInfo("Optimizer", "Starting full optimization...");
 
   const [backtest, calibration, poissonMap, ensemble] = await Promise.all([
     runBacktestFromDB("goaloo-season"),
@@ -410,8 +419,6 @@ export async function runFullOptimization(
 
   // Persist report
   try {
-    const fs = require("fs");
-    const path = require("path");
     const dir = path.join(process.cwd(), "data", "optimization");
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const file = path.join(
@@ -419,10 +426,12 @@ export async function runFullOptimization(
       `report_${new Date().toISOString().slice(0, 10)}.json`,
     );
     fs.writeFileSync(file, JSON.stringify(report, null, 2));
-    console.log("[Optimizer] Report saved to", file);
-  } catch (e) { logError('modelOptimizer', e); }
+    logInfo("Optimizer", "Report saved to", file);
+  } catch (e) {
+    logError("modelOptimizer", e);
+  }
 
-  console.log("[Optimizer] Done:", {
+  logInfo("Optimizer", "Done:", {
     predictions: backtest?.totalPredictions,
     brier: backtest?.brierScore,
     calibration: calibration

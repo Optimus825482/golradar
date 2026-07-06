@@ -7,22 +7,26 @@
 // On-demand from the admin endpoint and nightly at 04:00 local
 // via `trainingScheduler.ts` (auto-fit step after the daily export).
 
-import { db } from '../db';
+import { db } from "../db";
 import {
   fitBatch,
   serializeTeamStrength,
   type ScoredMatch,
   type TeamStrengthModel,
   type KalmanConfig,
-} from './teamStrengthKalman';
-import { registerArtifact, loadTeamStrengthChampion } from './modelRouter';
-import { getScoremerMatchesForDateRange, filterScoremerMatchesByStatus } from '../scoremer';
-import { fetchFotMobMatches, fetchMatchDetails } from '../fotmob';
+} from "./teamStrengthKalman";
+import { registerArtifact, loadTeamStrengthChampion } from "./modelRouter";
+import {
+  getScoremerMatchesForDateRange,
+  filterScoremerMatchesByStatus,
+} from "../scoremer";
+import { fetchFotMobMatches, fetchMatchDetails } from "../fotmob";
 // sofascore.ts is server-only (uses child_process). Dynamic
 // import inside backfillFromSofascore prevents Turbopack from
 // tracing it into the client bundle via the admin page chain.
-import { predictMatch } from './teamStrengthKalman';
-import { GOALOO_LEAGUES } from './goalooLeagues';
+import { predictMatch } from "./teamStrengthKalman";
+import { GOALOO_LEAGUES } from "./goalooLeagues";
+import { logInfo } from "../devLog";
 // goaloo.ts is server-only (uses child_process / node:fs). Dynamic
 // import here prevents Turbopack from tracing it into the client
 // bundle via the teamHistoryBackfill -> ensemble -> page chain.
@@ -47,8 +51,11 @@ export interface BackfillResult {
 function normalize(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[ \s]+/g, ' ')
-    .replace(/[^a-z0-9 çğıöşüâêîôûàèìòùáéíóúñäëïöüÿßœæÇĞIÖŞÜÂÊÎÔÛÀÈÌÒÙÁÉÍÓÚÑÄËÏÖÜŸ]+/g, '')
+    .replace(/[ \s]+/g, " ")
+    .replace(
+      /[^a-z0-9 çğıöşüâêîôûàèìòùáéíóúñäëïöüÿßœæÇĞIÖŞÜÂÊÎÔÛÀÈÌÒÙÁÉÍÓÚÑÄËÏÖÜŸ]+/g,
+      "",
+    )
     .trim();
 }
 
@@ -66,25 +73,25 @@ interface ScoremerMatchLite {
  * Pull finished matches in a date range and upsert into
  * TeamHistoryMatch. Source: Scoremer.
  */
-export type BackfillSource = 'scoremer' | 'goaloo' | 'fotmob' | 'sofascore';
+export type BackfillSource = "scoremer" | "goaloo" | "fotmob" | "sofascore";
 
 export async function backfillTeamHistory(
   startDate: Date,
   endDate: Date,
-  source: BackfillSource = 'goaloo',
+  source: BackfillSource = "goaloo",
 ): Promise<{
   scraped: number;
   inserted: number;
   skippedDuplicate: number;
 }> {
   switch (source) {
-    case 'goaloo':
+    case "goaloo":
       return backfillFromGoaloo(startDate, endDate);
-    case 'scoremer':
+    case "scoremer":
       return backfillFromScoremer(startDate, endDate);
-    case 'fotmob':
+    case "fotmob":
       return backfillFromFotmob(startDate, endDate);
-    case 'sofascore':
+    case "sofascore":
       return backfillFromSofascore(startDate, endDate);
   }
 }
@@ -94,7 +101,7 @@ async function backfillFromScoremer(
   endDate: Date,
 ): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {
   const raw = await getScoremerMatchesForDateRange(startDate, endDate);
-  const finished = filterScoremerMatchesByStatus(raw, 'finished');
+  const finished = filterScoremerMatchesByStatus(raw, "finished");
   let scraped = 0;
   let inserted = 0;
   let skippedDuplicate = 0;
@@ -126,7 +133,7 @@ async function backfillFromScoremer(
           homeGoals: m.homeScore,
           awayGoals: m.awayScore,
           league: m.league || null,
-          source: 'scoremer',
+          source: "scoremer",
         },
         update: {
           homeGoals: m.homeScore,
@@ -159,14 +166,15 @@ async function backfillFromGoaloo(
   concurrency = 10,
 ): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {
   // Dynamic import — goaloo.ts uses child_process and is server-only.
-  const { fetchGoalooSeasonMatches } = await import('../goaloo');
+  const { fetchGoalooSeasonMatches } = await import("../goaloo");
 
   const startStr = startDate.toISOString().slice(0, 10);
   const endStr = endDate.toISOString().slice(0, 10);
   const seasons = getSeasonsForRange(startDate, endDate);
 
   // Build job list: every (league, season) pair
-  const jobs: { league: typeof GOALOO_LEAGUES[number]; season: string }[] = [];
+  const jobs: { league: (typeof GOALOO_LEAGUES)[number]; season: string }[] =
+    [];
   for (const league of GOALOO_LEAGUES) {
     for (const season of seasons) {
       jobs.push({ league, season });
@@ -196,11 +204,13 @@ async function backfillFromGoaloo(
         const matches = await fetchGoalooSeasonMatches(league.id, season);
 
         // Client-side date filter — only keep finished matches in range
-        const filtered = matches.filter((m: { state: number; date: string; score: string }) => {
-          if (m.state !== -1) return false;
-          const matchDate = m.date.split(' ')[0];
-          return matchDate >= startStr && matchDate <= endStr;
-        });
+        const filtered = matches.filter(
+          (m: { state: number; date: string; score: string }) => {
+            if (m.state !== -1) return false;
+            const matchDate = m.date.split(" ")[0];
+            return matchDate >= startStr && matchDate <= endStr;
+          },
+        );
 
         for (const m of filtered) {
           scraped += 1;
@@ -208,8 +218,8 @@ async function backfillFromGoaloo(
           const away = normalize(m.awayTeam);
           if (!home || !away) continue;
 
-          const matchDate = m.date.split(' ')[0];
-          const [homeGoals, awayGoals] = m.score.split('-').map(Number);
+          const matchDate = m.date.split(" ")[0];
+          const [homeGoals, awayGoals] = m.score.split("-").map(Number);
           if (isNaN(homeGoals) || isNaN(awayGoals)) continue;
 
           try {
@@ -228,7 +238,7 @@ async function backfillFromGoaloo(
                 homeGoals,
                 awayGoals,
                 league: league.fullName,
-                source: 'goaloo',
+                source: "goaloo",
               },
               update: {
                 homeGoals,
@@ -251,7 +261,10 @@ async function backfillFromGoaloo(
       completed++;
       if (completed % logInterval === 0) {
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-        console.log(`[GoalooBackfill] ${completed}/${total} leagues/seasons (${elapsed}s) — ${inserted} new, ${skippedDuplicate} dup`);
+        logInfo(
+          "GoalooBackfill",
+          `${completed}/${total} leagues/seasons (${elapsed}s) — ${inserted} new, ${skippedDuplicate} dup`,
+        );
       }
 
       // Polite rate-limit between season calls per worker
@@ -267,7 +280,10 @@ async function backfillFromGoaloo(
   await Promise.all(workers);
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[GoalooBackfill] Done: ${completed}/${total} in ${elapsed}s — ${inserted} new, ${skippedDuplicate} dup`);
+  logInfo(
+    "GoalooBackfill",
+    `Done: ${completed}/${total} in ${elapsed}s — ${inserted} new, ${skippedDuplicate} dup`,
+  );
 
   return { scraped, inserted, skippedDuplicate };
 }
@@ -278,12 +294,14 @@ async function backfillFromGoalooLegacy(
 ): Promise<{ scraped: number; inserted: number; skippedDuplicate: number }> {
   // Legacy: fetchGoalooMatchesByDate (SoccerAjax type=6) — 7-day limit.
   // Kept for backward compatibility; new callers should use backfillFromGoaloo.
-  const { fetchGoalooMatchesByDate } = await import('../goaloo');
+  const { fetchGoalooMatchesByDate } = await import("../goaloo");
   let scraped = 0;
   let inserted = 0;
   let skippedDuplicate = 0;
   const MAX_DAYS_BUDGET = 365; // cap to stay within Next.js route timeout
-  const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / 86_400_000);
+  const totalDays = Math.ceil(
+    (endDate.getTime() - startDate.getTime()) / 86_400_000,
+  );
   const daysToFetch = Math.min(totalDays, MAX_DAYS_BUDGET);
 
   for (let d = 0; d < daysToFetch; d++) {
@@ -291,7 +309,10 @@ async function backfillFromGoalooLegacy(
     const dateStr = day.toISOString().slice(0, 10);
 
     const matches = await fetchGoalooMatchesByDate(dateStr);
-    const finished = matches.filter((m: { state: number; homeScore: number; awayScore: number }) => m.state === -1);
+    const finished = matches.filter(
+      (m: { state: number; homeScore: number; awayScore: number }) =>
+        m.state === -1,
+    );
 
     for (const m of finished) {
       scraped += 1;
@@ -317,7 +338,7 @@ async function backfillFromGoalooLegacy(
             homeGoals: m.homeScore,
             awayGoals: m.awayScore,
             league: m.leagueName || m.leagueShortName || null,
-            source: 'goaloo',
+            source: "goaloo",
           },
           update: {
             homeGoals: m.homeScore,
@@ -352,7 +373,9 @@ async function backfillFromGoalooLegacy(
  * Sum a match's xG from FotMob shotmap (expectedGoals per shot).
  * Returns null if no shot data is available or the fetch fails.
  */
-async function fetchMatchXG(fotmobId: number): Promise<{ homeXG: number; awayXG: number } | null> {
+async function fetchMatchXG(
+  fotmobId: number,
+): Promise<{ homeXG: number; awayXG: number } | null> {
   try {
     const details = await fetchMatchDetails(fotmobId);
     if (!details?.shotmap || details.shotmap.length === 0) return null;
@@ -377,7 +400,9 @@ async function backfillFromFotmob(
   let inserted = 0;
   let skippedDuplicate = 0;
   const MAX_DAYS_BUDGET = 365;
-  const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / 86_400_000);
+  const totalDays = Math.ceil(
+    (endDate.getTime() - startDate.getTime()) / 86_400_000,
+  );
   const daysToFetch = Math.min(totalDays, MAX_DAYS_BUDGET);
 
   for (let d = 0; d < daysToFetch; d++) {
@@ -387,10 +412,12 @@ async function backfillFromFotmob(
     const matches = await fetchFotMobMatches(dateStr);
     // Batch-fetch xG for all matches on this day in parallel.
     const xgMap = new Map<number, { homeXG: number; awayXG: number }>();
-    await Promise.all(matches.map(async (m) => {
-      const xg = await fetchMatchXG(m.id);
-      if (xg) xgMap.set(m.id, xg);
-    }));
+    await Promise.all(
+      matches.map(async (m) => {
+        const xg = await fetchMatchXG(m.id);
+        if (xg) xgMap.set(m.id, xg);
+      }),
+    );
     const finished = matches.filter(
       (m) => m.status.finished && m.home.score != null && m.away.score != null,
     );
@@ -404,8 +431,7 @@ async function backfillFromFotmob(
       if (m.home.score == null || m.away.score == null) continue;
       if (m.home.score < 0 || m.away.score < 0) continue;
 
-      const leagueName =
-        m.leagueId != null ? `fotmob-${m.leagueId}` : null;
+      const leagueName = m.leagueId != null ? `fotmob-${m.leagueId}` : null;
 
       try {
         const result = await db.teamHistoryMatch.upsert({
@@ -425,7 +451,7 @@ async function backfillFromFotmob(
             homeXG: xg?.homeXG ?? null,
             awayXG: xg?.awayXG ?? null,
             league: leagueName,
-            source: 'fotmob',
+            source: "fotmob",
           },
           update: {
             homeGoals: m.home.score,
@@ -464,7 +490,9 @@ async function backfillFromSofascore(
   let inserted = 0;
   let skippedDuplicate = 0;
   const MAX_DAYS_BUDGET = 365;
-  const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / 86_400_000);
+  const totalDays = Math.ceil(
+    (endDate.getTime() - startDate.getTime()) / 86_400_000,
+  );
   const daysToFetch = Math.min(totalDays, MAX_DAYS_BUDGET);
   const PARALLEL = 5;
 
@@ -474,7 +502,7 @@ async function backfillFromSofascore(
     dateList.push(day.toISOString().slice(0, 10));
   }
 
-  const { fetchSofascoreMatchesByDate } = await import('../sofascore');
+  const { fetchSofascoreMatchesByDate } = await import("../sofascore");
 
   for (let i = 0; i < dateList.length; i += PARALLEL) {
     const chunk = dateList.slice(i, i + PARALLEL);
@@ -492,7 +520,7 @@ async function backfillFromSofascore(
     for (const { dateStr, matches } of chunkResults) {
       const finished = matches.filter(
         (m) =>
-          m.status_type === 'finished' &&
+          m.status_type === "finished" &&
           m.home_score != null &&
           m.away_score != null,
       );
@@ -523,7 +551,7 @@ async function backfillFromSofascore(
               homeGoals: m.home_score,
               awayGoals: m.away_score,
               league: leagueName,
-              source: 'sofascore',
+              source: "sofascore",
             },
             update: {
               homeGoals: m.home_score,
@@ -548,7 +576,11 @@ async function backfillFromSofascore(
  * effort — if the string doesn't match we just skip that match.
  * Falls back to a date inside [start, end].
  */
-function parseScoremerTimeToDate(time: string, start: Date, end: Date): string | null {
+function parseScoremerTimeToDate(
+  time: string,
+  start: Date,
+  end: Date,
+): string | null {
   // Pattern: "12/06/26 19:00" (DD/MM/YY HH:MM) — Turkish sites
   const m = time.match(/(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/);
   if (m) {
@@ -580,7 +612,7 @@ export async function fitAndRegisterTeamStrength(
   const { configOverrides, version, notes } = options;
   const minMatches = options.minMatches ?? 5;
   const all = await db.teamHistoryMatch.findMany({
-    orderBy: { matchDate: 'asc' },
+    orderBy: { matchDate: "asc" },
   });
   // Filter out rows whose home/away teams appear < minMatches times
   // in total — Kalman needs at least minMatches appearances per
@@ -612,8 +644,8 @@ export async function fitAndRegisterTeamStrength(
       matchesInserted: 0,
       matchesSkippedDuplicate: 0,
       teamsInModel: 0,
-      modelVersion: 'no-data',
-      artifactPath: '',
+      modelVersion: "no-data",
+      artifactPath: "",
       nMatchesFitted: 0,
     };
   }
@@ -625,8 +657,12 @@ export async function fitAndRegisterTeamStrength(
   // The fs helpers live in a dedicated server-only module so the
   // client bundle never traces through node:fs.
   const modelVersion = version ?? `ts-${model.fittedAt}`;
-  const { writeModelArtifact } = await import('./persistArtifact');
-  const filePath = await writeModelArtifact('team-strength', modelVersion, serialized);
+  const { writeModelArtifact } = await import("./persistArtifact");
+  const filePath = await writeModelArtifact(
+    "team-strength",
+    modelVersion,
+    serialized,
+  );
 
   // Compute Brier on a held-out 20% as a sanity metric
   // Fisher-Yates shuffle (Math.random()-0.5 biased, bu doğru)
@@ -645,7 +681,7 @@ export async function fitAndRegisterTeamStrength(
   const brier = testSet.length > 0 ? brierSum / testSet.length : 0;
 
   await registerArtifact({
-    name: 'team-strength',
+    name: "team-strength",
     version: modelVersion,
     artifactPath: filePath,
     metrics: {
@@ -658,7 +694,8 @@ export async function fitAndRegisterTeamStrength(
       testRows: testSet.length,
     },
     sha256: await sha256(serialized),
-    notes: notes ?? `Kalman fit on ${fitRows.length} matches, ${model.nTeams} teams`,
+    notes:
+      notes ?? `Kalman fit on ${fitRows.length} matches, ${model.nTeams} teams`,
   });
 
   return {
@@ -687,10 +724,10 @@ function predict1x2BrierFromModel(
 
 async function sha256(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /**
@@ -708,7 +745,7 @@ export async function loadLatestTeamStrength(): Promise<TeamStrengthModel> {
     // (loadTeamStrengthChampion always returns a model built from
     // loadTeamStrength() default), but fall back to default anyway
     // for type safety.
-    const { loadTeamStrength } = await import('./teamStrengthKalman');
+    const { loadTeamStrength } = await import("./teamStrengthKalman");
     return loadTeamStrength();
   }
   return champion.model;

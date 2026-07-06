@@ -7,9 +7,9 @@
 //   await loadTeamLogos();
 //   const url = getTeamLogo('Galatasaray');
 
-import fs from 'fs';
-import path from 'path';
-import { logError } from './devLog';
+import fs from "fs";
+import path from "path";
+import { logError, logInfo } from "./devLog";
 
 let logoMap: Map<string, string> | null = null;
 let slugMap: Map<string, string> | null = null;
@@ -24,15 +24,15 @@ export async function loadTeamLogos(): Promise<void> {
   logoMap = new Map();
   slugMap = new Map();
 
-  const csvPath = path.join(process.cwd(), 'docs', 'fotmob_teams.csv');
+  const csvPath = path.join(process.cwd(), "docs", "fotmob_teams.csv");
   if (!fs.existsSync(csvPath)) {
-    logError('teamLogos', `CSV not found: ${csvPath}`);
+    logError("teamLogos", `CSV not found: ${csvPath}`);
     return;
   }
 
   try {
-    const content = fs.readFileSync(csvPath, 'utf-8');
-    const lines = content.split('\n');
+    const content = fs.readFileSync(csvPath, "utf-8");
+    const lines = content.split("\n");
     // Skip header
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -49,7 +49,7 @@ export async function loadTeamLogos(): Promise<void> {
 
       if (fotmobId && logoUrl) {
         // Tam URL oluştur (CSV'deki URL bazen eksik olabilir)
-        const url = logoUrl.startsWith('http')
+        const url = logoUrl.startsWith("http")
           ? logoUrl
           : `https://images.fotmob.com/image_resources/logo/teamlogo/${fotmobId}_large.png`;
 
@@ -64,9 +64,9 @@ export async function loadTeamLogos(): Promise<void> {
       }
     }
 
-    console.log(`[teamLogos] Loaded ${logoMap.size} team logos from CSV`);
+    logInfo("teamLogos", `Loaded ${logoMap.size} team logos from CSV`);
   } catch (err) {
-    logError('teamLogos', 'Failed to load CSV:', err);
+    logError("teamLogos", "Failed to load CSV:", err);
   }
 }
 
@@ -75,7 +75,7 @@ export async function loadTeamLogos(): Promise<void> {
  */
 function parseCSVLine(line: string): string[] {
   const result: string[] = [];
-  let current = '';
+  let current = "";
   let inQuotes = false;
 
   for (const ch of line) {
@@ -86,9 +86,9 @@ function parseCSVLine(line: string): string[] {
       } else {
         inQuotes = true;
       }
-    } else if (ch === ',' && !inQuotes) {
+    } else if (ch === "," && !inQuotes) {
       result.push(current);
-      current = '';
+      current = "";
     } else {
       current += ch;
     }
@@ -136,7 +136,7 @@ export function getLogoCount(): number {
  * CSV'deki logo URL'leri ile TeamMapping tablosunu backfill et.
  */
 export async function backfillTeamLogos(): Promise<number> {
-  const { db } = await import('./db');
+  const { db } = await import("./db");
   let updated = 0;
 
   if (!logoMap) await loadTeamLogos();
@@ -145,11 +145,18 @@ export async function backfillTeamLogos(): Promise<number> {
   try {
     const mappings = await db.teamMapping.findMany({
       where: { fotmobLogoUrl: null },
-      select: { id: true, canonicalName: true, fotmobName: true, nesineName: true },
+      select: {
+        id: true,
+        canonicalName: true,
+        fotmobName: true,
+        nesineName: true,
+      },
     });
 
     for (const m of mappings) {
-      const names = [m.canonicalName, m.fotmobName, m.nesineName].filter(Boolean);
+      const names = [m.canonicalName, m.fotmobName, m.nesineName].filter(
+        Boolean,
+      );
       for (const name of names) {
         const url = getTeamLogo(name!);
         if (url) {
@@ -163,7 +170,7 @@ export async function backfillTeamLogos(): Promise<number> {
       }
     }
   } catch (err) {
-    logError('teamLogos', 'Backfill failed:', err);
+    logError("teamLogos", "Backfill failed:", err);
   }
 
   return updated;
@@ -185,7 +192,9 @@ export function registerTeamLogo(teamName: string, logoUrl: string): void {
 /**
  * Toplu logo kaydı.
  */
-export function registerTeamLogos(teams: Array<{ name: string; logo: string | null }>): void {
+export function registerTeamLogos(
+  teams: Array<{ name: string; logo: string | null }>,
+): void {
   if (!logoMap) return;
   for (const t of teams) {
     if (t.name && t.logo) {

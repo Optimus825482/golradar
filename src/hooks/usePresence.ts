@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { randomUUID } from "@/lib/randomUUID";
 import type { Tier } from "@/lib/tier";
 
 const STORAGE_KEY = "golradari.sessionId";
@@ -17,21 +18,16 @@ function getOrCreateSessionId(): string {
   if (typeof window === "undefined") return "ssr";
   let id = window.localStorage.getItem(STORAGE_KEY);
   if (!id) {
-    // crypto.randomUUID requires secure context (https or localhost).
-    // Fallback to crypto.getRandomValues for older browsers.
-    if (window.crypto?.randomUUID) {
-      id = window.crypto.randomUUID();
-    } else {
-      const arr = new Uint8Array(16);
-      window.crypto.getRandomValues(arr);
-      id = Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
-    }
+    id = randomUUID();
     window.localStorage.setItem(STORAGE_KEY, id);
   }
   return id;
 }
 
-async function sendAction(action: "ping" | "join" | "leave", sessionId: string): Promise<{ activeUsers: number; tier: Tier } | null> {
+async function sendAction(
+  action: "ping" | "join" | "leave",
+  sessionId: string,
+): Promise<{ activeUsers: number; tier: Tier } | null> {
   try {
     const resp = await fetch(PRESENCE_PATH, {
       method: "POST",
@@ -41,7 +37,8 @@ async function sendAction(action: "ping" | "join" | "leave", sessionId: string):
     });
     if (!resp.ok) return null;
     const data = await resp.json();
-    if (typeof data.activeUsers !== "number" || typeof data.tier !== "string") return null;
+    if (typeof data.activeUsers !== "number" || typeof data.tier !== "string")
+      return null;
     return { activeUsers: data.activeUsers, tier: data.tier as Tier };
   } catch {
     return null;
@@ -51,10 +48,9 @@ async function sendAction(action: "ping" | "join" | "leave", sessionId: string):
 function sendBeaconLeave(sessionId: string): void {
   if (typeof navigator === "undefined" || !navigator.sendBeacon) return;
   try {
-    const blob = new Blob(
-      [JSON.stringify({ action: "leave", sessionId })],
-      { type: "application/json" },
-    );
+    const blob = new Blob([JSON.stringify({ action: "leave", sessionId })], {
+      type: "application/json",
+    });
     navigator.sendBeacon(PRESENCE_PATH, blob);
   } catch {
     // best-effort

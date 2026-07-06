@@ -17,14 +17,20 @@
 // Rate: ~1 match/sec (800ms delay + HTTP calls). 500 matches ≈ 8 min.
 // maxDuration=180s.
 
-import { NextResponse } from 'next/server';
-import { adminRoute } from '@/lib/adminRoute';
-import { db } from '@/lib/db';
-import { GOALOO_LEAGUES } from '@/lib/ml/goalooLeagues';
-import { startEnrich, tickEnrich, finishEnrich, getEnrichProgress } from '@/lib/enrichProgress';
-import { statsFromGoaloo } from '@/lib/ml/goalooStats';
+import { NextResponse } from "next/server";
+import { adminRoute } from "@/lib/adminRoute";
+import { db } from "@/lib/db";
+import { GOALOO_LEAGUES } from "@/lib/ml/goalooLeagues";
+import {
+  startEnrich,
+  tickEnrich,
+  finishEnrich,
+  getEnrichProgress,
+} from "@/lib/enrichProgress";
+import { statsFromGoaloo } from "@/lib/ml/goalooStats";
+import { logInfo, logWarn } from "@/lib/devLog";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 export const maxDuration = 1800; // 30 dk (23219 maç × 200ms/worker)
 
 interface EnrichReq {
@@ -48,13 +54,19 @@ export const POST = adminRoute(async (req: Request) => {
   try {
     body = (await req.json()) as EnrichReq;
   } catch {
-    return NextResponse.json({ ok: false, error: 'invalid-body' }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "invalid-body" },
+      { status: 400 },
+    );
   }
 
   const maxMatches = Math.min(body.maxMatches ?? 25000, 100000);
   const now = new Date();
   const thisYear = now.getFullYear();
-  const defaultSeason = now.getMonth() >= 6 ? `${thisYear}-${thisYear + 1}` : `${thisYear - 1}-${thisYear}`;
+  const defaultSeason =
+    now.getMonth() >= 6
+      ? `${thisYear}-${thisYear + 1}`
+      : `${thisYear - 1}-${thisYear}`;
   const season = body.season ?? defaultSeason;
 
   // Resolve leagues
@@ -63,14 +75,22 @@ export const POST = adminRoute(async (req: Request) => {
     : [...GOALOO_LEAGUES];
 
   if (targetLeagues.length === 0) {
-    return NextResponse.json({ ok: false, error: 'no-leagues', message: 'No matching leagues' }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "no-leagues", message: "No matching leagues" },
+      { status: 400 },
+    );
   }
 
   // Dynamic imports (server-only modules)
-  const { fetchGoalooSeasonMatches, fetchGoalooMomentum, fetchGoalooMatchEvents } = await import('@/lib/goaloo');
-  const { calculateGoalProbability } = await import('@/lib/goalRadar');
-  const { extractFeatures, featuresToArray } = await import('@/lib/featureEngineering');
-  const { getRating } = await import('@/lib/eloRating');
+  const {
+    fetchGoalooSeasonMatches,
+    fetchGoalooMomentum,
+    fetchGoalooMatchEvents,
+  } = await import("@/lib/goaloo");
+  const { calculateGoalProbability } = await import("@/lib/goalRadar");
+  const { extractFeatures, featuresToArray } =
+    await import("@/lib/featureEngineering");
+  const { getRating } = await import("@/lib/eloRating");
 
   const results: LeagueResult[] = [];
   let totalProcessed = 0;
@@ -85,11 +105,21 @@ export const POST = adminRoute(async (req: Request) => {
 
   const logProgress = () => {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-    console.log(`[BulkEnrich] ${totalAllProcessed} matches, ${totalPredictions} predictions, ${totalEvents} events, ${totalErrors} errors (${elapsed}s)`);
+    logInfo(
+      "BulkEnrich",
+      `${totalAllProcessed} matches, ${totalPredictions} predictions, ${totalEvents} events, ${totalErrors} errors (${elapsed}s)`,
+    );
   };
 
   // ── Her worker tek maç işler (önce tanımla) ──
-  const processOne = async (item: { league: typeof targetLeagues[0]; match: any }): Promise<{ league: typeof targetLeagues[0]; enriched: number; err: number }> => {
+  const processOne = async (item: {
+    league: (typeof targetLeagues)[0];
+    match: any;
+  }): Promise<{
+    league: (typeof targetLeagues)[0];
+    enriched: number;
+    err: number;
+  }> => {
     const { league, match: m } = item;
     let enriched = 0;
     let errCount = 0;
@@ -98,31 +128,52 @@ export const POST = adminRoute(async (req: Request) => {
       tickEnrich(league.shortName, `${m.homeTeam} vs ${m.awayTeam}`, false);
 
       const momentum = await fetchGoalooMomentum(m.scheduleId);
-      if (!momentum) { tickEnrich(league.shortName, `${m.homeTeam} vs ${m.awayTeam}`, true); return { league, enriched: 0, err: 1 }; }
+      if (!momentum) {
+        tickEnrich(league.shortName, `${m.homeTeam} vs ${m.awayTeam}`, true);
+        return { league, enriched: 0, err: 1 };
+      }
 
       const events = await fetchGoalooMatchEvents(m.scheduleId);
       const goalEvents = events
-        .filter((e: any) => e.type === 'goal' && e.minute)
-        .map((e: any) => ({ minute: e.minute, isHome: e.team === 'home', player: e.player || '' }));
+        .filter((e: any) => e.type === "goal" && e.minute)
+        .map((e: any) => ({
+          minute: e.minute,
+          isHome: e.team === "home",
+          player: e.player || "",
+        }));
       const cardEvents = events
-        .filter((e: any) => e.type === 'yellow_card' && e.minute)
-        .map((e: any) => ({ minute: e.minute, isHome: e.team === 'home' }));
+        .filter((e: any) => e.type === "yellow_card" && e.minute)
+        .map((e: any) => ({ minute: e.minute, isHome: e.team === "home" }));
 
-      const scoreParts = m.score.split('-');
+      const scoreParts = m.score.split("-");
       const homeScore = parseInt(scoreParts[0]) || 0;
       const awayScore = parseInt(scoreParts[1]) || 0;
 
       for (const ge of goalEvents) {
-        await db.matchEvent.create({
-          data: { matchCode: m.scheduleId, minute: ge.minute, eventType: 'goal', side: ge.isHome ? 'home' : 'away', player: ge.player || null },
-        }).catch(() => {});
+        await db.matchEvent
+          .create({
+            data: {
+              matchCode: m.scheduleId,
+              minute: ge.minute,
+              eventType: "goal",
+              side: ge.isHome ? "home" : "away",
+              player: ge.player || null,
+            },
+          })
+          .catch(() => {});
       }
 
-      const intervals = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
+      const intervals = [
+        10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90,
+      ];
       const predLogs: any[] = [];
 
       for (const minNum of intervals) {
-        const nextGoal = goalEvents.map((g: any) => g.minute).filter((t: number) => t > minNum).sort((a: number, b: number) => a - b)[0] ?? null;
+        const nextGoal =
+          goalEvents
+            .map((g: any) => g.minute)
+            .filter((t: number) => t > minNum)
+            .sort((a: number, b: number) => a - b)[0] ?? null;
         try {
           // Goaloo momentum'dan gerçekçi stats oluştur
           const realStats = statsFromGoaloo(
@@ -135,38 +186,64 @@ export const POST = adminRoute(async (req: Request) => {
           );
           const prob = calculateGoalProbability(
             realStats,
-            `${minNum}'`, true, [], homeScore, awayScore, m.homeTeam, m.awayTeam,
+            `${minNum}'`,
+            true,
+            [],
+            homeScore,
+            awayScore,
+            m.homeTeam,
+            m.awayTeam,
           );
           const features = await extractFeatures({
             stats: realStats,
-            minute: `${minNum}'`, isLive: true, homeGoals: homeScore, awayGoals: awayScore,
-            homeTeam: m.homeTeam, awayTeam: m.awayTeam, pressureHistory: [], skipXtGrid: true,
+            minute: `${minNum}'`,
+            isLive: true,
+            homeGoals: homeScore,
+            awayGoals: awayScore,
+            homeTeam: m.homeTeam,
+            awayTeam: m.awayTeam,
+            pressureHistory: [],
+            skipXtGrid: true,
           });
           const homeElo = getRating(m.homeTeam)?.rating ?? null;
           const awayElo = getRating(m.awayTeam)?.rating ?? null;
           predLogs.push({
-            matchCode: m.scheduleId, minute: minNum, rawScore: prob.score,
-            homeScore: prob.homeScore, awayScore: prob.awayScore, calibratedP: prob.calibratedP,
-            side: prob.side ?? 'none', level: prob.level, factorsJson: JSON.stringify(prob.factors),
-            homeTeam: m.homeTeam, awayTeam: m.awayTeam, league: league.fullName,
-            homeElo: homeElo ? Math.round(homeElo) : null, awayElo: awayElo ? Math.round(awayElo) : null,
-            modelVariant: 'goaloo-bulk', featuresJson: JSON.stringify(featuresToArray(features)),
-            goalScored: nextGoal != null, minutesToGoal: nextGoal != null ? nextGoal - minNum : null,
+            matchCode: m.scheduleId,
+            minute: minNum,
+            rawScore: prob.score,
+            homeScore: prob.homeScore,
+            awayScore: prob.awayScore,
+            calibratedP: prob.calibratedP,
+            side: prob.side ?? "none",
+            level: prob.level,
+            factorsJson: JSON.stringify(prob.factors),
+            homeTeam: m.homeTeam,
+            awayTeam: m.awayTeam,
+            league: league.fullName,
+            homeElo: homeElo ? Math.round(homeElo) : null,
+            awayElo: awayElo ? Math.round(awayElo) : null,
+            modelVariant: "goaloo-bulk",
+            featuresJson: JSON.stringify(featuresToArray(features)),
+            goalScored: nextGoal != null,
+            minutesToGoal: nextGoal != null ? nextGoal - minNum : null,
           });
-          } catch (e) {
-            console.warn('[BulkEnrich] predLog skip:', (e as Error)?.message);
-          }
+        } catch (e) {
+          logWarn("BulkEnrich", "predLog skip:", (e as Error)?.message);
+        }
       }
 
       if (predLogs.length > 0) {
-        await db.predictionLog.createMany({ data: predLogs, skipDuplicates: true });
+        await db.predictionLog.createMany({
+          data: predLogs,
+          skipDuplicates: true,
+        });
       }
 
       enriched = 1;
       totalPredictions += predLogs.length;
       totalEvents += goalEvents.length;
     } catch (e) {
-      console.warn('[BulkEnrich] processOne error:', (e as Error)?.message);
+      logWarn("BulkEnrich", "processOne error:", (e as Error)?.message);
       errCount = 1;
     }
 
@@ -186,7 +263,7 @@ export const POST = adminRoute(async (req: Request) => {
       const sm = await fetchGoalooSeasonMatches(league.id, season);
       totalAllMatches += sm.filter((m: any) => m.state === -1).length;
     } catch (e) {
-      console.warn('[BulkEnrich] count matches failed:', (e as Error)?.message);
+      logWarn("BulkEnrich", "count matches failed:", (e as Error)?.message);
     }
   }
   startEnrich(Math.min(maxMatches, totalAllMatches));
@@ -194,21 +271,38 @@ export const POST = adminRoute(async (req: Request) => {
   for (const league of targetLeagues) {
     if (globalDone || totalAllProcessed >= maxMatches) break;
     let seasonMatches: any[] = [];
-    try { seasonMatches = await fetchGoalooSeasonMatches(league.id, season); } catch { continue; }
+    try {
+      seasonMatches = await fetchGoalooSeasonMatches(league.id, season);
+    } catch {
+      continue;
+    }
     const finished = seasonMatches.filter((m: any) => {
       if (m.state !== -1) return false;
-      const parts = m.score.split('-');
+      const parts = m.score.split("-");
       return !isNaN(parseInt(parts[0])) && !isNaN(parseInt(parts[1]));
     });
     if (finished.length === 0) continue;
-    console.log(`[BulkEnrich] ${league.shortName}: ${finished.length} matches (50 workers)`);
+    logInfo(
+      "BulkEnrich",
+      `${league.shortName}: ${finished.length} matches (50 workers)`,
+    );
 
     const pool: Promise<void>[] = [];
     const running = new Set<Promise<void>>();
     for (const m of finished) {
-      if (totalAllProcessed >= maxMatches) { globalDone = true; break; }
+      if (totalAllProcessed >= maxMatches) {
+        globalDone = true;
+        break;
+      }
       const item = { league, match: m };
-      const p = processOne(item).then(() => { totalAllProcessed++; }).catch(() => { totalErrors++; }).finally(() => running.delete(p as any));
+      const p = processOne(item)
+        .then(() => {
+          totalAllProcessed++;
+        })
+        .catch(() => {
+          totalErrors++;
+        })
+        .finally(() => running.delete(p as any));
       running.add(p);
       pool.push(p);
       if (running.size >= CONCURRENCY) await Promise.race(running);
@@ -216,9 +310,13 @@ export const POST = adminRoute(async (req: Request) => {
     }
     await Promise.all(running);
     results.push({
-      leagueId: league.id, shortName: league.shortName, fullName: league.fullName,
-      seasonMatches: finished.length, finished: finished.length,
-      enriched: finished.length, errors: 0,
+      leagueId: league.id,
+      shortName: league.shortName,
+      fullName: league.fullName,
+      seasonMatches: finished.length,
+      finished: finished.length,
+      enriched: finished.length,
+      errors: 0,
     });
   }
 

@@ -22,10 +22,9 @@
 //   - Send ": keep-alive" every 25s to prevent proxy timeouts.
 //   - On disconnect (close/error), cleanup subscriber.
 
-import { logError, logInfo } from "@/lib/devLog";
+import { logInfo, logWarn } from "@/lib/devLog";
 import { getMatchesCache } from "@/lib/server/matchesCache";
 import {
-  publishMatchEvent,
   subscribeMatchEvents,
   matchEventListenerCount,
   type MatchEvent,
@@ -35,8 +34,27 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs"; // SSE needs streaming, not edge
 
 const HEARTBEAT_MS = 25_000;
+const MAX_SSE_CONNECTIONS = Math.max(
+  1,
+  Number(process.env.MATCH_STREAM_MAX_CONNECTIONS ?? 250),
+);
 
 export async function GET(request: Request) {
+  const activeConnections = matchEventListenerCount();
+  if (activeConnections >= MAX_SSE_CONNECTIONS) {
+    logWarn(
+      "matches-stream",
+      `Connection rejected. Active listeners: ${activeConnections}/${MAX_SSE_CONNECTIONS}`,
+    );
+    return new Response("SSE connection limit reached", {
+      status: 429,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Retry-After": "30",
+      },
+    });
+  }
+
   // Use a TransformStream to convert our event writes into SSE wire format.
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -57,7 +75,8 @@ export async function GET(request: Request) {
       // Send a Server-Sent Event frame.
       const sendEvent = (event: MatchEvent) => {
         if (closedRef.closed) return;
-        const data = event.data !== undefined ? JSON.stringify(event.data) : "{}";
+        const data =
+          event.data !== undefined ? JSON.stringify(event.data) : "{}";
         safeWrite(`event: ${event.type}\ndata: ${data}\n\n`);
       };
 
@@ -74,7 +93,11 @@ export async function GET(request: Request) {
       // without waiting for the next cron tick.
       const cached = getMatchesCache("matches:v=writer-latest");
       if (cached) {
-        sendEvent({ type: "snapshot", timestamp: Date.now(), data: cached.body });
+        sendEvent({
+          type: "snapshot",
+          timestamp: Date.now(),
+          data: cached.body,
+        });
       } else {
         // Cold cache: tell the client to fall back to polling
         // until the writer catches up. /api/matches will fill the
@@ -107,11 +130,17 @@ export async function GET(request: Request) {
         } catch {
           // Already closed.
         }
-        logInfo("matches-stream", `Client disconnected. Active listeners: ${matchEventListenerCount() - 1}`);
+        logInfo(
+          "matches-stream",
+          `Client disconnected. Active listeners: ${matchEventListenerCount()}`,
+        );
       };
 
       request.signal.addEventListener("abort", cleanup);
-      logInfo("matches-stream", `Client connected. Active listeners: ${matchEventListenerCount()}`);
+      logInfo(
+        "matches-stream",
+        `Client connected. Active listeners: ${matchEventListenerCount()}`,
+      );
 
       // Safety net — if nothing else fires, ensure we don't leak the
       // interval. Already covered by `abort` listener on real client

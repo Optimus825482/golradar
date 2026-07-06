@@ -11,14 +11,26 @@
 // calling the simulator, to avoid complex import chains that crash
 // the Next.js Turbopack compiler.
 
-import { generateSyntheticSnapshots, type PressureSnapshot } from './advancedAnalytics';
-import { calculateGoalProbability, type MatchStats, type PressureSnapshotLite } from './nesine';
+import {
+  generateSyntheticSnapshots,
+  type PressureSnapshot,
+} from "./advancedAnalytics";
+import {
+  calculateGoalProbability,
+  type MatchStats,
+  type PressureSnapshotLite,
+} from "./nesine";
 import {
   checkAndRecordSignal,
   finalizeMatchSignals,
   calculateSignalStats,
-} from './goalSignalTracker';
-import { runBacktest, type BacktestResult, type BacktestConfig } from './backtestEngine';
+} from "./goalSignalTracker";
+import {
+  runBacktest,
+  type BacktestResult,
+  type BacktestConfig,
+} from "./backtestEngine";
+import { logInfo } from "./devLog";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -84,7 +96,7 @@ export interface SimInputMatch {
   time: string;
   homeScore: number;
   awayScore: number;
-  htScore: string;       // "1:0" or "-"
+  htScore: string; // "1:0" or "-"
   ftStats: MatchStats;
   htStats: MatchStats | null;
   // ── Goaloo enrichment fields (optional) ──
@@ -101,8 +113,8 @@ export interface SimInputMatch {
   goalooEvents?: Array<{
     id: number;
     minute: number;
-    type: 'goal' | 'yellow_card' | 'red_card' | 'substitution';
-    team: 'home' | 'away';
+    type: "goal" | "yellow_card" | "red_card" | "substitution";
+    team: "home" | "away";
     player: string;
     detail: string;
   }> | null;
@@ -133,8 +145,8 @@ function isSimulationRunning(): boolean {
 // ── Convert Goaloo momentum data to PressureSnapshot format ──
 
 function convertGoalooMomentumToSnapshots(
-  momentum: NonNullable<SimInputMatch['goalooMomentum']>,
-  events: SimInputMatch['goalooEvents'],
+  momentum: NonNullable<SimInputMatch["goalooMomentum"]>,
+  events: SimInputMatch["goalooEvents"],
   homeScore: number,
   awayScore: number,
   ftStats: MatchStats,
@@ -150,8 +162,8 @@ function convertGoalooMomentumToSnapshots(
   const awayGoalMins = new Set(momentum.awayGoalMinutes || []);
   if (events) {
     for (const evt of events) {
-      if (evt.type === 'goal') {
-        if (evt.team === 'home') homeGoalMins.add(evt.minute);
+      if (evt.type === "goal") {
+        if (evt.team === "home") homeGoalMins.add(evt.minute);
         else awayGoalMins.add(evt.minute);
       }
     }
@@ -165,20 +177,28 @@ function convertGoalooMomentumToSnapshots(
   const maxIntensity = Math.max(
     ...momentum.homeIntensities.slice(0, totalMinutes),
     ...momentum.awayIntensities.slice(0, totalMinutes),
-    5
+    5,
   );
 
   for (let min = 1; min <= totalMinutes; min++) {
     const idx = min - 1;
-    const homeIntensity = idx < momentum.homeIntensities.length ? momentum.homeIntensities[idx] : 0;
-    const awayIntensity = idx < momentum.awayIntensities.length ? momentum.awayIntensities[idx] : 0;
+    const homeIntensity =
+      idx < momentum.homeIntensities.length ? momentum.homeIntensities[idx] : 0;
+    const awayIntensity =
+      idx < momentum.awayIntensities.length ? momentum.awayIntensities[idx] : 0;
 
     if (homeGoalMins.has(min)) cumHomeGoals++;
     if (awayGoalMins.has(min)) cumAwayGoals++;
 
     // Convert intensity to pressure (0-100)
-    const homePressure = Math.min(100, Math.round((homeIntensity / maxIntensity) * 85 + 8));
-    const awayPressure = Math.min(100, Math.round((awayIntensity / maxIntensity) * 85 + 8));
+    const homePressure = Math.min(
+      100,
+      Math.round((homeIntensity / maxIntensity) * 85 + 8),
+    );
+    const awayPressure = Math.min(
+      100,
+      Math.round((awayIntensity / maxIntensity) * 85 + 8),
+    );
 
     // Interpolate stats from FT/HT if available
     const stats: MatchStats = {} as MatchStats;
@@ -188,7 +208,9 @@ function convertGoalooMomentumToSnapshots(
       const halfTotal = 45;
       const ratio = halfMin / halfTotal;
       const targetStats = is1h
-        ? (htStats && Object.keys(htStats).length > 0 ? htStats : ftStats)
+        ? htStats && Object.keys(htStats).length > 0
+          ? htStats
+          : ftStats
         : ftStats;
 
       for (const [key, val] of Object.entries(targetStats)) {
@@ -196,7 +218,7 @@ function convertGoalooMomentumToSnapshots(
         const targetHome = val.home ?? 0;
         const targetAway = val.away ?? 0;
 
-        if (is1h || key === 'possession') {
+        if (is1h || key === "possession") {
           stats[key] = {
             home: Math.round(targetHome * ratio * 10) / 10,
             away: Math.round(targetAway * ratio * 10) / 10,
@@ -205,8 +227,12 @@ function convertGoalooMomentumToSnapshots(
           const baseHome = htStats?.[key]?.home ?? 0;
           const baseAway = htStats?.[key]?.away ?? 0;
           stats[key] = {
-            home: Math.round((baseHome + (targetHome - baseHome) * ratio) * 10) / 10,
-            away: Math.round((baseAway + (targetAway - baseAway) * ratio) * 10) / 10,
+            home:
+              Math.round((baseHome + (targetHome - baseHome) * ratio) * 10) /
+              10,
+            away:
+              Math.round((baseAway + (targetAway - baseAway) * ratio) * 10) /
+              10,
           };
         }
       }
@@ -230,7 +256,7 @@ function convertGoalooMomentumToSnapshots(
 
 export async function runHistoricalSimulation(
   matches: SimInputMatch[],
-  config: SimulationConfig = {}
+  config: SimulationConfig = {},
 ): Promise<SimulationResult> {
   if (isSimulating) {
     return {
@@ -240,7 +266,7 @@ export async function runHistoricalSimulation(
       matchResults: [],
       signalStats: null,
       backtestResult: null,
-      error: 'Simulation already running',
+      error: "Simulation already running",
     };
   }
 
@@ -307,9 +333,11 @@ export async function runHistoricalSimulation(
     let backtestResult: BacktestResult | null = null;
 
     try {
-      signalStats = calculateSignalStats(config.daysBack ? config.daysBack + 1 : 8);
+      signalStats = calculateSignalStats(
+        config.daysBack ? config.daysBack + 1 : 8,
+      );
     } catch (err) {
-      console.error('[BacktestSim] Signal stats calculation failed:', err);
+      console.error("[BacktestSim] Signal stats calculation failed:", err);
     }
 
     try {
@@ -317,25 +345,28 @@ export async function runHistoricalSimulation(
       if (config.date) {
         btConfig.startDate = config.date;
       } else if (config.daysBack) {
-        const start = new Date(Date.now() - (config.daysBack + 1) * 24 * 60 * 60 * 1000);
+        const start = new Date(
+          Date.now() - (config.daysBack + 1) * 24 * 60 * 60 * 1000,
+        );
         btConfig.startDate = start.toISOString().slice(0, 10);
       }
       backtestResult = runBacktest(btConfig);
     } catch (err) {
-      console.error('[BacktestSim] Backtest calculation failed:', err);
+      console.error("[BacktestSim] Backtest calculation failed:", err);
     }
 
     currentProgress.percentComplete = 100;
     currentProgress.elapsedMs = Date.now() - startTime;
     currentProgress.currentMatch = null;
 
-    console.log(
-      `[BacktestSim] Complete! ${currentProgress.processed} matches, ` +
-      `${currentProgress.signalsRecorded} signals, ` +
-      `${currentProgress.goalsDetected} goals after signal, ` +
-      `${currentProgress.matchesWithStats} with stats, ` +
-      `${currentProgress.matchesWithGoalooMomentum} with Goaloo momentum, ` +
-      `${currentProgress.matchesWithOddsMovement} with odds movement`
+    logInfo(
+      "BacktestSim",
+      `Complete! ${currentProgress.processed} matches, ` +
+        `${currentProgress.signalsRecorded} signals, ` +
+        `${currentProgress.goalsDetected} goals after signal, ` +
+        `${currentProgress.matchesWithStats} with stats, ` +
+        `${currentProgress.matchesWithGoalooMomentum} with Goaloo momentum, ` +
+        `${currentProgress.matchesWithOddsMovement} with odds movement`,
     );
 
     return {
@@ -347,7 +378,7 @@ export async function runHistoricalSimulation(
       backtestResult,
     };
   } catch (error: any) {
-    console.error('[BacktestSim] Fatal error:', error);
+    console.error("[BacktestSim] Fatal error:", error);
     return {
       success: false,
       config,
@@ -384,12 +415,12 @@ async function simulateSingleMatch(
     hadStats: false,
     usedGoalooMomentum: false,
     hadOddsMovement: false,
-    oddsSignificance: 'none',
+    oddsSignificance: "none",
   };
 
   try {
     // Parse HT score
-    if (match.htScore && match.htScore !== '-') {
+    if (match.htScore && match.htScore !== "-") {
       const parts = match.htScore.split(/[-:]/);
       if (parts.length === 2) {
         result.htHomeScore = parseInt(parts[0], 10) || 0;
@@ -409,7 +440,10 @@ async function simulateSingleMatch(
     // Priority 2: Synthetic snapshots from Scoremer HT/FT stats
     let snapshots: PressureSnapshot[];
 
-    if (match.goalooMomentum && match.goalooMomentum.homeIntensities.length > 0) {
+    if (
+      match.goalooMomentum &&
+      match.goalooMomentum.homeIntensities.length > 0
+    ) {
       // Use REAL Goaloo momentum data — much more accurate than synthetic
       snapshots = convertGoalooMomentumToSnapshots(
         match.goalooMomentum,
@@ -422,9 +456,10 @@ async function simulateSingleMatch(
         result.htAwayScore,
       );
       result.usedGoalooMomentum = true;
-      console.log(
-        `[BacktestSim] Using Goaloo momentum for ${match.homeTeam} vs ${match.awayTeam} ` +
-        `(${snapshots.length} per-minute snapshots)`
+      logInfo(
+        "BacktestSim",
+        `Using Goaloo momentum for ${match.homeTeam} vs ${match.awayTeam} ` +
+          `(${snapshots.length} per-minute snapshots)`,
       );
     } else {
       // Fallback: Generate synthetic snapshots from Scoremer data
@@ -433,7 +468,7 @@ async function simulateSingleMatch(
         match.htStats,
         match.homeScore,
         match.awayScore,
-        match.htScore || undefined
+        match.htScore || undefined,
       );
     }
 
@@ -444,7 +479,10 @@ async function simulateSingleMatch(
     // ── Check for odds movement enrichment ──
     let oddsHomeBoost = 0;
     let oddsAwayBoost = 0;
-    if (match.goalooOddsMovement && match.goalooOddsMovement.significance !== 'none') {
+    if (
+      match.goalooOddsMovement &&
+      match.goalooOddsMovement.significance !== "none"
+    ) {
       result.hadOddsMovement = true;
       result.oddsSignificance = match.goalooOddsMovement.significance;
       oddsHomeBoost = match.goalooOddsMovement.homeBoost || 0;
@@ -457,7 +495,7 @@ async function simulateSingleMatch(
     for (let i = 0; i < snapshots.length; i++) {
       const snap = snapshots[i];
       const minuteStr = snap.minute;
-      const minNum = parseInt(minuteStr.replace(/[^0-9]/g, ''), 10) || i * 5;
+      const minNum = parseInt(minuteStr.replace(/[^0-9]/g, ""), 10) || i * 5;
 
       result.snapshotsAnalyzed++;
 
@@ -486,7 +524,7 @@ async function simulateSingleMatch(
       let adjustedHomeScore = prob.homeScore;
       let adjustedAwayScore = prob.awayScore;
       let adjustedScore = prob.score;
-      let oddsFactor = '';
+      let oddsFactor = "";
 
       if (oddsHomeBoost > 0 || oddsAwayBoost > 0) {
         adjustedHomeScore = Math.min(100, adjustedHomeScore + oddsHomeBoost);
@@ -498,7 +536,11 @@ async function simulateSingleMatch(
       }
 
       // Check if signal threshold is met
-      if (adjustedScore >= signalThreshold && prob.side && prob.side !== 'both') {
+      if (
+        adjustedScore >= signalThreshold &&
+        prob.side &&
+        prob.side !== "both"
+      ) {
         // Record signal via the same tracker used for live matches
         const factors = [...prob.factors];
         if (oddsFactor) factors.push(oddsFactor);
@@ -531,12 +573,14 @@ async function simulateSingleMatch(
           for (let j = i + 1; j < snapshots.length; j++) {
             const futureSnap = snapshots[j];
             const prevSnap = snapshots[j - 1];
-            const homeGoalScored = (futureSnap.homeGoals ?? 0) > (prevSnap.homeGoals ?? 0);
-            const awayGoalScored = (futureSnap.awayGoals ?? 0) > (prevSnap.awayGoals ?? 0);
+            const homeGoalScored =
+              (futureSnap.homeGoals ?? 0) > (prevSnap.homeGoals ?? 0);
+            const awayGoalScored =
+              (futureSnap.awayGoals ?? 0) > (prevSnap.awayGoals ?? 0);
 
             if (homeGoalScored || awayGoalScored) {
               result.goalsAfterSignal++;
-              const goalSide = homeGoalScored ? 'home' : 'away';
+              const goalSide = homeGoalScored ? "home" : "away";
               if (goalSide === prob.side) {
                 result.correctSidePredictions++;
               }
@@ -544,10 +588,13 @@ async function simulateSingleMatch(
               // but signal records stayed pending, then finalizeMatchSignals
               // marked them goalHappened=false, creating contradictory data).
               try {
-                const { reportGoal } = await import('./goalSignalTracker');
-                const goalMinute = parseInt(futureSnap.minute.replace(/[^0-9]/g, ''), 10) || 90;
+                const { reportGoal } = await import("./goalSignalTracker");
+                const goalMinute =
+                  parseInt(futureSnap.minute.replace(/[^0-9]/g, ""), 10) || 90;
                 await reportGoal(match.matchCode, goalSide, goalMinute);
-              } catch { /* non-critical */ }
+              } catch {
+                /* non-critical */
+              }
               break; // Only count the first goal after signal
             }
           }
@@ -556,7 +603,11 @@ async function simulateSingleMatch(
     }
 
     // Finalize match signals
-    await finalizeMatchSignals(match.matchCode, match.homeScore, match.awayScore);
+    await finalizeMatchSignals(
+      match.matchCode,
+      match.homeScore,
+      match.awayScore,
+    );
   } catch (err: any) {
     result.error = err.message;
   }

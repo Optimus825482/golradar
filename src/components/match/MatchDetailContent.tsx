@@ -1,50 +1,127 @@
-'use client'
+"use client";
 
-import { memo, useMemo, useEffect, useState } from 'react'
-import type { GoalProbability } from '@/lib/nesine'
-import type { FotMobMatchDetails } from '@/lib/fotmob'
-import type { MomentumBarDataPoint, xGFlowPoint, ThreatIndex } from '@/lib/advancedAnalytics'
-import type { Match, MatchStats } from './types'
-import { statKeys } from './types'
-import { CountryFlag, MatchStatusBadge, StatBar, RedCardIndicator } from './shared-components'
-import { RADAR_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from '@/config'
-import { DangerousAttacksChart } from '@/components/charts/DangerousAttacksChart'
-import { UnifiedMatchMomentumChart } from '@/components/charts/UnifiedMatchMomentumChart'
-import { FotMobStatsBlock, FotMobEventsBlock, FotMobInfoBlock } from '@/components/fotmob/FotMobSection'
-import { estimateXgFromShots } from '@/lib/advancedAnalytics'
-import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { GoalooPredictionCard } from './GoalooPredictionCard'
+import { memo, useMemo, useEffect, useState } from "react";
+import type { GoalProbability } from "@/lib/nesine";
+import type { FotMobMatchDetails } from "@/lib/fotmob";
+import type {
+  MomentumBarDataPoint,
+  xGFlowPoint,
+  ThreatIndex,
+} from "@/lib/advancedAnalytics";
+import type { Match, MatchStats } from "./types";
+import { statKeys } from "./types";
+import {
+  CountryFlag,
+  MatchStatusBadge,
+  StatBar,
+  RedCardIndicator,
+} from "./shared-components";
+import { RADAR_THRESHOLD, SIGNAL_5MIN_THRESHOLD } from "@/config";
+import { DangerousAttacksChart } from "@/components/charts/DangerousAttacksChart";
+import { UnifiedMatchMomentumChart } from "@/components/charts/UnifiedMatchMomentumChart";
+import {
+  FotMobStatsBlock,
+  FotMobEventsBlock,
+  FotMobInfoBlock,
+} from "@/components/fotmob/FotMobSection";
+import { estimateXgFromShots } from "@/lib/advancedAnalytics";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { GoalooPredictionCard } from "./GoalooPredictionCard";
 
 interface TeamRatingInfo {
-  teamName: string; teamNameTr: string | null;
-  elo: number; attackStrength: number; defenseWeakness: number;
-  matchesPlayed: number; wins: number; draws: number; losses: number;
-  goalsFor: number; goalsAgainst: number;
-  piHa: number; piHd: number; piAa: number; piAd: number; piMatches: number;
-  seasonAvgGF: number; seasonAvgGA: number;
-  last5: Array<{ date: string; opponent: string; goalsFor: number; goalsAgainst: number; result: string; isHome: boolean }>;
+  teamName: string;
+  teamNameTr: string | null;
+  elo: number;
+  attackStrength: number;
+  defenseWeakness: number;
+  matchesPlayed: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  piHa: number;
+  piHd: number;
+  piAa: number;
+  piAd: number;
+  piMatches: number;
+  seasonAvgGF: number;
+  seasonAvgGA: number;
+  last5: Array<{
+    date: string;
+    opponent: string;
+    goalsFor: number;
+    goalsAgainst: number;
+    result: string;
+    isHome: boolean;
+  }>;
+}
+
+interface PredictionResult {
+  homeElo: number;
+  awayElo: number;
+  eloPrediction: {
+    homeWinP: number;
+    drawP: number;
+    awayWinP: number;
+  };
+  mostLikelyScore: string;
+  poissonPrediction: {
+    lambdaHome: number;
+    lambdaAway: number;
+    over25: number;
+    btts: number;
+    anyGoal: number;
+  };
+  topScores: Array<{ score: string; prob: number }>;
+}
+
+interface TeamDetailResponse extends TeamRatingInfo {
+  team?: unknown;
 }
 
 export interface MatchDetailContentProps {
-  match: Match
-  currentPressure: { home: number; away: number }
-  selectedGoalProb: GoalProbability | null
-  pressureChartData: { index: number; minute: string; homePressure: number; awayPressure: number }[]
-  statsChartData: { index: number; minute: string; homeDangerousAttacks: number; awayDangerousAttacks: number; homeShotsTotal: number; awayShotsTotal: number; homeCorners: number; awayCorners: number; homePossession: number; awayPossession: number }[]
-  momentumBars: MomentumBarDataPoint[]
-  xgFlowData: xGFlowPoint[]
-  threatIndex: ThreatIndex | null
-  filteredStats: MatchStats
-  statsHalf: 'full' | '1h' | '2h'
-  setStatsHalf: (h: 'full' | '1h' | '2h') => void
-  fotmobData: FotMobMatchDetails | null
-  fotmobLoading: boolean
-  scoremerStats?: Record<string, { home: number | null; away: number | null }> | null
-  scoremerHtStats?: Record<string, { home: number | null; away: number | null }> | null
-  scoremerLoading?: boolean
-  goalooMatchId?: number
-  activeChartTab?: string
-  setActiveChartTab?: (tab: string) => void
+  match: Match;
+  currentPressure: { home: number; away: number };
+  selectedGoalProb: GoalProbability | null;
+  pressureChartData: {
+    index: number;
+    minute: string;
+    homePressure: number;
+    awayPressure: number;
+  }[];
+  statsChartData: {
+    index: number;
+    minute: string;
+    homeDangerousAttacks: number;
+    awayDangerousAttacks: number;
+    homeShotsTotal: number;
+    awayShotsTotal: number;
+    homeCorners: number;
+    awayCorners: number;
+    homePossession: number;
+    awayPossession: number;
+  }[];
+  momentumBars: MomentumBarDataPoint[];
+  xgFlowData: xGFlowPoint[];
+  threatIndex: ThreatIndex | null;
+  filteredStats: MatchStats;
+  statsHalf: "full" | "1h" | "2h";
+  setStatsHalf: (h: "full" | "1h" | "2h") => void;
+  fotmobData: FotMobMatchDetails | null;
+  fotmobLoading: boolean;
+  scoremerStats?: Record<
+    string,
+    { home: number | null; away: number | null }
+  > | null;
+  scoremerHtStats?: Record<
+    string,
+    { home: number | null; away: number | null }
+  > | null;
+  scoremerLoading?: boolean;
+  goalooMatchId?: number;
+  activeChartTab?: string;
+  setActiveChartTab?: (tab: string) => void;
 }
 
 export const MatchDetailContent = memo(function MatchDetailContent({
@@ -66,31 +143,12 @@ export const MatchDetailContent = memo(function MatchDetailContent({
   scoremerLoading,
   goalooMatchId,
 }: MatchDetailContentProps) {
-
   // ── Team Rating data (Elo + Pi-Rating) ──
   const [homeRating, setHomeRating] = useState<TeamRatingInfo | null>(null);
   const [awayRating, setAwayRating] = useState<TeamRatingInfo | null>(null);
   const [ratingLoading, setRatingLoading] = useState(true);
 
   // ── Upcoming match prediction ──
-  interface PredictionResult {
-    homeElo: number;
-    awayElo: number;
-    eloPrediction: {
-      homeWinP: number;
-      drawP: number;
-      awayWinP: number;
-    };
-    mostLikelyScore: string;
-    poissonPrediction: {
-      lambdaHome: number;
-      lambdaAway: number;
-      over25: number;
-      btts: number;
-      anyGoal: number;
-    };
-    topScores: Array<{ score: string; prob: number }>;
-  }
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [predLoading, setPredLoading] = useState(false);
 
@@ -99,8 +157,10 @@ export const MatchDetailContent = memo(function MatchDetailContent({
     setPredLoading(true);
     const p = new URLSearchParams({ home: match.home, away: match.away });
     fetch(`/api/predict-upcoming?${p}`)
-      .then(r => r.json())
-      .then(d => { if (d.eloPrediction) setPrediction(d); })
+      .then((r) => r.json() as Promise<PredictionResult>)
+      .then((d) => {
+        if (d.eloPrediction) setPrediction(d);
+      })
       .catch(() => {})
       .finally(() => setPredLoading(false));
   }, [match.home, match.away, match.isUpcoming]);
@@ -111,257 +171,424 @@ export const MatchDetailContent = memo(function MatchDetailContent({
     const hp = new URLSearchParams({ team: match.home });
     const ap = new URLSearchParams({ team: match.away });
     Promise.all([
-      fetch(`/api/team-detail?${hp}`).then(r => r.json()).catch(() => null),
-      fetch(`/api/team-detail?${ap}`).then(r => r.json()).catch(() => null),
-    ]).then(([h, a]) => {
-      if (h?.team) setHomeRating(h);
-      if (a?.team) setAwayRating(a);
-    }).finally(() => setRatingLoading(false));
+      fetch(`/api/team-detail?${hp}`)
+        .then((r) => r.json() as Promise<TeamDetailResponse>)
+        .catch(() => null),
+      fetch(`/api/team-detail?${ap}`)
+        .then((r) => r.json() as Promise<TeamDetailResponse>)
+        .catch(() => null),
+    ])
+      .then(([h, a]) => {
+        if (h?.team) setHomeRating(h);
+        if (a?.team) setAwayRating(a);
+      })
+      .finally(() => setRatingLoading(false));
   }, [match.home, match.away]);
 
   // Parse form results → emoji + score
-  const formatLast5 = (last5: TeamRatingInfo['last5']) => {
-    return last5.map(m => {
-      const resultEmoji = m.result === 'W' ? '✅' : m.result === 'L' ? '❌' : '➖';
-      return `${resultEmoji} ${m.goalsFor}-${m.goalsAgainst} ${m.isHome ? 'vs' : '@'}${m.opponent.slice(0, 12)}`;
+  const formatLast5 = (last5: TeamRatingInfo["last5"]) => {
+    return last5.map((m) => {
+      const resultEmoji =
+        m.result === "W" ? "✅" : m.result === "L" ? "❌" : "➖";
+      return `${resultEmoji} ${m.goalsFor}-${m.goalsAgainst} ${m.isHome ? "vs" : "@"}${m.opponent.slice(0, 12)}`;
     });
   };
 
   // Map statsChartData → DangerousAttacksChart data format
   const daData = useMemo(
     () =>
-      statsChartData.map(d => {
-        const raw = d.minute ?? ''
+      statsChartData.map((d) => {
+        const raw = d.minute ?? "";
         const min =
-          typeof d.minute === 'number'
+          typeof d.minute === "number"
             ? d.minute
-            : parseInt(String(raw).replace(/[^0-9]/g, ''), 10)
+            : parseInt(String(raw).replace(/[^0-9]/g, ""), 10);
         return {
           minute: isNaN(min) ? 0 : min,
-          minuteLabel: typeof d.minute === 'string' ? d.minute : `${min}'`,
+          minuteLabel: typeof d.minute === "string" ? d.minute : `${min}'`,
           homeDangerousAttacks: d.homeDangerousAttacks ?? 0,
           awayDangerousAttacks: d.awayDangerousAttacks ?? 0,
           homeShots: d.homeShotsTotal ?? 0,
           awayShots: d.awayShotsTotal ?? 0,
-        }
+        };
       }),
     [statsChartData],
-  )
+  );
 
   return (
-    <div style={{ contain: 'paint layout style' }}>
+    <div style={{ contain: "paint layout style" }}>
       {/* Match Header */}
       <div className="bg-gradient-to-r from-orange-50 via-white to-blue-50 p-4 sm:p-6 border-b border-gray-100">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <CountryFlag code={match.country} />
-            <span className="text-xs text-gray-500 uppercase tracking-wider font-medium">{match.league}</span>
+            <span className="text-xs text-gray-500 uppercase tracking-wider font-medium">
+              {match.league}
+            </span>
           </div>
           <MatchStatusBadge match={match} />
         </div>
 
         <div className="flex items-center justify-center gap-4 sm:gap-8">
           <div className="text-center flex-1 min-w-0">
-            <div className="relative mx-auto mb-2" style={{ width: 72, height: 72 }}>
+            <div
+              className="relative mx-auto mb-2"
+              style={{ width: 72, height: 72 }}
+            >
               {/* Gauge arc */}
-              <svg width="72" height="72" viewBox="0 0 72 72" className="absolute inset-0">
-                <circle cx="36" cy="36" r="32" fill="none" stroke="#f1f5f9" strokeWidth="6" />
-                <circle cx="36" cy="36" r="32" fill="none" stroke="#f97316" strokeWidth="6"
+              <svg
+                width="72"
+                height="72"
+                viewBox="0 0 72 72"
+                className="absolute inset-0"
+              >
+                <circle
+                  cx="36"
+                  cy="36"
+                  r="32"
+                  fill="none"
+                  stroke="#f1f5f9"
+                  strokeWidth="6"
+                />
+                <circle
+                  cx="36"
+                  cy="36"
+                  r="32"
+                  fill="none"
+                  stroke="#f97316"
+                  strokeWidth="6"
                   strokeDasharray={`${(currentPressure.home / 100) * 201} 201`}
-                  strokeLinecap="round" transform="rotate(-90 36 36)"
-                  className="transition-all duration-700 ease-out" />
+                  strokeLinecap="round"
+                  transform="rotate(-90 36 36)"
+                  className="transition-all duration-700 ease-out"
+                />
               </svg>
               {/* Center value */}
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-lg font-black text-orange-600">{currentPressure.home}%</span>
+                <span className="text-lg font-black text-orange-600">
+                  {currentPressure.home}%
+                </span>
               </div>
             </div>
-            <p className="text-sm font-bold text-gray-900 truncate flex items-center justify-center gap-1">{match.home}<RedCardIndicator count={match.homeRedCards} /></p>
+            <p className="text-sm font-bold text-gray-900 truncate flex items-center justify-center gap-1">
+              {match.home}
+              <RedCardIndicator count={match.homeRedCards} />
+            </p>
             <p className="text-[9px] text-gray-400">Baskı</p>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            <span className="text-4xl sm:text-5xl font-black text-gray-900">{match.homeGoals}</span>
+            <span className="text-4xl sm:text-5xl font-black text-gray-900">
+              {match.homeGoals}
+            </span>
             <span className="text-2xl sm:text-3xl text-gray-300">:</span>
-            <span className="text-4xl sm:text-5xl font-black text-gray-900">{match.awayGoals}</span>
+            <span className="text-4xl sm:text-5xl font-black text-gray-900">
+              {match.awayGoals}
+            </span>
           </div>
 
           <div className="text-center flex-1 min-w-0">
-            <div className="relative mx-auto mb-2" style={{ width: 72, height: 72 }}>
+            <div
+              className="relative mx-auto mb-2"
+              style={{ width: 72, height: 72 }}
+            >
               {/* Gauge arc */}
-              <svg width="72" height="72" viewBox="0 0 72 72" className="absolute inset-0">
-                <circle cx="36" cy="36" r="32" fill="none" stroke="#f1f5f9" strokeWidth="6" />
-                <circle cx="36" cy="36" r="32" fill="none" stroke="#3b82f6" strokeWidth="6"
+              <svg
+                width="72"
+                height="72"
+                viewBox="0 0 72 72"
+                className="absolute inset-0"
+              >
+                <circle
+                  cx="36"
+                  cy="36"
+                  r="32"
+                  fill="none"
+                  stroke="#f1f5f9"
+                  strokeWidth="6"
+                />
+                <circle
+                  cx="36"
+                  cy="36"
+                  r="32"
+                  fill="none"
+                  stroke="#3b82f6"
+                  strokeWidth="6"
                   strokeDasharray={`${(currentPressure.away / 100) * 201} 201`}
-                  strokeLinecap="round" transform="rotate(-90 36 36)"
-                  className="transition-all duration-700 ease-out" />
+                  strokeLinecap="round"
+                  transform="rotate(-90 36 36)"
+                  className="transition-all duration-700 ease-out"
+                />
               </svg>
               {/* Center value */}
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-lg font-black text-blue-600">{currentPressure.away}%</span>
+                <span className="text-lg font-black text-blue-600">
+                  {currentPressure.away}%
+                </span>
               </div>
             </div>
-            <p className="text-sm font-bold text-gray-900 truncate flex items-center justify-center gap-1">{match.away}<RedCardIndicator count={match.awayRedCards} /></p>
+            <p className="text-sm font-bold text-gray-900 truncate flex items-center justify-center gap-1">
+              {match.away}
+              <RedCardIndicator count={match.awayRedCards} />
+            </p>
             <p className="text-[9px] text-gray-400">Baskı</p>
           </div>
         </div>
 
-        {match.firstHalfScore !== '-' && (
+        {match.firstHalfScore !== "-" && (
           <div className="text-center mt-2">
-            <span className="text-xs text-gray-400">İY: {match.firstHalfScore}</span>
+            <span className="text-xs text-gray-400">
+              İY: {match.firstHalfScore}
+            </span>
           </div>
         )}
 
         {/* Goal Radar Indicator — tüm canlı maçlar için göster */}
         {match.isLive && selectedGoalProb && (
-          <div className={`mt-4 p-3 rounded-xl border-2 ${
-            selectedGoalProb.level === 'critical' ? 'bg-red-50 border-red-300' :
-            selectedGoalProb.level === 'high' ? 'bg-orange-50 border-orange-300' :
-            'bg-yellow-50 border-yellow-300'
-          }`}>
+          <div
+            className={`mt-4 p-3 rounded-xl border-2 ${
+              selectedGoalProb.level === "critical"
+                ? "bg-red-50 border-red-300"
+                : selectedGoalProb.level === "high"
+                  ? "bg-orange-50 border-orange-300"
+                  : "bg-yellow-50 border-yellow-300"
+            }`}
+          >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <div className={`relative ${selectedGoalProb.level === 'critical' ? 'animate-pulse' : ''}`}>
-                  <svg className={`w-5 h-5 ${
-                    selectedGoalProb.level === 'critical' ? 'text-red-500' :
-                    selectedGoalProb.level === 'high' ? 'text-orange-500' :
-                    'text-yellow-500'
-                  }`} viewBox="0 0 24 24" fill="currentColor">
+                <div
+                  className={`relative ${selectedGoalProb.level === "critical" ? "animate-pulse" : ""}`}
+                >
+                  <svg
+                    className={`w-5 h-5 ${
+                      selectedGoalProb.level === "critical"
+                        ? "text-red-500"
+                        : selectedGoalProb.level === "high"
+                          ? "text-orange-500"
+                          : "text-yellow-500"
+                    }`}
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
                   </svg>
-                  {selectedGoalProb.level === 'critical' && (
+                  {selectedGoalProb.level === "critical" && (
                     <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-400 rounded-full animate-ping" />
                   )}
                 </div>
                 <div>
-                  <span className={`text-sm font-bold ${
-                    selectedGoalProb.level === 'critical' ? 'text-red-700' :
-                    selectedGoalProb.level === 'high' ? 'text-orange-700' :
-                    'text-yellow-700'
-                  }`}>
+                  <span
+                    className={`text-sm font-bold ${
+                      selectedGoalProb.level === "critical"
+                        ? "text-red-700"
+                        : selectedGoalProb.level === "high"
+                          ? "text-orange-700"
+                          : "text-yellow-700"
+                    }`}
+                  >
                     GOL RADARI
                   </span>
-                  <span className={`ml-2 text-xs ${
-                    selectedGoalProb.level === 'critical' ? 'text-red-500' :
-                    selectedGoalProb.level === 'high' ? 'text-orange-500' :
-                    selectedGoalProb.level === 'medium' ? 'text-yellow-500' :
-                    'text-gray-500'
-                  }`}>
-                    %{Math.round((selectedGoalProb.goalProbability5min || 0) * 100)} · Skor: {selectedGoalProb.score}
+                  <span
+                    className={`ml-2 text-xs ${
+                      selectedGoalProb.level === "critical"
+                        ? "text-red-500"
+                        : selectedGoalProb.level === "high"
+                          ? "text-orange-500"
+                          : selectedGoalProb.level === "medium"
+                            ? "text-yellow-500"
+                            : "text-gray-500"
+                    }`}
+                  >
+                    %
+                    {Math.round(
+                      (selectedGoalProb.goalProbability5min || 0) * 100,
+                    )}{" "}
+                    · Skor: {selectedGoalProb.score}
                   </span>
                 </div>
               </div>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                selectedGoalProb.level === 'critical' ? 'bg-red-200 text-red-800' :
-                selectedGoalProb.level === 'high' ? 'bg-orange-200 text-orange-800' :
-                'bg-yellow-200 text-yellow-800'
-              }`}>
-                {selectedGoalProb.level === 'critical' ? 'KRİTİK' :
-                 selectedGoalProb.level === 'high' ? 'YÜKSEK' : 'ORTA'}
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  selectedGoalProb.level === "critical"
+                    ? "bg-red-200 text-red-800"
+                    : selectedGoalProb.level === "high"
+                      ? "bg-orange-200 text-orange-800"
+                      : "bg-yellow-200 text-yellow-800"
+                }`}
+              >
+                {selectedGoalProb.level === "critical"
+                  ? "KRİTİK"
+                  : selectedGoalProb.level === "high"
+                    ? "YÜKSEK"
+                    : "ORTA"}
               </span>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-gray-600 w-20 truncate">{match.home}</span>
+                <span className="text-[11px] text-gray-600 w-20 truncate">
+                  {match.home}
+                </span>
                 <div className="flex-1 h-2 rounded-full bg-gray-200 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-700 ${
-                      selectedGoalProb.level === 'critical' ? 'bg-red-500' :
-                      selectedGoalProb.level === 'high' ? 'bg-orange-500' : 'bg-yellow-500'
+                      selectedGoalProb.level === "critical"
+                        ? "bg-red-500"
+                        : selectedGoalProb.level === "high"
+                          ? "bg-orange-500"
+                          : "bg-yellow-500"
                     }`}
-                    style={{ width: `${Math.min(100, selectedGoalProb.homeScore)}%` }}
+                    style={{
+                      width: `${Math.min(100, selectedGoalProb.homeScore)}%`,
+                    }}
                   />
                 </div>
-                <span className="text-[11px] font-mono font-semibold w-8 text-right">{selectedGoalProb.homeScore}</span>
+                <span className="text-[11px] font-mono font-semibold w-8 text-right">
+                  {selectedGoalProb.homeScore}
+                </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-gray-600 w-20 truncate">{match.away}</span>
+                <span className="text-[11px] text-gray-600 w-20 truncate">
+                  {match.away}
+                </span>
                 <div className="flex-1 h-2 rounded-full bg-gray-200 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-700 ${
-                      selectedGoalProb.level === 'critical' ? 'bg-red-500' :
-                      selectedGoalProb.level === 'high' ? 'bg-orange-500' : 'bg-yellow-500'
+                      selectedGoalProb.level === "critical"
+                        ? "bg-red-500"
+                        : selectedGoalProb.level === "high"
+                          ? "bg-orange-500"
+                          : "bg-yellow-500"
                     }`}
-                    style={{ width: `${Math.min(100, selectedGoalProb.awayScore)}%` }}
+                    style={{
+                      width: `${Math.min(100, selectedGoalProb.awayScore)}%`,
+                    }}
                   />
                 </div>
-                <span className="text-[11px] font-mono font-semibold w-8 text-right">{selectedGoalProb.awayScore}</span>
+                <span className="text-[11px] font-mono font-semibold w-8 text-right">
+                  {selectedGoalProb.awayScore}
+                </span>
               </div>
             </div>
 
             {selectedGoalProb.factors.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {selectedGoalProb.factors.map((f, i) => (
-                  <span key={i} className={`text-[9px] px-1.5 py-0.5 rounded-full ${
-                    selectedGoalProb.level === 'critical' ? 'bg-red-100 text-red-600' :
-                    selectedGoalProb.level === 'high' ? 'bg-orange-100 text-orange-600' :
-                    'bg-yellow-100 text-yellow-600'
-                  }`}>
+                  <span
+                    key={i}
+                    className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                      selectedGoalProb.level === "critical"
+                        ? "bg-red-100 text-red-600"
+                        : selectedGoalProb.level === "high"
+                          ? "bg-orange-100 text-orange-600"
+                          : "bg-yellow-100 text-yellow-600"
+                    }`}
+                  >
                     {f}
                   </span>
                 ))}
               </div>
             )}
 
-            {(selectedGoalProb.calibratedP > 0 || selectedGoalProb.poissonP > 0) && (
+            {(selectedGoalProb.calibratedP > 0 ||
+              selectedGoalProb.poissonP > 0) && (
               <div className="mt-2 space-y-1.5">
                 <div className="grid grid-cols-3 gap-1.5">
                   {selectedGoalProb.calibratedP > 0 && (
                     <div className="bg-blue-50 rounded px-2 py-1 text-center">
-                      <div className="text-[8px] text-blue-500 font-medium">Kalibre</div>
-                      <div className="text-[11px] font-bold text-blue-700">{(selectedGoalProb.calibratedP * 100).toFixed(0)}%</div>
+                      <div className="text-[8px] text-blue-500 font-medium">
+                        Kalibre
+                      </div>
+                      <div className="text-[11px] font-bold text-blue-700">
+                        {(selectedGoalProb.calibratedP * 100).toFixed(0)}%
+                      </div>
                     </div>
                   )}
                   {selectedGoalProb.poissonP > 0 && (
                     <div className="bg-purple-50 rounded px-2 py-1 text-center">
-                      <div className="text-[8px] text-purple-500 font-medium">Poisson</div>
-                      <div className="text-[11px] font-bold text-purple-700">{(selectedGoalProb.poissonP * 100).toFixed(0)}%</div>
+                      <div className="text-[8px] text-purple-500 font-medium">
+                        Poisson
+                      </div>
+                      <div className="text-[11px] font-bold text-purple-700">
+                        {(selectedGoalProb.poissonP * 100).toFixed(0)}%
+                      </div>
                     </div>
                   )}
                   {selectedGoalProb.overUnder25 > 0 && (
                     <div className="bg-green-50 rounded px-2 py-1 text-center">
-                      <div className="text-[8px] text-green-500 font-medium">O2.5</div>
-                      <div className="text-[11px] font-bold text-green-700">{(selectedGoalProb.overUnder25 * 100).toFixed(0)}%</div>
+                      <div className="text-[8px] text-green-500 font-medium">
+                        O2.5
+                      </div>
+                      <div className="text-[11px] font-bold text-green-700">
+                        {(selectedGoalProb.overUnder25 * 100).toFixed(0)}%
+                      </div>
                     </div>
                   )}
                   {selectedGoalProb.btts > 0 && (
                     <div className="bg-amber-50 rounded px-2 py-1 text-center">
-                      <div className="text-[8px] text-amber-500 font-medium">BTTS</div>
-                      <div className="text-[11px] font-bold text-amber-700">{(selectedGoalProb.btts * 100).toFixed(0)}%</div>
+                      <div className="text-[8px] text-amber-500 font-medium">
+                        BTTS
+                      </div>
+                      <div className="text-[11px] font-bold text-amber-700">
+                        {(selectedGoalProb.btts * 100).toFixed(0)}%
+                      </div>
                     </div>
                   )}
                   {selectedGoalProb.timeMultiplier !== 1.0 && (
                     <div className="bg-gray-50 rounded px-2 py-1 text-center">
-                      <div className="text-[8px] text-gray-500 font-medium">Zaman</div>
-                      <div className="text-[11px] font-bold text-gray-700">{selectedGoalProb.timeMultiplier.toFixed(2)}x</div>
+                      <div className="text-[8px] text-gray-500 font-medium">
+                        Zaman
+                      </div>
+                      <div className="text-[11px] font-bold text-gray-700">
+                        {selectedGoalProb.timeMultiplier.toFixed(2)}x
+                      </div>
                     </div>
                   )}
-                  {selectedGoalProb.eloAdj && (Math.abs(selectedGoalProb.eloAdj.homeAdjust) >= 2 || Math.abs(selectedGoalProb.eloAdj.awayAdjust) >= 2) && (
-                    <div className="bg-indigo-50 rounded px-2 py-1 text-center">
-                      <div className="text-[8px] text-indigo-500 font-medium">Elo</div>
-                      <div className="text-[11px] font-bold text-indigo-700">{selectedGoalProb.eloAdj.homeAdjust > 0 ? '+' : ''}{selectedGoalProb.eloAdj.homeAdjust}/{selectedGoalProb.eloAdj.awayAdjust > 0 ? '+' : ''}{selectedGoalProb.eloAdj.awayAdjust}</div>
-                    </div>
-                  )}
+                  {selectedGoalProb.eloAdj &&
+                    (Math.abs(selectedGoalProb.eloAdj.homeAdjust) >= 2 ||
+                      Math.abs(selectedGoalProb.eloAdj.awayAdjust) >= 2) && (
+                      <div className="bg-indigo-50 rounded px-2 py-1 text-center">
+                        <div className="text-[8px] text-indigo-500 font-medium">
+                          Elo
+                        </div>
+                        <div className="text-[11px] font-bold text-indigo-700">
+                          {selectedGoalProb.eloAdj.homeAdjust > 0 ? "+" : ""}
+                          {selectedGoalProb.eloAdj.homeAdjust}/
+                          {selectedGoalProb.eloAdj.awayAdjust > 0 ? "+" : ""}
+                          {selectedGoalProb.eloAdj.awayAdjust}
+                        </div>
+                      </div>
+                    )}
                 </div>
                 <div className="bg-gradient-to-r from-slate-50 to-sky-50 rounded px-2.5 py-1.5 border border-slate-100">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-[9px] font-bold text-slate-600">ENSEMBLE AKTIF</span>
+                      <span className="text-[9px] font-bold text-slate-600">
+                        ENSEMBLE AKTIF
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-[8px] text-slate-400">Kural</span>
                       <div className="w-8 h-1 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-orange-400 rounded-full" style={{ width: '40%' }} />
+                        <div
+                          className="h-full bg-orange-400 rounded-full"
+                          style={{ width: "40%" }}
+                        />
                       </div>
                       <span className="text-[8px] text-slate-400">Poisson</span>
                       <div className="w-8 h-1 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-purple-400 rounded-full" style={{ width: '25%' }} />
+                        <div
+                          className="h-full bg-purple-400 rounded-full"
+                          style={{ width: "25%" }}
+                        />
                       </div>
                       <span className="text-[8px] text-slate-400">ML</span>
                       <div className="w-8 h-1 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-400 rounded-full" style={{ width: '20%' }} />
+                        <div
+                          className="h-full bg-emerald-400 rounded-full"
+                          style={{ width: "20%" }}
+                        />
                       </div>
                     </div>
                   </div>
@@ -373,16 +600,42 @@ export const MatchDetailContent = memo(function MatchDetailContent({
       </div>
 
       {/* Charts Section — Desktop: side-by-side, Mobile: stacked */}
-      <div className="px-3 sm:px-4 pb-3 border-b border-gray-100" style={{ contain: 'paint layout style' }}>
-        {(pressureChartData.length > 2 || fotmobData?.momentum?.main?.data?.length || momentumBars.length >= 2 || xgFlowData.length >= 1 || match?.hasStats || fotmobLoading) ? (
+      <div
+        className="px-3 sm:px-4 pb-3 border-b border-gray-100"
+        style={{ contain: "paint layout style" }}
+      >
+        {pressureChartData.length > 2 ||
+        fotmobData?.momentum?.main?.data?.length ||
+        momentumBars.length >= 2 ||
+        xgFlowData.length >= 1 ||
+        match?.hasStats ||
+        fotmobLoading ? (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             {/* Shared header — replaces individual chart headers */}
             <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-gray-100">
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Momentum & Tehlikeli Hücum</h3>
+              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+                Momentum & Tehlikeli Hücum
+              </h3>
               <div className="flex items-center gap-3 text-[11px]">
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: match.homeColor || '#f97316' }} /><span className="text-gray-700 font-medium">{match.home}</span></span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: match.homeColor || "#f97316" }}
+                  />
+                  <span className="text-gray-700 font-medium">
+                    {match.home}
+                  </span>
+                </span>
                 <span className="w-px h-3 bg-gray-200" />
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: match.awayColor || '#3b82f6' }} /><span className="text-gray-700 font-medium">{match.away}</span></span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: match.awayColor || "#3b82f6" }}
+                  />
+                  <span className="text-gray-700 font-medium">
+                    {match.away}
+                  </span>
+                </span>
               </div>
             </div>
 
@@ -391,23 +644,25 @@ export const MatchDetailContent = memo(function MatchDetailContent({
               {/* Momentum Chart */}
               <div className="px-2 sm:px-3 pt-2 pb-2">
                 <ErrorBoundary context="UnifiedMatchMomentumChart">
-                <UnifiedMatchMomentumChart
-                  momentumBars={momentumBars}
-                  xgFlowData={xgFlowData}
-                  homeTeam={match.home}
-                  awayTeam={match.away}
-                  homeScore={match.homeGoals}
-                  awayScore={match.awayGoals}
-                  homeColor={match.homeColor || '#f97316'}
-                  awayColor={match.awayColor || '#3b82f6'}
-                  threatIndex={null}
-                  fotmobMomentum={fotmobData?.momentum ?? null}
-                  fotmobShots={fotmobData?.shotmap ?? null}
-                  fotmobHomeTeamId={fotmobData?.homeTeam?.id}
-                  fotmobAwayTeamId={fotmobData?.awayTeam?.id}
-                  goalEvents={fotmobData?.events?.filter(e => e.type === 'Goal')}
-                  isFotmobLoading={fotmobLoading}
-                />
+                  <UnifiedMatchMomentumChart
+                    momentumBars={momentumBars}
+                    xgFlowData={xgFlowData}
+                    homeTeam={match.home}
+                    awayTeam={match.away}
+                    homeScore={match.homeGoals}
+                    awayScore={match.awayGoals}
+                    homeColor={match.homeColor || "#f97316"}
+                    awayColor={match.awayColor || "#3b82f6"}
+                    threatIndex={null}
+                    fotmobMomentum={fotmobData?.momentum ?? null}
+                    fotmobShots={fotmobData?.shotmap ?? null}
+                    fotmobHomeTeamId={fotmobData?.homeTeam?.id}
+                    fotmobAwayTeamId={fotmobData?.awayTeam?.id}
+                    goalEvents={fotmobData?.events?.filter(
+                      (e) => e.type === "Goal",
+                    )}
+                    isFotmobLoading={fotmobLoading}
+                  />
                 </ErrorBoundary>
               </div>
 
@@ -418,63 +673,119 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                     data={daData}
                     homeTeam={match.home}
                     awayTeam={match.away}
-                    homeColor={match.homeColor || '#f97316'}
-                    awayColor={match.awayColor || '#3b82f6'}
+                    homeColor={match.homeColor || "#f97316"}
+                    awayColor={match.awayColor || "#3b82f6"}
                     title=""
                     hideHeader={true}
-                    goalEvents={fotmobData?.events
-                      ?.filter(e => e.type === 'Goal')
-                      .map(e => ({
-                        isHome: e.isHome,
-                        minute: typeof e.time === 'number'
-                          ? e.time
-                          : parseInt(String(e.time || '0').replace(/[^0-9]/g, ''), 10) || 0,
-                      })) ?? null}
+                    goalEvents={
+                      fotmobData?.events
+                        ?.filter((e) => e.type === "Goal")
+                        .map((e) => ({
+                          isHome: e.isHome,
+                          minute:
+                            typeof e.time === "number"
+                              ? e.time
+                              : parseInt(
+                                  String(e.time || "0").replace(/[^0-9]/g, ""),
+                                  10,
+                                ) || 0,
+                        })) ?? null
+                    }
                   />
                 </ErrorBoundary>
               </div>
             </div>
 
             {/* Shared threat ribbon — replaces the individual threatIndex footer blocks */}
-            {threatIndex && Math.abs(threatIndex.home - threatIndex.away) >= 5 && (() => {
-              const ht = threatIndex.home, at = threatIndex.away, total = ht + at || 1, hp = Math.round((ht / total) * 100);
-              const bc = threatIndex.home > threatIndex.away ? (match.homeColor || '#f97316') : (match.awayColor || '#3b82f6');
-              return (
-                <div className="mx-3 mb-3 mt-1 px-4 py-2.5 rounded-xl text-center" style={{ background: `linear-gradient(135deg, ${bc}10 0%, ${bc}05 100%)`, border: `1px solid ${bc}20` }}>
-                  <div className="flex items-center justify-center gap-3 mb-2">
-                    <span className="text-[11px] font-black" style={{ color: bc }}>{threatIndex.interpretation}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-[11px] font-bold" style={{ color: match.homeColor || '#f97316' }}>{match.home} {Math.round(ht)}</span>
-                    <div className="flex-1 h-2.5 rounded-full overflow-hidden bg-gray-100">
-                      <div className="h-full rounded-l-full" style={{ width: `${hp}%`, background: `linear-gradient(90deg, ${match.homeColor || '#f97316'}80, ${match.homeColor || '#f97316'})` }} />
+            {threatIndex &&
+              Math.abs(threatIndex.home - threatIndex.away) >= 5 &&
+              (() => {
+                const ht = threatIndex.home,
+                  at = threatIndex.away,
+                  total = ht + at || 1,
+                  hp = Math.round((ht / total) * 100);
+                const bc =
+                  threatIndex.home > threatIndex.away
+                    ? match.homeColor || "#f97316"
+                    : match.awayColor || "#3b82f6";
+                return (
+                  <div
+                    className="mx-3 mb-3 mt-1 px-4 py-2.5 rounded-xl text-center"
+                    style={{
+                      background: `linear-gradient(135deg, ${bc}10 0%, ${bc}05 100%)`,
+                      border: `1px solid ${bc}20`,
+                    }}
+                  >
+                    <div className="flex items-center justify-center gap-3 mb-2">
+                      <span
+                        className="text-[11px] font-black"
+                        style={{ color: bc }}
+                      >
+                        {threatIndex.interpretation}
+                      </span>
                     </div>
-                    <span className="w-px h-4 bg-gray-200" />
-                    <div className="flex-1 h-2.5 rounded-full overflow-hidden bg-gray-100" style={{ direction: 'rtl' }}>
-                      <div className="h-full rounded-l-full" style={{ width: `${100 - hp}%`, background: `linear-gradient(270deg, ${match.awayColor || '#3b82f6'}80, ${match.awayColor || '#3b82f6'})` }} />
+                    <div className="flex items-center justify-between gap-4">
+                      <span
+                        className="text-[11px] font-bold"
+                        style={{ color: match.homeColor || "#f97316" }}
+                      >
+                        {match.home} {Math.round(ht)}
+                      </span>
+                      <div className="flex-1 h-2.5 rounded-full overflow-hidden bg-gray-100">
+                        <div
+                          className="h-full rounded-l-full"
+                          style={{
+                            width: `${hp}%`,
+                            background: `linear-gradient(90deg, ${match.homeColor || "#f97316"}80, ${match.homeColor || "#f97316"})`,
+                          }}
+                        />
+                      </div>
+                      <span className="w-px h-4 bg-gray-200" />
+                      <div
+                        className="flex-1 h-2.5 rounded-full overflow-hidden bg-gray-100"
+                        style={{ direction: "rtl" }}
+                      >
+                        <div
+                          className="h-full rounded-l-full"
+                          style={{
+                            width: `${100 - hp}%`,
+                            background: `linear-gradient(270deg, ${match.awayColor || "#3b82f6"}80, ${match.awayColor || "#3b82f6"})`,
+                          }}
+                        />
+                      </div>
+                      <span
+                        className="text-[11px] font-bold"
+                        style={{ color: match.awayColor || "#3b82f6" }}
+                      >
+                        {100 - hp}% {match.away}
+                      </span>
                     </div>
-                    <span className="text-[11px] font-bold" style={{ color: match.awayColor || '#3b82f6' }}>{100 - hp}% {match.away}</span>
                   </div>
-                </div>
-              );
-            })()}
+                );
+              })()}
           </div>
-	        ) : fotmobLoading ? (
-	          <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
-	            <div className="text-center">
-	              <div className="animate-spin w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full mx-auto mb-2" />
-	              <p className="text-xs text-gray-400">Grafik için veri toplanıyor...</p>
-	            </div>
-	          </div>
-	        ) : (
-	          <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
-	            <div className="text-center">
-	              <div className="text-2xl mb-1 opacity-30">📡</div>
-	              <p className="text-xs text-gray-400 mb-1">Grafik verisi alınamadı</p>
-	              <p className="text-[10px] text-gray-400">Canlı istatistikler geldiğinde otomatik görünecek</p>
-	            </div>
-	          </div>
-	        )}
+        ) : fotmobLoading ? (
+          <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
+            <div className="text-center">
+              <div className="animate-spin w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full mx-auto mb-2" />
+              <p className="text-xs text-gray-400">
+                Grafik için veri toplanıyor...
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="h-[160px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
+            <div className="text-center">
+              <div className="text-2xl mb-1 opacity-30">📡</div>
+              <p className="text-xs text-gray-400 mb-1">
+                Grafik verisi alınamadı
+              </p>
+              <p className="text-[10px] text-gray-400">
+                Canlı istatistikler geldiğinde otomatik görünecek
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Team Info: Elo + Pi-Rating + Form + Last 5 ── */}
@@ -482,110 +793,257 @@ export const MatchDetailContent = memo(function MatchDetailContent({
         <div className="px-3 sm:px-4 pb-3 border-b border-gray-100">
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50">
-              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Takım Bilgileri</h3>
-              {ratingLoading && <div className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />}
+              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">
+                Takım Bilgileri
+              </h3>
+              {ratingLoading && (
+                <div className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+              )}
             </div>
             {ratingLoading && !homeRating && !awayRating ? (
               <div className="p-4 space-y-3 animate-pulse">
-                <div className="flex items-center justify-between"><div className="h-4 w-24 bg-gray-200 rounded" /><div className="h-3 w-8 bg-gray-200 rounded" /></div>
-                <div className="grid grid-cols-2 gap-2"><div className="h-14 bg-gray-100 rounded-lg" /><div className="h-14 bg-gray-100 rounded-lg" /></div>
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-24 bg-gray-200 rounded" />
+                  <div className="h-3 w-8 bg-gray-200 rounded" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="h-14 bg-gray-100 rounded-lg" />
+                  <div className="h-14 bg-gray-100 rounded-lg" />
+                </div>
               </div>
             ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
-              {/* Home */}
-              <div className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-900">{match.home}</span>
-                  <span className="text-[10px] text-gray-400">{homeRating?.matchesPlayed ?? 0} mac</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">Elo</div>
-                    <div className={`text-sm font-black font-mono ${(homeRating?.elo ?? 1500) >= 1700 ? 'text-emerald-600' : (homeRating?.elo ?? 1500) >= 1500 ? 'text-amber-600' : 'text-gray-500'}`}>{homeRating?.elo ?? '1500'}</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
+                {/* Home */}
+                <div className="p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-900">
+                      {match.home}
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      {homeRating?.matchesPlayed ?? 0} mac
+                    </span>
                   </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">Atak / Savunma</div>
-                    <div className="text-sm font-black font-mono text-gray-700">{homeRating?.attackStrength.toFixed(2) ?? '1.0'} / {homeRating?.defenseWeakness.toFixed(2) ?? '1.0'}</div>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-                  <span className="text-gray-500">π Ha: <strong className="text-indigo-600">{homeRating?.piHa.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Hd: <strong className="text-indigo-600">{homeRating?.piHd.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Aa: <strong className="text-purple-600">{homeRating?.piAa.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Ad: <strong className="text-purple-600">{homeRating?.piAd.toFixed(4) ?? '0'}</strong></span>
-                </div>
-                {homeRating && (
-                  <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
-                    <div className="flex items-center justify-between text-[11px]"><span className="text-gray-500 font-medium">Sezon</span><span className="font-bold text-gray-700">{homeRating.wins}G / {homeRating.draws}B / {homeRating.losses}M</span></div>
-                    <div className="flex items-center justify-between text-[11px]"><span className="text-gray-500">AG / YG</span><span className="font-mono font-bold text-gray-700">{homeRating.goalsFor} / {homeRating.goalsAgainst}</span></div>
-                  </div>
-                )}
-                {homeRating && homeRating.last5 && homeRating.last5.length > 0 && (
-                  <div>
-                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Son 5 Maç</div>
-                    <div className="space-y-1">
-                      {homeRating.last5.map((m, i) => (
-                        <div key={i} className="flex items-center justify-between text-[11px] bg-gray-50 rounded px-2 py-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs">{m.result === 'W' ? '✅' : m.result === 'L' ? '❌' : '➖'}</span>
-                            <span className="font-medium text-gray-700 truncate max-w-[80px]">{m.isHome ? '' : '@'}{m.opponent}</span>
-                          </div>
-                          <span className={`font-mono font-bold ${m.result === 'W' ? 'text-emerald-600' : m.result === 'L' ? 'text-red-600' : 'text-amber-600'}`}>{m.goalsFor}-{m.goalsAgainst}</span>
-                        </div>
-                      ))}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                      <div className="text-[9px] text-gray-500 font-medium">
+                        Elo
+                      </div>
+                      <div
+                        className={`text-sm font-black font-mono ${(homeRating?.elo ?? 1500) >= 1700 ? "text-emerald-600" : (homeRating?.elo ?? 1500) >= 1500 ? "text-amber-600" : "text-gray-500"}`}
+                      >
+                        {homeRating?.elo ?? "1500"}
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                      <div className="text-[9px] text-gray-500 font-medium">
+                        Atak / Savunma
+                      </div>
+                      <div className="text-sm font-black font-mono text-gray-700">
+                        {homeRating?.attackStrength.toFixed(2) ?? "1.0"} /{" "}
+                        {homeRating?.defenseWeakness.toFixed(2) ?? "1.0"}
+                      </div>
                     </div>
                   </div>
-                )}
-              </div>
-              {/* Away */}
-              <div className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-900">{match.away}</span>
-                  <span className="text-[10px] text-gray-400">{awayRating?.matchesPlayed ?? 0} mac</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">Elo</div>
-                    <div className={`text-sm font-black font-mono ${(awayRating?.elo ?? 1500) >= 1700 ? 'text-emerald-600' : (awayRating?.elo ?? 1500) >= 1500 ? 'text-amber-600' : 'text-gray-500'}`}>{awayRating?.elo ?? '1500'}</div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                    <span className="text-gray-500">
+                      π Ha:{" "}
+                      <strong className="text-indigo-600">
+                        {homeRating?.piHa.toFixed(4) ?? "0"}
+                      </strong>
+                    </span>
+                    <span className="text-gray-500">
+                      π Hd:{" "}
+                      <strong className="text-indigo-600">
+                        {homeRating?.piHd.toFixed(4) ?? "0"}
+                      </strong>
+                    </span>
+                    <span className="text-gray-500">
+                      π Aa:{" "}
+                      <strong className="text-purple-600">
+                        {homeRating?.piAa.toFixed(4) ?? "0"}
+                      </strong>
+                    </span>
+                    <span className="text-gray-500">
+                      π Ad:{" "}
+                      <strong className="text-purple-600">
+                        {homeRating?.piAd.toFixed(4) ?? "0"}
+                      </strong>
+                    </span>
                   </div>
-                  <div className="bg-gray-50 rounded-lg px-2.5 py-2">
-                    <div className="text-[9px] text-gray-500 font-medium">Atak / Savunma</div>
-                    <div className="text-sm font-black font-mono text-gray-700">{awayRating?.attackStrength.toFixed(2) ?? '1.0'} / {awayRating?.defenseWeakness.toFixed(2) ?? '1.0'}</div>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-                  <span className="text-gray-500">π Ha: <strong className="text-indigo-600">{awayRating?.piHa.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Hd: <strong className="text-indigo-600">{awayRating?.piHd.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Aa: <strong className="text-purple-600">{awayRating?.piAa.toFixed(4) ?? '0'}</strong></span>
-                  <span className="text-gray-500">π Ad: <strong className="text-purple-600">{awayRating?.piAd.toFixed(4) ?? '0'}</strong></span>
-                </div>
-                {awayRating && (
-                  <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
-                    <div className="flex items-center justify-between text-[11px]"><span className="text-gray-500 font-medium">Sezon</span><span className="font-bold text-gray-700">{awayRating.wins}G / {awayRating.draws}B / {awayRating.losses}M</span></div>
-                    <div className="flex items-center justify-between text-[11px]"><span className="text-gray-500">AG / YG</span><span className="font-mono font-bold text-gray-700">{awayRating.goalsFor} / {awayRating.goalsAgainst}</span></div>
-                  </div>
-                )}
-                {awayRating && awayRating.last5 && awayRating.last5.length > 0 && (
-                  <div>
-                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Son 5 Maç</div>
-                    <div className="space-y-1">
-                      {awayRating.last5.map((m, i) => (
-                        <div key={i} className="flex items-center justify-between text-[11px] bg-gray-50 rounded px-2 py-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs">{m.result === 'W' ? '✅' : m.result === 'L' ? '❌' : '➖'}</span>
-                            <span className="font-medium text-gray-700 truncate max-w-[80px]">{m.isHome ? '' : '@'}{m.opponent}</span>
-                          </div>
-                          <span className={`font-mono font-bold ${m.result === 'W' ? 'text-emerald-600' : m.result === 'L' ? 'text-red-600' : 'text-amber-600'}`}>{m.goalsFor}-{m.goalsAgainst}</span>
+                  {homeRating && (
+                    <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-gray-500 font-medium">Sezon</span>
+                        <span className="font-bold text-gray-700">
+                          {homeRating.wins}G / {homeRating.draws}B /{" "}
+                          {homeRating.losses}M
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-gray-500">AG / YG</span>
+                        <span className="font-mono font-bold text-gray-700">
+                          {homeRating.goalsFor} / {homeRating.goalsAgainst}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {homeRating &&
+                    homeRating.last5 &&
+                    homeRating.last5.length > 0 && (
+                      <div>
+                        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                          Son 5 Maç
                         </div>
-                      ))}
+                        <div className="space-y-1">
+                          {homeRating.last5.map((m, i) => (
+                            <div
+                              key={i}
+                              className="flex items-center justify-between text-[11px] bg-gray-50 rounded px-2 py-1"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs">
+                                  {m.result === "W"
+                                    ? "✅"
+                                    : m.result === "L"
+                                      ? "❌"
+                                      : "➖"}
+                                </span>
+                                <span className="font-medium text-gray-700 truncate max-w-[80px]">
+                                  {m.isHome ? "" : "@"}
+                                  {m.opponent}
+                                </span>
+                              </div>
+                              <span
+                                className={`font-mono font-bold ${m.result === "W" ? "text-emerald-600" : m.result === "L" ? "text-red-600" : "text-amber-600"}`}
+                              >
+                                {m.goalsFor}-{m.goalsAgainst}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                </div>
+                {/* Away */}
+                <div className="p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-900">
+                      {match.away}
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      {awayRating?.matchesPlayed ?? 0} mac
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                      <div className="text-[9px] text-gray-500 font-medium">
+                        Elo
+                      </div>
+                      <div
+                        className={`text-sm font-black font-mono ${(awayRating?.elo ?? 1500) >= 1700 ? "text-emerald-600" : (awayRating?.elo ?? 1500) >= 1500 ? "text-amber-600" : "text-gray-500"}`}
+                      >
+                        {awayRating?.elo ?? "1500"}
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg px-2.5 py-2">
+                      <div className="text-[9px] text-gray-500 font-medium">
+                        Atak / Savunma
+                      </div>
+                      <div className="text-sm font-black font-mono text-gray-700">
+                        {awayRating?.attackStrength.toFixed(2) ?? "1.0"} /{" "}
+                        {awayRating?.defenseWeakness.toFixed(2) ?? "1.0"}
+                      </div>
                     </div>
                   </div>
-                )}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                    <span className="text-gray-500">
+                      π Ha:{" "}
+                      <strong className="text-indigo-600">
+                        {awayRating?.piHa.toFixed(4) ?? "0"}
+                      </strong>
+                    </span>
+                    <span className="text-gray-500">
+                      π Hd:{" "}
+                      <strong className="text-indigo-600">
+                        {awayRating?.piHd.toFixed(4) ?? "0"}
+                      </strong>
+                    </span>
+                    <span className="text-gray-500">
+                      π Aa:{" "}
+                      <strong className="text-purple-600">
+                        {awayRating?.piAa.toFixed(4) ?? "0"}
+                      </strong>
+                    </span>
+                    <span className="text-gray-500">
+                      π Ad:{" "}
+                      <strong className="text-purple-600">
+                        {awayRating?.piAd.toFixed(4) ?? "0"}
+                      </strong>
+                    </span>
+                  </div>
+                  {awayRating && (
+                    <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-gray-500 font-medium">Sezon</span>
+                        <span className="font-bold text-gray-700">
+                          {awayRating.wins}G / {awayRating.draws}B /{" "}
+                          {awayRating.losses}M
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-gray-500">AG / YG</span>
+                        <span className="font-mono font-bold text-gray-700">
+                          {awayRating.goalsFor} / {awayRating.goalsAgainst}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {awayRating &&
+                    awayRating.last5 &&
+                    awayRating.last5.length > 0 && (
+                      <div>
+                        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                          Son 5 Maç
+                        </div>
+                        <div className="space-y-1">
+                          {awayRating.last5.map((m, i) => (
+                            <div
+                              key={i}
+                              className="flex items-center justify-between text-[11px] bg-gray-50 rounded px-2 py-1"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs">
+                                  {m.result === "W"
+                                    ? "✅"
+                                    : m.result === "L"
+                                      ? "❌"
+                                      : "➖"}
+                                </span>
+                                <span className="font-medium text-gray-700 truncate max-w-[80px]">
+                                  {m.isHome ? "" : "@"}
+                                  {m.opponent}
+                                </span>
+                              </div>
+                              <span
+                                className={`font-mono font-bold ${m.result === "W" ? "text-emerald-600" : m.result === "L" ? "text-red-600" : "text-amber-600"}`}
+                              >
+                                {m.goalsFor}-{m.goalsAgainst}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                </div>
               </div>
-            </div>
             )}
             <ErrorBoundary context="FotMobInfoBlock">
-              <FotMobInfoBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} />
+              <FotMobInfoBlock
+                fotmobData={fotmobData}
+                fotmobLoading={fotmobLoading}
+                homeTeam={match.home}
+                awayTeam={match.away}
+              />
             </ErrorBoundary>
           </div>
         </div>
@@ -596,11 +1054,16 @@ export const MatchDetailContent = memo(function MatchDetailContent({
 
       {/* ── BİRLEŞİK MAÇ İSTATİSTİKLERİ ── */}
       {/* Oynanmamis maclarda istatistik gosterme */}
-      {match.isUpcoming ? null : (match.isFinished && (scoremerLoading || scoremerStats) ? (
+      {match.isUpcoming ? null : match.isFinished &&
+        (scoremerLoading || scoremerStats) ? (
         <div className="border-b border-gray-100">
           <div className="px-4 pt-3 pb-1 flex items-center gap-2">
-            <span className="text-xs font-bold text-purple-700 uppercase tracking-wider">Detaylı Maç İstatistikleri</span>
-            {scoremerLoading && <div className="w-3 h-3 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin" />}
+            <span className="text-xs font-bold text-purple-700 uppercase tracking-wider">
+              Detaylı Maç İstatistikleri
+            </span>
+            {scoremerLoading && (
+              <div className="w-3 h-3 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin" />
+            )}
           </div>
           {scoremerLoading && !scoremerStats ? (
             <div className="px-4 pb-4 py-6 flex items-center justify-center gap-2 text-purple-400">
@@ -610,102 +1073,223 @@ export const MatchDetailContent = memo(function MatchDetailContent({
           ) : scoremerStats ? (
             <div className="px-4 pb-4">
               <div className="mb-3">
-                <div className="text-center text-[10px] text-gray-500 font-semibold mb-1">Maç Sonu</div>
-                <StatBar label="İsabetli Şut" home={scoremerStats.shots_on_target?.home} away={scoremerStats.shots_on_target?.away} />
-                <StatBar label="İsabetsiz Şut" home={scoremerStats.shots_off_target?.home} away={scoremerStats.shots_off_target?.away} />
-                <StatBar label="Tehlikeli Hücum" home={scoremerStats.dangerous_attacks?.home} away={scoremerStats.dangerous_attacks?.away} />
-                <StatBar label="Hücum" home={scoremerStats.attacks?.home} away={scoremerStats.attacks?.away} />
-                <StatBar label="Top Sahipliği %" home={scoremerStats.possession?.home} away={scoremerStats.possession?.away} isPossession />
-                {scoremerStats.xg && <StatBar label="xG" home={scoremerStats.xg.home} away={scoremerStats.xg.away} />}
-              </div>
-              {scoremerHtStats && (scoremerHtStats.shots_on_target || scoremerHtStats.dangerous_attacks || scoremerHtStats.possession) && (
-                <div className="border-t border-gray-100 pt-3">
-                  <div className="text-center text-[10px] text-gray-500 font-semibold mb-1">İlk Yarı</div>
-                  {scoremerHtStats.shots_on_target && <StatBar label="İsabetli Şut" home={scoremerHtStats.shots_on_target.home} away={scoremerHtStats.shots_on_target.away} />}
-                  {scoremerHtStats.shots_off_target && <StatBar label="İsabetsiz Şut" home={scoremerHtStats.shots_off_target.home} away={scoremerHtStats.shots_off_target.away} />}
-                  {scoremerHtStats.dangerous_attacks && <StatBar label="Tehlikeli Hücum" home={scoremerHtStats.dangerous_attacks.home} away={scoremerHtStats.dangerous_attacks.away} />}
-                  {scoremerHtStats.attacks && <StatBar label="Hücum" home={scoremerHtStats.attacks.home} away={scoremerHtStats.attacks.away} />}
-                  {scoremerHtStats.possession && <StatBar label="Top Sahipliği %" home={scoremerHtStats.possession.home} away={scoremerHtStats.possession.away} isPossession />}
+                <div className="text-center text-[10px] text-gray-500 font-semibold mb-1">
+                  Maç Sonu
                 </div>
-              )}
+                <StatBar
+                  label="İsabetli Şut"
+                  home={scoremerStats.shots_on_target?.home}
+                  away={scoremerStats.shots_on_target?.away}
+                />
+                <StatBar
+                  label="İsabetsiz Şut"
+                  home={scoremerStats.shots_off_target?.home}
+                  away={scoremerStats.shots_off_target?.away}
+                />
+                <StatBar
+                  label="Tehlikeli Hücum"
+                  home={scoremerStats.dangerous_attacks?.home}
+                  away={scoremerStats.dangerous_attacks?.away}
+                />
+                <StatBar
+                  label="Hücum"
+                  home={scoremerStats.attacks?.home}
+                  away={scoremerStats.attacks?.away}
+                />
+                <StatBar
+                  label="Top Sahipliği %"
+                  home={scoremerStats.possession?.home}
+                  away={scoremerStats.possession?.away}
+                  isPossession
+                />
+                {scoremerStats.xg && (
+                  <StatBar
+                    label="xG"
+                    home={scoremerStats.xg.home}
+                    away={scoremerStats.xg.away}
+                  />
+                )}
+              </div>
+              {scoremerHtStats &&
+                (scoremerHtStats.shots_on_target ||
+                  scoremerHtStats.dangerous_attacks ||
+                  scoremerHtStats.possession) && (
+                  <div className="border-t border-gray-100 pt-3">
+                    <div className="text-center text-[10px] text-gray-500 font-semibold mb-1">
+                      İlk Yarı
+                    </div>
+                    {scoremerHtStats.shots_on_target && (
+                      <StatBar
+                        label="İsabetli Şut"
+                        home={scoremerHtStats.shots_on_target.home}
+                        away={scoremerHtStats.shots_on_target.away}
+                      />
+                    )}
+                    {scoremerHtStats.shots_off_target && (
+                      <StatBar
+                        label="İsabetsiz Şut"
+                        home={scoremerHtStats.shots_off_target.home}
+                        away={scoremerHtStats.shots_off_target.away}
+                      />
+                    )}
+                    {scoremerHtStats.dangerous_attacks && (
+                      <StatBar
+                        label="Tehlikeli Hücum"
+                        home={scoremerHtStats.dangerous_attacks.home}
+                        away={scoremerHtStats.dangerous_attacks.away}
+                      />
+                    )}
+                    {scoremerHtStats.attacks && (
+                      <StatBar
+                        label="Hücum"
+                        home={scoremerHtStats.attacks.home}
+                        away={scoremerHtStats.attacks.away}
+                      />
+                    )}
+                    {scoremerHtStats.possession && (
+                      <StatBar
+                        label="Top Sahipliği %"
+                        home={scoremerHtStats.possession.home}
+                        away={scoremerHtStats.possession.away}
+                        isPossession
+                      />
+                    )}
+                  </div>
+                )}
             </div>
           ) : null}
         </div>
-      ) : /* Canlı maçlar için standart istatistikler */
-      <div className="border-b border-gray-100">
-        <div className="p-4 sm:p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-              <svg className="w-4 h-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-              Birleşik Maç İstatistikleri
-            </h3>
-            <div className="flex items-center gap-1 bg-gray-100 rounded-full p-0.5">
-              {([
-                { key: 'full' as const, label: 'Toplam' },
-                { key: '1h' as const, label: '1. Yarı' },
-                { key: '2h' as const, label: '2. Yarı' },
-              ]).map(h => (
-                <button key={h.key} onClick={() => setStatsHalf(h.key)}
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold transition-all ${statsHalf === h.key ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                  {h.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          {match.hasStats ? (
-            <div className="space-y-0.5">
-              <div className="flex items-center justify-between mb-2 text-xs">
-                <span className="font-semibold text-orange-600">{match.home}</span>
-                <span className="text-gray-300">vs</span>
-                <span className="font-semibold text-blue-600">{match.away}</span>
+      ) : (
+        /* Canlı maçlar için standart istatistikler */
+        <div className="border-b border-gray-100">
+          <div className="p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                <svg
+                  className="w-4 h-4 text-orange-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                  />
+                </svg>
+                Birleşik Maç İstatistikleri
+              </h3>
+              <div className="flex items-center gap-1 bg-gray-100 rounded-full p-0.5">
+                {[
+                  { key: "full" as const, label: "Toplam" },
+                  { key: "1h" as const, label: "1. Yarı" },
+                  { key: "2h" as const, label: "2. Yarı" },
+                ].map((h) => (
+                  <button
+                    key={h.key}
+                    onClick={() => setStatsHalf(h.key)}
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold transition-all ${statsHalf === h.key ? "bg-orange-500 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                  >
+                    {h.label}
+                  </button>
+                ))}
               </div>
-              {statKeys.map(({ key, label, suffix, isEstimated }) => {
-                let stat = filteredStats[key]
-                if (key === 'xg' && (!stat || (stat.home == null && stat.away == null) || (stat.home === 0 && stat.away === 0))) {
-                  const estimated = estimateXgFromShots(filteredStats)
-                  if (estimated.home > 0 || estimated.away > 0) stat = { home: estimated.home, away: estimated.away }
-                }
-                if (!stat) return null
-                return (<StatBar key={key} label={isEstimated ? 'xG (est.)' : label} home={stat.home} away={stat.away} suffix={suffix} isPossession={key === 'possession'} />)
-              })}
             </div>
-          ) : (
-            <div className="py-8 text-center bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-400">Bu maç için istatistik bulunmuyor</p>
-            </div>
-          )}
-        </div>
+            {match.hasStats ? (
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between mb-2 text-xs">
+                  <span className="font-semibold text-orange-600">
+                    {match.home}
+                  </span>
+                  <span className="text-gray-300">vs</span>
+                  <span className="font-semibold text-blue-600">
+                    {match.away}
+                  </span>
+                </div>
+                {statKeys.map(({ key, label, suffix, isEstimated }) => {
+                  let stat = filteredStats[key];
+                  if (
+                    key === "xg" &&
+                    (!stat ||
+                      (stat.home == null && stat.away == null) ||
+                      (stat.home === 0 && stat.away === 0))
+                  ) {
+                    const estimated = estimateXgFromShots(filteredStats);
+                    if (estimated.home > 0 || estimated.away > 0)
+                      stat = { home: estimated.home, away: estimated.away };
+                  }
+                  if (!stat) return null;
+                  return (
+                    <StatBar
+                      key={key}
+                      label={isEstimated ? "xG (est.)" : label}
+                      home={stat.home}
+                      away={stat.away}
+                      suffix={suffix}
+                      isPossession={key === "possession"}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-8 text-center bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-400">
+                  Bu maç için istatistik bulunmuyor
+                </p>
+              </div>
+            )}
+          </div>
 
-        {/* FotMob Stats Block — xG, shots, cards */}
-        <ErrorBoundary context="FotMobStatsBlock">
-          <FotMobStatsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} homeScore={match.homeGoals} awayScore={match.awayGoals} />
-        </ErrorBoundary>
-      </div>)}
+          {/* FotMob Stats Block — xG, shots, cards */}
+          <ErrorBoundary context="FotMobStatsBlock">
+            <FotMobStatsBlock
+              fotmobData={fotmobData}
+              fotmobLoading={fotmobLoading}
+              homeTeam={match.home}
+              awayTeam={match.away}
+              homeScore={match.homeGoals}
+              awayScore={match.awayGoals}
+            />
+          </ErrorBoundary>
+        </div>
+      )}
 
       {/* ── OLAYLAR (Events timeline — en altta, sadece canli/biten) ── */}
       {!match.isUpcoming && (
         <div className="border-b border-gray-100">
           <ErrorBoundary context="FotMobEventsBlock">
-            <FotMobEventsBlock fotmobData={fotmobData} fotmobLoading={fotmobLoading} homeTeam={match.home} awayTeam={match.away} homeScore={match.homeGoals} awayScore={match.awayGoals} />
+            <FotMobEventsBlock
+              fotmobData={fotmobData}
+              fotmobLoading={fotmobLoading}
+              homeTeam={match.home}
+              awayTeam={match.away}
+              homeScore={match.homeGoals}
+              awayScore={match.awayGoals}
+            />
           </ErrorBoundary>
         </div>
       )}
 
-	      {/* ── Takım Bilgileri: Elo + Pi-Rating + Form + Son 5 + Sezon ortalaması ── */}
+      {/* ── Takım Bilgileri: Elo + Pi-Rating + Form + Son 5 + Sezon ortalaması ── */}
       {match.isUpcoming && prediction && (
         <div className="px-3 sm:px-4 pb-3">
           <div className="bg-white rounded-xl border border-indigo-200 shadow-sm overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-indigo-100 bg-gradient-to-r from-indigo-50 to-purple-50">
-              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">🔮 Mac Tahmini</h3>
-              {predLoading && <div className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />}
+              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide">
+                🔮 Mac Tahmini
+              </h3>
+              {predLoading && (
+                <div className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+              )}
             </div>
             <div className="p-4 space-y-3">
               {/* Elo */}
               <div className="flex items-center justify-between text-xs bg-gray-50 rounded-lg px-3 py-2">
                 <span className="font-medium text-gray-600">Elo</span>
-                <span className="font-mono font-bold">{prediction.homeElo} - {prediction.awayElo}</span>
+                <span className="font-mono font-bold">
+                  {prediction.homeElo} - {prediction.awayElo}
+                </span>
               </div>
 
               {/* Kazanma olasiligi */}
@@ -716,44 +1300,91 @@ export const MatchDetailContent = memo(function MatchDetailContent({
                   <span>{match.away}</span>
                 </div>
                 <div className="flex h-4 rounded-full overflow-hidden bg-gray-100">
-                  <div className="h-full bg-indigo-500 transition-all" style={{ width: `${(prediction.eloPrediction.homeWinP * 100).toFixed(0)}%` }} />
-                  <div className="h-full bg-gray-300 transition-all" style={{ width: `${(prediction.eloPrediction.drawP * 100).toFixed(0)}%` }} />
-                  <div className="h-full bg-purple-500 transition-all" style={{ width: `${(prediction.eloPrediction.awayWinP * 100).toFixed(0)}%` }} />
+                  <div
+                    className="h-full bg-indigo-500 transition-all"
+                    style={{
+                      width: `${(prediction.eloPrediction.homeWinP * 100).toFixed(0)}%`,
+                    }}
+                  />
+                  <div
+                    className="h-full bg-gray-300 transition-all"
+                    style={{
+                      width: `${(prediction.eloPrediction.drawP * 100).toFixed(0)}%`,
+                    }}
+                  />
+                  <div
+                    className="h-full bg-purple-500 transition-all"
+                    style={{
+                      width: `${(prediction.eloPrediction.awayWinP * 100).toFixed(0)}%`,
+                    }}
+                  />
                 </div>
                 <div className="flex items-center justify-between text-[10px] font-mono font-bold mt-0.5">
-                  <span className="text-indigo-600">%{(prediction.eloPrediction.homeWinP * 100).toFixed(0)}</span>
-                  <span className="text-gray-400">%{(prediction.eloPrediction.drawP * 100).toFixed(0)}</span>
-                  <span className="text-purple-600">%{(prediction.eloPrediction.awayWinP * 100).toFixed(0)}</span>
+                  <span className="text-indigo-600">
+                    %{(prediction.eloPrediction.homeWinP * 100).toFixed(0)}
+                  </span>
+                  <span className="text-gray-400">
+                    %{(prediction.eloPrediction.drawP * 100).toFixed(0)}
+                  </span>
+                  <span className="text-purple-600">
+                    %{(prediction.eloPrediction.awayWinP * 100).toFixed(0)}
+                  </span>
                 </div>
               </div>
 
               {/* Poisson tahmini */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-gray-50 rounded-lg p-2.5 text-center">
-                  <div className="text-[9px] text-gray-500 font-medium">Olası Skor</div>
-                  <div className="text-xl font-black text-indigo-600">{prediction.mostLikelyScore}</div>
-                  <div className="text-[9px] text-gray-400">λ={prediction.poissonPrediction.lambdaHome}/{prediction.poissonPrediction.lambdaAway}</div>
+                  <div className="text-[9px] text-gray-500 font-medium">
+                    Olası Skor
+                  </div>
+                  <div className="text-xl font-black text-indigo-600">
+                    {prediction.mostLikelyScore}
+                  </div>
+                  <div className="text-[9px] text-gray-400">
+                    λ={prediction.poissonPrediction.lambdaHome}/
+                    {prediction.poissonPrediction.lambdaAway}
+                  </div>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-2.5 text-center">
-                  <div className="text-[9px] text-gray-500 font-medium">O2.5 / KG Var</div>
-                  <div className="text-lg font-black">
-                    <span className="text-emerald-600">%{(prediction.poissonPrediction.over25 * 100).toFixed(0)}</span>
-                    <span className="text-gray-300 mx-1">/</span>
-                    <span className="text-amber-600">%{(prediction.poissonPrediction.btts * 100).toFixed(0)}</span>
+                  <div className="text-[9px] text-gray-500 font-medium">
+                    O2.5 / KG Var
                   </div>
-                  <div className="text-[9px] text-gray-400">Gol ihtimali %{(prediction.poissonPrediction.anyGoal * 100).toFixed(0)}</div>
+                  <div className="text-lg font-black">
+                    <span className="text-emerald-600">
+                      %{(prediction.poissonPrediction.over25 * 100).toFixed(0)}
+                    </span>
+                    <span className="text-gray-300 mx-1">/</span>
+                    <span className="text-amber-600">
+                      %{(prediction.poissonPrediction.btts * 100).toFixed(0)}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-gray-400">
+                    Gol ihtimali %
+                    {(prediction.poissonPrediction.anyGoal * 100).toFixed(0)}
+                  </div>
                 </div>
               </div>
 
               {/* En olasi skorlar */}
               <div>
-                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">En Olası Skorlar</div>
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                  En Olası Skorlar
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {prediction.topScores.map((s, i) => (
-                    <span key={i} className={`text-[11px] font-mono font-bold px-2 py-1 rounded-lg border ${
-                      i === 0 ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-gray-50 text-gray-600 border-gray-200'
-                    }`}>
-                      {s.score} <span className="text-[9px] font-normal">(%{(s.prob * 100).toFixed(1)})</span>
+                    <span
+                      key={i}
+                      className={`text-[11px] font-mono font-bold px-2 py-1 rounded-lg border ${
+                        i === 0
+                          ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                          : "bg-gray-50 text-gray-600 border-gray-200"
+                      }`}
+                    >
+                      {s.score}{" "}
+                      <span className="text-[9px] font-normal">
+                        (%{(s.prob * 100).toFixed(1)})
+                      </span>
                     </span>
                   ))}
                 </div>
@@ -765,5 +1396,5 @@ export const MatchDetailContent = memo(function MatchDetailContent({
 
       {/* (Team Info removed from here — moved up after charts) */}
     </div>
-  )
-})
+  );
+});

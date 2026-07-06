@@ -445,6 +445,26 @@ model PipelineEvent {
   @@index([level, source, createdAt])
 }
 
+// ── Pipeline Debug Trace ──────────────────────────────────────
+// Tek maçlık pipeline debug kaydı. Admin panelinde [DEBUG]
+// butonuna basınca oluşur. Pipeline'ın her adımını step-by-step
+// kaydeder: raw data → hesaplamalar → sinyal kararı.
+model PipelineTrace {
+  id          String   @id @default(cuid())
+  matchCode   Int
+  homeTeam    String?
+  awayTeam    String?
+  league      String?
+  status      String   // "running" | "completed" | "error"
+  traceData   Json?    // TraceStep[] — adımların tamamı
+  error       String?
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+
+  @@index([matchCode])
+  @@index([createdAt])
+}
+
 // ── Gol Radarı: FotMob Match Cache ───────────────────────────────
 // Cached FotMob match details (weather, squad, H2H, form) for the
 // goalRadar FotMob intelligence layer. TTL default 5 min; refresh

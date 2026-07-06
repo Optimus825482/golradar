@@ -21,3 +21,11 @@ data/ml-training/*.jsonl
 data/ml-models/*
 tmp
 .cache
+.knowledge_bundles
+knowledge_bundles
+.cline
+.agents
+.clinerules
+.windsurfrules
+.cursorrules
+.kiro

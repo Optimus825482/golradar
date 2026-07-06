@@ -96,9 +96,10 @@ COPY --from=build /app/mini-services/shared /app/shared
 
 WORKDIR /app/web
 
-# Create non-root user
+# Create non-root user and data directories with correct ownership
 RUN addgroup -S golradar -g 1001 && \
     adduser -S golradar -u 1001 -G golradar && \
+    mkdir -p /app/data/ml-models /app/data/ml-training /app/data/drift /app/data/calibration && \
     chown -R golradar:golradar /app
 
 EXPOSE 3012 3003

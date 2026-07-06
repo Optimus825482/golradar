@@ -100,15 +100,6 @@ fi
 # Ensure legacy artifact paths resolve (survives redeploy)
 mkdir -p /app/web/data
 mkdir -p /app/data/ml-models /app/data/ml-training /app/data/drift /app/data/calibration 2>/dev/null || true
-chmod 755 /app/data /app/data/ml-models /app/data/ml-training /app/data/drift /app/data/calibration 2>/dev/null || true
-ln -sfn /app/data/ml-models /app/web/data/ml-models 2>/dev/null || true
-for model in xgb gbdt inplay; do
-  latest=$(ls /app/data/ml-models/${model}-v*.json 2>/dev/null | grep -v ready | sort -V | tail -1)
-  if [ -n "$latest" ] && [ ! -f "/app/data/ml-models/${model}-v1.0.1.json" ]; then
-    cp -f "$latest" "/app/data/ml-models/${model}-v1.0.1.json"
-    [ -f "${latest%.json}.ready" ] && cp -f "${latest%.json}.ready" "/app/data/ml-models/${model}-v1.0.1.ready"
-  fi
-done
 
 # ── Shared volume permissions ──────────────────────────────────────
 # If /app/data is a mounted volume (e.g. on Coolify / Docker Compose),
@@ -117,9 +108,19 @@ done
 # on the directory tree (NOT recursive on files — that would mmap
 # existing model files). Use find to chmod directories only.
 if [ -d /app/data ]; then
-  find /app/data -type d -exec chmod 750 {} + 2>/dev/null || true
-  find /app/data -type f -name '*.json' -exec chmod 640 {} + 2>/dev/null || true
+  # Ensure directories are writable by current user (golradar)
+  find /app/data -type d -exec chmod 755 {} + 2>/dev/null || true
+  find /app/data -type f -exec chmod 644 {} + 2>/dev/null || true
 fi
+
+ln -sfn /app/data/ml-models /app/web/data/ml-models 2>/dev/null || true
+for model in xgb gbdt inplay; do
+  latest=$(ls /app/data/ml-models/${model}-v*.json 2>/dev/null | grep -v ready | sort -V | tail -1)
+  if [ -n "$latest" ] && [ ! -f "/app/data/ml-models/${model}-v1.0.1.json" ]; then
+    cp -f "$latest" "/app/data/ml-models/${model}-v1.0.1.json"
+    [ -f "${latest%.json}.ready" ] && cp -f "${latest%.json}.ready" "/app/data/ml-models/${model}-v1.0.1.ready"
+  fi
+done
 
 # ── Python / Scrapling Check ──────────────────────────────────────
 echo "[PYTHON] Python + scrapling kontrol ediliyor..."

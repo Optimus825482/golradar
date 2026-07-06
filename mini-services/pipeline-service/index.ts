@@ -123,6 +123,10 @@ nesineSocket.on("Football", (messages: any[]) => {
     // Store for frontend
     matchUpdates.set(bid, { ...matchUpdates.get(bid), ...payload, MT: mt });
 
+    // Nesine WebSocket bazen partial update gönderir (stat değişimi, skor vs)
+    // HT/AT eksikse sinyal işleme atla — POST handler 400 dönerdi
+    if (!payload.HT || !payload.AT) continue;
+
     // Sinyal işleme kuyruğuna ekle
     pendingBatch.set(bid, payload);
 

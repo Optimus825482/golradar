@@ -612,7 +612,9 @@ export async function POST(request: Request) {
       const { matchCode, homeTeam, awayTeam, league, minute, homeGoals, awayGoals, status } = body;
 
       if (!matchCode || !homeTeam || !awayTeam) {
-        return NextResponse.json({ ok: false, error: 'missing fields' }, { status: 400 });
+        // Pipeline service partial update gönderebilir (Nesine WS'de HT/AT eksik olabilir).
+        // Bu normal, sadece sessizce atla.
+        return NextResponse.json({ ok: false, skipped: 'partial_update' }, { status: 200 });
       }
 
       // Process single match through the pipeline

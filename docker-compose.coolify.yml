@@ -44,6 +44,11 @@ services:
     labels:
       traefik.enable: "true"
       traefik.docker.network: "coolify"
+      traefik.http.routers.golradar.rule: "Host(`radar.erkanerdem.online`)"
+      traefik.http.routers.golradar.entrypoints: "websecure"
+      traefik.http.routers.golradar.tls: "true"
+      traefik.http.routers.golradar.tls.certresolver: "letsencrypt"
+      traefik.http.services.golradar.loadbalancer.server.port: "3012"
     environment:
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
       NODE_ENV: "production"

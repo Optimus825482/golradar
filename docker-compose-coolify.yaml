@@ -26,7 +26,7 @@ services:
     networks:
       - golradar-net
 
-  # ── Ana Web Uygulaması (Next.js) ──
+  # ── Ana Web Uygulaması (Next.js + Push Server) ──
   golradar:
     build:
       context: .
@@ -35,21 +35,20 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "3012:3012"
-    labels:
-      traefik.enable: "true"
-      traefik.docker.network: "coolify"
     networks:
       - golradar-net
       - coolify
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3012/api >/dev/null 2>&1 || curl -sf http://localhost:3012/api >/dev/null 2>&1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: "coolify"
+      traefik.http.routers.golradar.rule: "Host(`radar.erkanerdem.online`)"
+      traefik.http.routers.golradar.entrypoints: "websecure"
+      traefik.http.routers.golradar.tls: "true"
+      traefik.http.routers.golradar.tls.certresolver: "letsencrypt"
+      traefik.http.services.golradar.loadbalancer.server.port: "3012"
     environment:
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
       NODE_ENV: "production"
@@ -75,6 +74,20 @@ services:
       IMPORT_FOTMOB_TEAMS: "${IMPORT_FOTMOB_TEAMS:-0}"
     volumes:
       - golradar_ml_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:3012/api')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
 
   # ── ML Trainer Sidecar (XGBoost) ──
   ml-trainer:
@@ -85,7 +98,7 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
-        condition: service_healthy
+        condition: service_started
     environment:
       ML_DATA_ROOT: /data
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:-golradar_secret}@postgres:5432/golradar_db"
@@ -99,6 +112,23 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+
+  # ── Real-time Pipeline Service ──
+  pipeline:
+    build:
+      context: ./mini-services/pipeline-service
+      dockerfile: Dockerfile
+    container_name: golradar-pipeline
+    restart: unless-stopped
+    depends_on:
+      golradar:
+        condition: service_started
+    environment:
+      NEXT_PUBLIC_APP_URL: "http://golradar:3012"
+      CRON_SECRET: "${CRON_SECRET}"
+      SOCKET_CORS_ORIGIN: "https://radar.erkanerdem.online"
+    networks:
+      - golradar-net
 
 networks:
   golradar-net:

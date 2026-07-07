@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { authFetch } from '@/lib/adminAuth';
 
 interface SystemResult {
   label: string; totalSignals: number; correctSignals: number; incorrectSignals: number;
@@ -56,7 +57,7 @@ export default function ABTestPage() {
 
   // Load live flag states
   useEffect(() => {
-    fetch('/api/admin/settings').then(r => r.json()).then(d => {
+    authFetch('/api/admin/settings').then(r => r.json()).then(d => {
       if (d.flags) setFlags(d.flags.filter((f: FlagState) => FLAG_KEYS.includes(f.key)));
     }).catch(() => {});
   }, []);
@@ -84,7 +85,7 @@ export default function ABTestPage() {
       if (blFlags) params.set('baselineFlags', blFlags);
       if (teFlags) params.set('testFlags', teFlags);
 
-      const res = await fetch(`/api/admin/ab-test?${params}`);
+	      const res = await authFetch(`/api/admin/ab-test?${params}`);
       const data = await res.json();
       if (!data.ok) { setError(data.error ?? 'Test basarisiz'); return; }
       setResult(data);
@@ -121,7 +122,7 @@ export default function ABTestPage() {
               </div>
             );
           })}
-          <button onClick={() => fetch('/api/admin/settings').then(r => r.json()).then(d => {
+	          <button onClick={() => authFetch('/api/admin/settings').then(r => r.json()).then(d => {
             if (d.flags) setFlags(d.flags.filter((f: FlagState) => FLAG_KEYS.includes(f.key)));
           })} className="p-1 rounded hover:bg-white/50 text-gray-400">
             <RefreshCw className="size-3.5" />

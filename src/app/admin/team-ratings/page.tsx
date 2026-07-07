@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Search, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
+import { authFetch } from '@/lib/adminAuth';
 
 interface TeamRow {
   id: string; teamName: string; teamNameTr: string | null;
@@ -31,7 +32,7 @@ export default function TeamRatingsPage() {
     try {
       const params = new URLSearchParams({ page: String(page), limit: '50', sortBy, sortDir });
       if (search) params.set('search', search);
-      const resp = await fetch(`/api/admin/team-ratings?${params}`);
+	      const resp = await authFetch(`/api/admin/team-ratings?${params}`);
       const json = await resp.json();
       setData(json);
     } catch { /* */ }

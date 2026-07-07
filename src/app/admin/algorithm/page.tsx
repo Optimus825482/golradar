@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { authFetch } from '@/lib/adminAuth';
 
 interface FeatureFlag {
   key: string; effectiveValue: string; type: string; default: string; overridden: boolean;
@@ -186,7 +187,7 @@ export default function AdminAlgorithmPage() {
   const idCounter = useRef(0);
 
   useEffect(() => {
-    fetch('/api/admin/settings')
+	    authFetch('/api/admin/settings')
       .then(r => r.json())
       .then(d => {
         if (d.flags) {

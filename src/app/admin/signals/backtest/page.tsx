@@ -65,7 +65,7 @@ export default function AdminSignalsBacktestPage() {
   const [flagSummary, setFlagSummary] = useState<string>('');
 
   useEffect(() => {
-    fetch('/api/admin/settings').then(r => r.json()).then(d => {
+	    authFetch('/api/admin/settings').then(r => r.json()).then(d => {
       if (!d.flags) return;
       const toggles = d.flags.filter((f: any) => f.type === 'toggle');
       const active = toggles.filter((f: any) => f.effectiveValue === 'true');

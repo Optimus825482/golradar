@@ -178,7 +178,7 @@ export default function AdminDataImportPage() {
     // Progress polling başlat
     pollRef.current = setInterval(async () => {
       try {
-        const res = await fetch('/api/admin/ml/bulk-enrich/progress');
+	        const res = await authFetch('/api/admin/ml/bulk-enrich/progress');
         const data: EnrichProgress = await res.json();
         setEnrichProgress(data);
         if (!data.running && data.processed > 0) {

@@ -383,7 +383,7 @@ export function bulkSetRatings(entries: Array<{ team: string; rating: number; ma
   const ratings = loadRatings();
   let count = 0;
   for (const e of entries) {
-    const key = normalizeTeamName(e.team) || e.team;
+    const key = findRatingKey(e.team);
     if (!key || e.rating < 500 || e.rating > 3000) continue;
     const existing = ratings.get(key);
     ratings.set(key, {
@@ -392,7 +392,6 @@ export function bulkSetRatings(entries: Array<{ team: string; rating: number; ma
       lastUpdated: Date.now(),
       recentResults: existing?.recentResults ?? [],
     });
-    // P2: Fire-and-forget DB persist
     persistToDB(key, ratings.get(key)!);
     count++;
   }
@@ -406,10 +405,8 @@ export function bulkSetRatings(entries: Array<{ team: string; rating: number; ma
  * Returns the team names that need ratings.
  */
 export function getTeamsNeedingRatings(teams: string[]): string[] {
-  const ratings = loadRatings();
   return teams.filter(t => {
-    const key = normalizeTeamName(t) || t;
-    return !ratings.has(key);
+    return !lookupRating(t);
   });
 }
 
@@ -422,11 +419,23 @@ export async function autoFetchMissingRatings(teams: string[]): Promise<number> 
   const missing = getTeamsNeedingRatings(teams);
   if (missing.length === 0) return 0;
 
-  // Try to fetch from ClubElo in background
+  // ClubElo slug: strip common suffixes, then URL-encode
+  const toSlug = (name: string): string => {
+    let s = name.trim();
+    // Strip parenthesised groups: "(1)", "(2)" etc.
+    s = s.replace(/\([^)]*\)/g, '').trim();
+    // Strip common suffixes (case-insensitive)
+    s = s.replace(/\s+(SADP|SAD|SK|FC|SC|AC|AS|SSD|GK|RS|FUT|CLUB|ASSOCIACION|SPORT|CLUBE)\s*$/i, '').trim();
+    // Strip trailing dots
+    s = s.replace(/\.+$/, '').trim();
+    return encodeURIComponent(s);
+  };
+
   const results: Array<{ team: string; rating: number }> = [];
   for (const team of missing) {
     try {
-      const resp = await fetch(`http://api.clubelo.com/${team}`, {
+      const slug = toSlug(team);
+      const resp = await fetch(`http://api.clubelo.com/${slug}`, {
         signal: AbortSignal.timeout(5000),
       });
       if (!resp.ok) continue;

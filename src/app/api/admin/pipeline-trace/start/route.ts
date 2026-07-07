@@ -4,7 +4,7 @@
 // kaydeder, sonucu döndürür.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { ACTIVE_STATUSES, FINISHED_STATUSES, LIVESCORE_API, HEADERS } from '@/lib/nesine';
+import { ACTIVE_STATUSES, FINISHED_STATUSES, LIVESCORE_API, HEADERS, calculateMinute } from '@/lib/nesine';
 import { calculatePressure } from '@/lib/nesineTypes';
 import { calculateGoalProbability } from '@/lib/nesine';
 import { checkAndRecordSignal } from '@/lib/goalSignalTracker';
@@ -55,7 +55,10 @@ export async function POST(request: NextRequest) {
     const home = String(match.HT || '');
     const away = String(match.AT || '');
     const league = String(match.L || '');
-    const minute = String(match.M || '0');
+    const rawMin = String(match.M || '');
+    const minute = rawMin && rawMin !== "0"
+      ? rawMin
+      : calculateMinute(match, new Date()) || rawMin || "0";
     const homeGoals = (match.ES?.[0]?.H as number) || 0;
     const awayGoals = (match.ES?.[0]?.A as number) || 0;
     const status = (match.S as number) || 0;

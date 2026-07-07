@@ -154,7 +154,7 @@ function getMdtTimestamp(mdtList: any[], mdtType: number): Date | null {
   return null;
 }
 
-function calculateMinute(match: any, now: Date): string {
+export function calculateMinute(match: any, now: Date): string {
   const status = match.S || 0;
   const mdtList = match.MDT || [];
 

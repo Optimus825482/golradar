@@ -21,6 +21,7 @@ import type { MatchStats } from "@/lib/nesine";
 import {
   calculateGoalProbability,
   calculatePressure,
+  calculateMinute,
   FINISHED_STATUSES,
   LIVESCORE_API,
   HEADERS,
@@ -162,7 +163,11 @@ async function processMatch(
   const matchCode = raw.C as number;
   const home = String(raw.HT || "");
   const away = String(raw.AT || "");
-  const minute = String(raw.M || "0");
+  // Dakika: önce raw.M dene, boş/"0" ise MDT timestamp'lerinden hesapla
+  const rawMinute = String(raw.M || "");
+  const minute = rawMinute && rawMinute !== "0"
+    ? rawMinute
+    : calculateMinute(raw, new Date()) || rawMinute || "0";
   // Goal scores: ES[0] holds current set score (T:1 = first half / live)
   const homeGoals = (raw.ES?.[0]?.H as number) || 0;
   const awayGoals = (raw.ES?.[0]?.A as number) || 0;

@@ -835,7 +835,7 @@ async function backfillPredictionLogLabels(
   const matchEndTime = fulltimeEvent?.createdAt?.getTime() ?? Date.now();
 
   // FIX 2026-07-07: batch $transaction — N sequential round trip yerine tek batch
-  const updates = [];
+  const updates: ReturnType<typeof db.predictionLog.update>[] = [];
   for (const row of unlabeled) {
     const rMin = row.minute ?? 0;
     if (noGoal || goalMinutes.length === 0) {

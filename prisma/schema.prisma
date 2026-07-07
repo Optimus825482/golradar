@@ -101,8 +101,6 @@ model User {
   updatedAt          DateTime  @updatedAt
 
   sessions Session[]
-
-  @@index([username])
 }
 
 // ── Session Management ────────────────────────────────────────────
@@ -119,7 +117,6 @@ model Session {
   createdAt DateTime @default(now())
 
   @@index([userId])
-  @@index([tokenHash])
   @@index([expiresAt])
 }
 
@@ -168,7 +165,6 @@ model MatchSnapshot {
   createdAt    DateTime @default(now())
 
   @@unique([matchCode, minute])
-  @@index([matchCode, minute])
   @@index([matchCode, createdAt])
   @@index([createdAt])
 }
@@ -224,7 +220,8 @@ model PredictionLog {
   @@index([modelVariant])
   @@index([matchCode, createdAt])
   @@index([matchCode, modelVariant])
-  @@index([goalScored])
+  @@index([matchCode, goalScored])
+  @@index([goalScored, createdAt])
 }
 
 // ── Gol Radarı: Backtest Runs ────────────────────────────────────
@@ -272,7 +269,6 @@ model TeamRating {
   piAd      Float @default(0) // Away defense strength
   piMatches Int   @default(0) // Matches used for Pi-Rating
 
-  @@index([teamName])
   @@index([elo])
 }
 
@@ -329,7 +325,6 @@ model ModelMetrics {
   nShadowSamples    Int      @default(0) // How many predictions contributed to shadowBrierDelta today
   createdAt         DateTime @default(now())
 
-  @@index([date])
 }
 
 // ── Gol Radarı: Goal Signal Records ──────────────────────────────
@@ -398,6 +393,10 @@ model Signal {
   @@index([matchCode, date])
   @@index([goalHappened])
   @@index([goalHappened, createdAt])
+  @@index([goalHappened, signalTimestamp])
+  @@index([matchCode, goalHappened])
+  @@index([matchCode, signalTimestamp])
+  @@index([date, signalTimestamp])
   @@index([signalSide])
   @@index([calibratedP])
 }
@@ -735,8 +734,6 @@ model RefereeStats {
   penaltyRate    Float    @default(0) // penalties per match
   cardRate       Float    @default(0) // total cards per match
   lastUpdated    DateTime @updatedAt
-
-  @@index([refereeName])
 }
 
 // ── Distributed Cron Lock ─────────────────────────────────────────

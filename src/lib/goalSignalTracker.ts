@@ -834,42 +834,43 @@ async function backfillPredictionLogLabels(
   });
   const matchEndTime = fulltimeEvent?.createdAt?.getTime() ?? Date.now();
 
+  // FIX 2026-07-07: batch $transaction — N sequential round trip yerine tek batch
+  const updates = [];
   for (const row of unlabeled) {
     const rMin = row.minute ?? 0;
     if (noGoal || goalMinutes.length === 0) {
-      await db.predictionLog.update({
-        where: { id: row.id },
-        data: {
-          goalScored: false,
-          minutesToGoal: null,
-          goalTimestamp: null,
-        },
-      });
+      updates.push(
+        db.predictionLog.update({
+          where: { id: row.id },
+          data: { goalScored: false, minutesToGoal: null, goalTimestamp: null },
+        })
+      );
       continue;
     }
-    // Find the FIRST goal that occurs within HORIZON_FOR_LABEL after rMin.
-    // If none, label is 0.
     const firstEligibleGoal = goalMinutes.find((gm) => gm > rMin && gm - rMin <= HORIZON_FOR_LABEL);
     if (firstEligibleGoal === undefined) {
-      await db.predictionLog.update({
-        where: { id: row.id },
-        data: {
-          goalScored: false,
-          minutesToGoal: null,
-          goalTimestamp: null,
-        },
-      });
+      updates.push(
+        db.predictionLog.update({
+          where: { id: row.id },
+          data: { goalScored: false, minutesToGoal: null, goalTimestamp: null },
+        })
+      );
       continue;
     }
     const delta = firstEligibleGoal - rMin;
-    await db.predictionLog.update({
-      where: { id: row.id },
-      data: {
-        goalScored: true,
-        minutesToGoal: delta,
-        goalTimestamp: new Date(matchEndTime - delta * 60_000),
-      },
-    });
+    updates.push(
+      db.predictionLog.update({
+        where: { id: row.id },
+        data: {
+          goalScored: true,
+          minutesToGoal: delta,
+          goalTimestamp: new Date(matchEndTime - delta * 60_000),
+        },
+      })
+    );
+  }
+  if (updates.length > 0) {
+    await db.$transaction(updates);
   }
 }
 

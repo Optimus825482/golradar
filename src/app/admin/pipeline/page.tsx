@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 // ── Types ──────────────────────────────────────────────────────
 interface PipelineEvent {
@@ -34,8 +34,12 @@ export default function PipelineMonitorPage() {
   const [filterSource, setFilterSource] = useState<string>('');
   const [count24h, setCount24h] = useState({ error: 0, warn: 0, info: 0 });
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const mountedRef = useRef(true);
+
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
   const fetchEvents = useCallback(async () => {
+    if (!mountedRef.current) return;
     try {
       const params = new URLSearchParams();
       if (filterLevel) params.set('level', filterLevel);
@@ -63,7 +67,9 @@ export default function PipelineMonitorPage() {
   useEffect(() => {
     fetchEvents();
     if (!autoRefresh) return;
-    const interval = setInterval(fetchEvents, 10000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchEvents();
+    }, 10000);
     return () => clearInterval(interval);
   }, [fetchEvents, autoRefresh]);
 

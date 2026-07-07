@@ -64,7 +64,7 @@ export default function SystemStatusPage() {
   };
 
   useEffect(() => { load(); }, []);
-  useEffect(() => { const i = setInterval(load, 15000); return () => clearInterval(i); }, []);
+  useEffect(() => { const i = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 15000); return () => clearInterval(i); }, []);
 
   const { writer, ml, exportData, apiErrors } = data || {};
 

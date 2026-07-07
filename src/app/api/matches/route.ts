@@ -318,10 +318,10 @@ export async function GET(request: Request) {
       	      // crash vermesin diye lazy-loaded. Timeout 300ms.
       	      try {
       	        const goaloo = await import('@/lib/goaloo');
-      	        const goalooMatch = await Promise.race([
-      	          goaloo.findGoalooMatchForNesine(parsed.home, parsed.away, parsed.matchDate),
-      	          new Promise<null>((resolve) => setTimeout(() => resolve(null), 300)),
-      	        ]);
+	      	        const goalooMatch = await Promise.race([
+	      	          goaloo.findGoalooMatchForNesine(parsed.home, parsed.away, parsed.matchDate),
+	      	          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+	      	        ]);
       	        if (goalooMatch) {
       	          const [odds, momentum] = await Promise.all([
       	            goaloo.fetchGoalooOdds(goalooMatch.goalooMatchId).catch(() => null),
@@ -364,18 +364,21 @@ export async function GET(request: Request) {
 	      	          }
 
 	      	          // ── Goaloo → Elo Rating Fallback ─────────────────
+	      	          // Tetikleme: ya hic kayit yok, ya da default (1500/0mac) kayit var
 	      	          const _homeElo = getRating(parsed.home);
 	      	          const _awayElo = getRating(parsed.away);
-	      	          if (!_homeElo || !_awayElo) {
+	      	          const needsHome = !_homeElo || (_homeElo.matchesPlayed === 0 && _homeElo.rating === 1500);
+	      	          const needsAway = !_awayElo || (_awayElo.matchesPlayed === 0 && _awayElo.rating === 1500);
+	      	          if (needsHome || needsAway) {
 	      	            try {
 	      	              const teamStats = await goaloo.fetchGoalooTeamStats(goalooMatch.goalooMatchId);
 	      	              if (teamStats) {
 	      	                const entries: Array<{ team: string; rating: number }> = [];
-	      	                if (!_homeElo) {
+	      	                if (needsHome) {
 	      	                  const e = goaloo.estimateEloFromGoalooTeamStats(teamStats, true);
 	      	                  if (e) entries.push({ team: parsed.home, rating: e });
 	      	                }
-	      	                if (!_awayElo) {
+	      	                if (needsAway) {
 	      	                  const e = goaloo.estimateEloFromGoalooTeamStats(teamStats, false);
 	      	                  if (e) entries.push({ team: parsed.away, rating: e });
 	      	                }

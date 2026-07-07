@@ -131,7 +131,65 @@ function normalizeTeamName(name: string): string {
     .replace(/[ùúûü]/g, 'u').replace(/ç/g, 'c')
     .replace(/ş/g, 's').replace(/ğ/g, 'g')
     .replace(/ı/g, 'i').replace(/ö/g, 'o')
-    .replace(/ü/g, 'u').replace(/[^a-z0-9\s]/g, '').trim();
+    .replace(/ü/g, 'u')
+    // Strip all non-alphanumeric (spaces, hyphens, dots, apostrophes, etc.)
+    .replace(/[^a-z0-9]/g, '').trim();
+}
+
+/**
+ * Find the actual cache key for a team, resolving aliases.
+ * Returns the key if found, or the normalized name if not.
+ */
+function findRatingKey(name: string): string {
+  const ratings = loadRatings();
+  const base = normalizeTeamName(name);
+  if (ratings.has(base)) return base;
+  // Try alias map
+  for (const [matchKey, dbKey] of Object.entries(ALIAS_MAP)) {
+    if (matchKey === base || normalizeTeamName(matchKey) === base) {
+      const dbKeyNorm = normalizeTeamName(dbKey);
+      if (ratings.has(dbKeyNorm)) return dbKeyNorm;
+    }
+  }
+  return base;
+}
+
+/** Alias map: normalized match name → normalized DB key. */
+const ALIAS_MAP: Record<string, string> = {
+  "manchestercity": "mancity",
+  "parissaintgermain": "psg",
+  "paris saint germain": "psg",
+  "acmilan": "milan",
+  "intermilan": "inter",
+  "inter milan": "inter",
+  "borussiadortmund": "dortmund",
+  "borussia dortmund": "dortmund",
+  "tottenhamhotspur": "tottenham",
+  "tottenham hotspur": "tottenham",
+  "atleticomadrid": "atletico",
+  "atletico madrid": "atletico",
+};
+
+/** Try multiple key variants to find a team in the cache. */
+function lookupRating(name: string): EloRating | undefined {
+  const ratings = loadRatings();
+  const base = normalizeTeamName(name);
+  if (ratings.has(base)) return ratings.get(base);
+  // Turkish short-name aliases
+  const turkish: Record<string, string> = {
+    "gs": "galatasaray", "fb": "fenerbahce", "bjk": "besiktas", "ts": "trabzonspor",
+    "ibfk": "istanbulbasaksehir", "basaksehir": "istanbulbasaksehir",
+  };
+  const t = turkish[base];
+  if (t && ratings.has(t)) return ratings.get(t);
+  // Common alias map
+  for (const [matchKey, dbKey] of Object.entries(ALIAS_MAP)) {
+    if (matchKey === base) {
+      const dbKeyNorm = normalizeTeamName(dbKey);
+      if (ratings.has(dbKeyNorm)) return ratings.get(dbKeyNorm);
+    }
+  }
+  return undefined;
 }
 
 function expectedScore(ratingA: number, ratingB: number): number {
@@ -165,11 +223,13 @@ function getDecayFn(): (current: number, daysAgo: number, revert: number) => num
 
 export function updateRatings(home: string, away: string, homeGoals: number, awayGoals: number): { home: EloRating; away: EloRating } {
   const ratings = loadRatings();
-  const homeKey = normalizeTeamName(home) || home;
-  const awayKey = normalizeTeamName(away) || away;
   const defaultRating = (): EloRating => ({ rating: INITIAL_RATING, matchesPlayed: 0, lastUpdated: Date.now(), recentResults: [] });
-  let homeRating: EloRating = ratings.get(homeKey) || defaultRating();
-  let awayRating: EloRating = ratings.get(awayKey) || defaultRating();
+  const homeExisting = lookupRating(home);
+  const awayExisting = lookupRating(away);
+  const homeKey = homeExisting !== undefined ? findRatingKey(home) : (normalizeTeamName(home) || home);
+  const awayKey = awayExisting !== undefined ? findRatingKey(away) : (normalizeTeamName(away) || away);
+  let homeRating: EloRating = homeExisting || defaultRating();
+  let awayRating: EloRating = awayExisting || defaultRating();
 
   // P1.5: Apply time decay to pre-match rating — old ratings fade to mean
   const now = Date.now();
@@ -245,9 +305,8 @@ export function predictFromElo(home: string, away: string): EloPrediction {
 }
 
 export function getRating(team: string): { rating: number; matchesPlayed: number; lastUpdated: number; recentResults: string[] } | null {
-  const ratings = loadRatings();
-  const key = normalizeTeamName(team) || team;
-  return ratings.get(key) ?? null;
+  const r = lookupRating(team);
+  return r ?? null;
 }
 
 export function getAllRatings(): Map<string, EloRating> {

@@ -954,3 +954,57 @@ export async function getAvailableDates(): Promise<string[]> {
 // Bu fonksiyon daha önce checkAndRecordSignal içinden çağrılıyordu ve
 // reportGoal ile race condition yaratıyordu.
 // checkForGoals fonksiyonu kaldırılmıştır.
+
+// ── Goaloo ile Signal Doğrulama ────────────────────────────────
+// Fire-and-forget. Fetch Goaloo match events, extract goal minutes,
+// and label unlabeled signal predictions.
+
+export async function verifySignalWithGoaloo(
+  matchCode: number,
+  goalooMatchId: number,
+): Promise<void> {
+  try {
+    const goaloo = await import('./goaloo');
+    const events = await goaloo.fetchGoalooMatchEvents(goalooMatchId);
+    if (!events || events.length === 0) return;
+
+    const goalMinutes = events
+      .filter((e) => e.type === 'goal')
+      .map((e) => e.minute)
+      .filter((m) => m > 0)
+      .sort((a, b) => a - b);
+
+    if (goalMinutes.length === 0) return;
+
+    // Goaloo confirmed goals — label matching predictions
+    const unlabeled = await db.predictionLog.findMany({
+      where: { matchCode, goalScored: null },
+      select: { id: true, minute: true },
+    });
+    if (unlabeled.length === 0) return;
+
+    const updates: ReturnType<typeof db.predictionLog.update>[] = [];
+    const HORIZON = 15;
+    for (const row of unlabeled) {
+      const rMin = row.minute ?? 0;
+      const firstEligibleGoal = goalMinutes.find((gm) => gm > rMin && gm - rMin <= HORIZON);
+      if (firstEligibleGoal === undefined) continue;
+      const delta = firstEligibleGoal - rMin;
+      updates.push(
+        db.predictionLog.update({
+          where: { id: row.id },
+          data: {
+            goalScored: true,
+            minutesToGoal: delta,
+            goalTimestamp: new Date(Date.now() - delta * 60_000),
+          },
+        }),
+      );
+    }
+    if (updates.length > 0) {
+      await db.$transaction(updates);
+    }
+  } catch {
+    // Silently fail — this is a best-effort verification
+  }
+}

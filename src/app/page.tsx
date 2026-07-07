@@ -843,6 +843,8 @@ export default function OptimusGolRadariPage() {
         prob = m.goalRadar;
       } else {
         const history = allPressureData[m.code];
+        // Eger bu maç seçili maçsa ve Goaloo odds movement varsa kullan
+        const oddsBoost = selectedMatch?.code === m.code ? goalooOddsMovement : undefined;
         prob = calculateGoalProbability(
           m.stats,
           m.minute,
@@ -852,6 +854,7 @@ export default function OptimusGolRadariPage() {
           m.awayGoals,
           m.home,
           m.away,
+          oddsBoost,
         );
       }
       if (!prob) continue;
@@ -871,7 +874,7 @@ export default function OptimusGolRadariPage() {
       map.set(m.code, prob);
     }
     return map;
-  }, [matches, allPressureData]);
+  }, [matches, allPressureData, goalooOddsMovement, selectedMatch]);
 
   // Signal posting — isolated in its own effect so fetch calls don't
   // fire inside a useMemo (React anti-pattern). A ref tracks which
@@ -893,13 +896,16 @@ export default function OptimusGolRadariPage() {
       // 1) First 5 min of match (min < 5)
       // 2) First half 43 → HT (43-45 + 45+N stoppage)
       // 3) Minute 88 → final whistle (88+, includes 90+N)
+      // Override: Goaloo critical odds movement varsa blind window'da gec
       const minuteNum = parseGoalMinute(m.minute);
       const rawMin = String(m.minute);
-      const isBlocked =
+      const goalooOverride = selectedMatch?.code === code && goalooOddsMovement?.significance === "critical";
+      const isBlocked = !goalooOverride && (
         minuteNum < 5 ||
         minuteNum >= 88 ||
         (minuteNum >= 43 &&
-          (minuteNum <= 45 || /^45\s*\+/.test(rawMin)));
+          (minuteNum <= 45 || /^45\s*\+/.test(rawMin)))
+      );
       if (isBlocked) continue;
 
       const signalKey = `${code}:${prob.side}:${minuteNum}`;
@@ -940,7 +946,7 @@ export default function OptimusGolRadariPage() {
       const arr = Array.from(posted);
       postedSignalsRef.current = new Set(arr.slice(-300));
     }
-  }, [goalProbabilities, matches]);
+  }, [goalProbabilities, matches, goalooOddsMovement, selectedMatch]);
 
   const radarCount = useMemo(() => {
     let count = 0;
@@ -1157,12 +1163,18 @@ export default function OptimusGolRadariPage() {
   const threatIndex = useMemo(() => {
     if (!selectedMatch || !selectedMatch.isLive || !selectedMatch.hasStats)
       return null;
+    const goalooTrend = goalooOddsMovement?.significance === "critical"
+      ? { homeAvg: 65, awayAvg: 65 }
+      : goalooOddsMovement?.significance === "high"
+        ? { homeAvg: 55, awayAvg: 55 }
+        : undefined;
     return calculateThreatIndex(
       selectedMatch.stats,
       selectedMatch.minute,
       pressureSnapshots,
+      goalooTrend,
     );
-  }, [selectedMatch, pressureSnapshots]);
+  }, [selectedMatch, pressureSnapshots, goalooOddsMovement]);
 
   // Half-filtered stats
   const filteredStats = useMemo(() => {

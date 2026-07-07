@@ -16,7 +16,7 @@ import {
   GoalProbability,
 } from "@/lib/nesine";
 import { getCachedMatchDetails } from "@/lib/fotmob";
-import { autoFetchMissingRatings, getRating } from "@/lib/eloRating";
+import { autoFetchMissingRatings, getRating, bulkSetRatings } from "@/lib/eloRating";
 import { db } from "@/lib/db";
 import { applyCalibration } from "@/lib/calibration";
 import { extractFeatures, featuresToArray, pushFeatureSample } from "@/lib/featureEngineering";
@@ -24,7 +24,7 @@ import { loadTeamLogos, getTeamLogo } from "@/lib/teamLogos";
 import { loadXgbChampion } from "@/lib/ml/modelRouter";
 import { predictXgb } from "@/lib/ml/xgbLoader";
 import { predictEnsemble } from "@/lib/ensemble";
-import { reportGoal, parseMinute } from "@/lib/goalSignalTracker";
+import { reportGoal, parseMinute, verifySignalWithGoaloo } from "@/lib/goalSignalTracker";
 import type { GoalooEnrichment } from "@/lib/goalRadar";
 import {
   ensureMatch,
@@ -359,13 +359,41 @@ export async function GET(request: Request) {
       	                awayDirection: awayLast > awayFirst + 5 ? 'rising' : awayLast < awayFirst - 5 ? 'falling' : 'stable',
       	              },
       	            };
-      	          } else if (goalooOddsBoost) {
-      	            goalooData = { oddsMovement: goalooOddsBoost, momentumTrend: null };
-      	          }
-      	        }
-	      	      } catch (e) {
-	      	        logError('route-goaloo', e);
-		      }
+	      	          } else if (goalooOddsBoost) {
+	      	            goalooData = { oddsMovement: goalooOddsBoost, momentumTrend: null };
+	      	          }
+
+	      	          // ── Goaloo → Elo Rating Fallback ─────────────────
+	      	          const _homeElo = getRating(parsed.home);
+	      	          const _awayElo = getRating(parsed.away);
+	      	          if (!_homeElo || !_awayElo) {
+	      	            try {
+	      	              const teamStats = await goaloo.fetchGoalooTeamStats(goalooMatch.goalooMatchId);
+	      	              if (teamStats) {
+	      	                const entries: Array<{ team: string; rating: number }> = [];
+	      	                if (!_homeElo) {
+	      	                  const e = goaloo.estimateEloFromGoalooTeamStats(teamStats, true);
+	      	                  if (e) entries.push({ team: parsed.home, rating: e });
+	      	                }
+	      	                if (!_awayElo) {
+	      	                  const e = goaloo.estimateEloFromGoalooTeamStats(teamStats, false);
+	      	                  if (e) entries.push({ team: parsed.away, rating: e });
+	      	                }
+	      	                if (entries.length > 0) {
+	      	                  bulkSetRatings(entries);
+	      	                }
+	      	              }
+	      	            } catch { /* team stats fetch optional */ }
+	      	          }
+
+	      	          // ── Goaloo → Signal Verification ────────────────
+	      	          if (parsed.isLive) {
+	      	            verifySignalWithGoaloo(parsed.code, goalooMatch.goalooMatchId).catch(() => {});
+	      	          }
+	      	        }
+		      	      } catch (e) {
+		      	        logError('route-goaloo', e);
+			      }
 	      }
 
 	      goalRadar = calculateGoalProbability(

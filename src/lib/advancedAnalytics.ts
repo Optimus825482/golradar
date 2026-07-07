@@ -170,7 +170,8 @@ export interface ThreatComponents {
 export function calculateThreatIndex(
   stats: MatchStats,
   minute: string,
-  pressureHistory?: PressureSnapshot[]
+  pressureHistory?: PressureSnapshot[],
+  goalooTrend?: { homeAvg: number; awayAvg: number } | null
 ): ThreatIndex {
   // Parse minute
   let minNum = parseInt(minute.replace(/[^0-9]/g, ''), 10)
@@ -269,6 +270,17 @@ export function calculateThreatIndex(
 
       homeMomentumScore = Math.min(20, Math.max(0, 10 + homeTrend * 0.8))
       awayMomentumScore = Math.min(20, Math.max(0, 10 + awayTrend * 0.8))
+    }
+  }
+
+  // Goaloo momentum trend boost (Goaloo attack intensity 0-100)
+  if (goalooTrend) {
+    // 1) Apply as a weighted overlay — Goaloo intensity above 50 = positive momentum
+    if (goalooTrend.homeAvg > 50) {
+      homeMomentumScore = Math.min(20, homeMomentumScore + (goalooTrend.homeAvg - 50) * 0.15)
+    }
+    if (goalooTrend.awayAvg > 50) {
+      awayMomentumScore = Math.min(20, awayMomentumScore + (goalooTrend.awayAvg - 50) * 0.15)
     }
   }
 

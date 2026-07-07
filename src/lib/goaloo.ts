@@ -1435,3 +1435,52 @@ export function analyzeOddsMovement(odds: GoalooOdds): OddsMovement {
 
   return result;
 }
+
+// ── Elo Estimation from Goaloo Data ────────────────────────────
+// When ClubElo has no data for a team, use Goaloo's team stats
+// (avg goals scored/conceded, league rank) to estimate an Elo rating.
+
+interface GoalooEloInput {
+  avgGoals: number;
+  avgGoalsConceded: number;
+  rank?: string;       // e.g. "1st", "2nd", "10th"
+  leagueLevel?: number; // 1=top tier, 2=second tier, etc. default 3
+}
+
+export function estimateEloFromGoalooStats(input: GoalooEloInput): number | null {
+  // Start from league baseline
+  const baseByLevel: Record<number, number> = { 1: 1600, 2: 1500, 3: 1400, 4: 1300, 5: 1200 };
+  const base = baseByLevel[input.leagueLevel ?? 3] ?? 1400;
+
+  // Goal difference contribution
+  const gd = (input.avgGoals || 0) - (input.avgGoalsConceded || 0);
+  const gdElo = Math.round(gd * 80); // +80 Elo per goal differential
+
+  // Rank contribution (if available)
+  let rankElo = 0;
+  if (input.rank) {
+    const rankMatch = input.rank.match(/(\d+)/);
+    if (rankMatch) {
+      const pos = parseInt(rankMatch[1], 10);
+      // Top 3 = bonus, top half = small bonus, bottom half = penalty
+      if (pos <= 3) rankElo = 80 - pos * 15;
+      else if (pos <= 10) rankElo = 40 - pos * 4;
+      else rankElo = -20;
+    }
+  }
+
+  // Clamp
+  const elo = Math.max(500, Math.min(2500, base + gdElo + rankElo));
+  return elo;
+}
+
+export function estimateEloFromGoalooTeamStats(
+  stats: GoalooTeamStats,
+  isHome: boolean,
+  rank?: string,
+  leagueLevel?: number,
+): number | null {
+  const avgGoals = isHome ? stats.avgGoals.home : stats.avgGoals.away;
+  const avgGoalsConceded = isHome ? stats.avgGoalsConceded.home : stats.avgGoalsConceded.away;
+  return estimateEloFromGoalooStats({ avgGoals, avgGoalsConceded, rank, leagueLevel });
+}

@@ -1,14 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { createPortal } from "react-dom";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerDescription,
-} from "@/components/ui/drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { buildNetscoresMapping } from "@/lib/utils";
 import {
@@ -36,7 +28,6 @@ import { useGoalDetection } from "@/hooks/useGoalDetection";
 import { useUpcomingMatches } from "@/hooks/useUpcomingMatches";
 import { armAudioUnlock } from "@/lib/playGoalSound";
 
-import { Badge } from "@/components/ui/badge";
 import type {
   Match,
   MatchStats,
@@ -52,15 +43,18 @@ import {
 } from "@/components/match/utils";
 import {
   CountryFlag,
-  MatchStatusBadge,
 } from "@/components/match/shared-components";
 import { MatchCard } from "@/components/match/MatchCard";
-import { MatchDetailContent } from "@/components/match/MatchDetailContent";
-import type { MatchDetailContentProps } from "@/components/match/MatchDetailContent";
 import { BottomNavBar } from "@/components/match/BottomNavBar";
 import { GoalRadarSection } from "@/components/match/GoalRadarSection";
 import { logError } from "@/lib/devLog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AppHeader } from "@/components/AppHeader";
+import { RadarAlertBanner } from "@/components/RadarAlertBanner";
+import { GoalNotificationToasts } from "@/components/GoalNotificationToasts";
+import { UpcomingMatchList } from "@/components/match/UpcomingMatchList";
+import { DesktopDetailPanel } from "@/components/match/DesktopDetailPanel";
+import { MobileDrawerPanel } from "@/components/match/MobileDrawerPanel";
 
 // Parse minute string handling stoppage time: "45+2" → 47, "90" → 90
 // Upper clamp to 120 (extra time), non-numeric input returns 45 as midpoint.
@@ -893,7 +887,22 @@ export default function OptimusGolRadariPage() {
       // Sinyal kaybi yasanmasin. Dedup key'de side='both' kullanilir.
       const m = matches.find((x) => x.code === code);
       if (!m) continue;
-      const signalKey = `${code}:${prob.side}:${parseGoalMinute(m.minute)}`;
+
+      // ── Minute-based signal gate ─────────────────────────────
+      // Block signals during 3 blind windows:
+      // 1) First 5 min of match (min < 5)
+      // 2) First half 43 → HT (43-45 + 45+N stoppage)
+      // 3) Minute 88 → final whistle (88+, includes 90+N)
+      const minuteNum = parseGoalMinute(m.minute);
+      const rawMin = String(m.minute);
+      const isBlocked =
+        minuteNum < 5 ||
+        minuteNum >= 88 ||
+        (minuteNum >= 43 &&
+          (minuteNum <= 45 || /^45\s*\+/.test(rawMin)));
+      if (isBlocked) continue;
+
+      const signalKey = `${code}:${prob.side}:${minuteNum}`;
       if (posted.has(signalKey)) continue;
       posted.add(signalKey);
       fetch("/api/goal-signals", {
@@ -1359,114 +1368,11 @@ export default function OptimusGolRadariPage() {
     // ── Upcoming matches section (all tab) ──
     const upcomingSection =
       activeTab === "all" && upcomingMatches.length > 0 ? (
-        <div className="mb-4">
-          <div className="flex items-center gap-2 px-3 py-1.5 mb-0.5">
-            <svg
-              className="w-4 h-4 text-indigo-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-              />
-            </svg>
-            <h2 className="text-xs font-bold text-gray-800 uppercase tracking-wide">
-              Yaklasan Maclar
-            </h2>
-            <span className="text-[10px] text-gray-400 ml-auto">
-              {upcomingMatches.length}
-            </span>
-          </div>
-          <div className="bg-white rounded-xl border border-indigo-100 overflow-hidden shadow-sm">
-            {upcomingMatches.map((m) => (
-              <div
-                key={m.code}
-                className="px-3 py-2.5 border-b border-gray-50 last:border-0 hover:bg-indigo-50/30 transition-colors cursor-pointer"
-                onClick={() => {
-                  const liveMatch = matches.find((mm) => mm.code === m.code);
-                  if (liveMatch) {
-                    handleSelectMatch(liveMatch);
-                    return;
-                  }
-                  // Upcoming match icin minimal match objesi olustur
-                  handleSelectMatch({
-                    code: m.code,
-                    bid: 0,
-                    league: m.league || "",
-                    leagueId: 0,
-                    home: m.home,
-                    away: m.away,
-                    homeTr: m.home,
-                    awayTr: m.away,
-                    homeGoals: 0,
-                    awayGoals: 0,
-                    firstHalfScore: "-",
-                    minute: m.time,
-                    status: 1,
-                    statusText: "Baslamadi",
-                    time: m.time || "",
-                    isLive: false,
-                    isFinished: false,
-                    isUpcoming: true,
-                    country: "",
-                    stats: {} as MatchStats,
-                    hasStats: false,
-                    homeColor: null,
-                    awayColor: null,
-                    homeAbbrev: null,
-                    awayAbbrev: null,
-                    homeLogoUrl: null,
-                    awayLogoUrl: null,
-                    homeRedCards: 0,
-                    awayRedCards: 0,
-                  } as Match);
-                }}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div className="text-center w-12 shrink-0">
-                      <div className="text-[11px] font-bold text-indigo-600">
-                        {m.time}
-                      </div>
-                      <div className="text-[9px] text-gray-400">
-                        {m.day?.slice(0, 3)}
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[13px] font-medium text-gray-800 truncate">
-                          {m.home}
-                        </span>
-                        {m.homeOdds && (
-                          <span className="text-[12px] font-mono font-bold text-gray-500 ml-2 w-8 text-right">
-                            {m.homeOdds.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[13px] font-medium text-gray-800 truncate">
-                          {m.away}
-                        </span>
-                        {m.awayOdds && (
-                          <span className="text-[12px] font-mono font-bold text-gray-500 ml-2 w-8 text-right">
-                            {m.awayOdds.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[9px] text-gray-400 mt-0.5">
-                        {m.league}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <UpcomingMatchList
+          upcomingMatches={upcomingMatches}
+          matches={matches}
+          onSelectMatch={handleSelectMatch}
+        />
       ) : null;
 
     if (groupedMatches.mode === "league") {
@@ -1573,126 +1479,20 @@ export default function OptimusGolRadariPage() {
     >
       <div className="min-h-screen bg-gray-50 flex flex-col touch-manipulation">
         {/* ── Compact App Header ─────────────────────────────────── */}
-        <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm safe-top">
-          <div className="max-w-350 mx-auto px-3 py-2 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <img
-                src="/logo-192.png"
-                alt="Gol Radarı"
-                className="w-8 h-8 rounded-lg shadow-sm object-cover"
-              />
-              <div>
-                <h1 className="text-base font-bold text-gray-900 tracking-tight leading-tight">
-                  Gol Radarı
-                </h1>
-                <p className="text-[10px] text-gray-400 leading-tight flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
-                  {lastUpdate
-                    ? `Canlı · ${lastUpdate.toLocaleTimeString("tr-TR")}`
-                    : "—"}
-                  {wsConnected && (
-                    <span
-                      className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block ml-1"
-                      title="WebSocket bagli"
-                    />
-                  )}
-                  {!wsConnected && (
-                    <span
-                      className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block ml-1"
-                      title="WebSocket bagli degil, HTTP poll aktif"
-                    />
-                  )}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() =>
-                  setSortBy(sortBy === "league" ? "time" : "league")
-                }
-                className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-100 hover:bg-gray-200 transition-colors"
-                aria-label={
-                  sortBy === "league"
-                    ? "Dakikaya göre sırala (yüksekten düşüğe)"
-                    : "Lige göre sırala"
-                }
-                title={
-                  sortBy === "league"
-                    ? "Lig sıralaması"
-                    : "Dakika sıralaması (en ileri maç üstte)"
-                }
-              >
-                {sortBy === "league" ? (
-                  <svg
-                    className="w-4 h-4 text-gray-500"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-                    />
-                  </svg>
-                ) : (
-                  <svg
-                    className="w-4 h-4 text-gray-500"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"
-                    />
-                  </svg>
-                )}
-              </button>
-              {liveCount > 0 && (
-                <Badge className="bg-emerald-50 text-emerald-700 text-[10px] hover:bg-emerald-50 border border-emerald-200 px-2 py-0.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1" />
-                  {liveCount}
-                </Badge>
-              )}
-            </div>
-          </div>
-        </header>
+        <AppHeader
+          lastUpdate={lastUpdate}
+          wsConnected={wsConnected}
+          sortBy={sortBy}
+          onToggleSort={() => setSortBy(sortBy === "league" ? "time" : "league")}
+          liveCount={liveCount}
+        />
 
         {/* ── Goal Radar Alert Banner ──────────────────────────── */}
         {radarCount > 0 && activeTab !== "radar" && (
-          <div className="bg-linear-to-r from-red-500 via-red-600 to-red-500 border-b border-red-700">
-            <div className="max-w-350 mx-auto px-3 py-1.5 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <svg
-                    className="w-4 h-4 text-white animate-pulse"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 6v6l4 2" />
-                  </svg>
-                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-yellow-400 rounded-full animate-ping" />
-                </div>
-                <span className="text-white text-xs font-bold">GOL RADARI</span>
-                <span className="text-red-100 text-[10px]">
-                  {radarCount} maç
-                </span>
-              </div>
-              <button
-                onClick={() => setActiveTab("radar")}
-                className="px-2.5 py-0.5 bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold rounded-full transition-all backdrop-blur-sm"
-              >
-                Görüntüle →
-              </button>
-            </div>
-          </div>
+          <RadarAlertBanner
+            radarCount={radarCount}
+            onClick={() => setActiveTab("radar")}
+          />
         )}
 
         {/* ── Main Content Area ──────────────────────────────────── */}
@@ -1714,80 +1514,22 @@ export default function OptimusGolRadariPage() {
 
           {/* Desktop: full-page match detail when selected */}
           {selectedMatch && detailProps && (
-            <div className="hidden md:flex w-full overflow-y-auto bg-white flex-col">
-              {/* Sticky header with back button */}
-              <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-2 flex items-center justify-between shadow-sm">
-                <button
-                  onClick={handleCloseMatch}
-                  className="flex items-center gap-1.5 text-gray-600 hover:text-gray-900 transition-colors group"
-                >
-                  <svg
-                    className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M15 19l-7-7 7-7"
-                    />
-                  </svg>
-                  <span className="text-sm font-medium">Geri</span>
-                </button>
-                <span className="text-sm font-semibold text-gray-600">
-                  {selectedMatch.home} vs {selectedMatch.away}
-                </span>
-                {/* Spacer for flex alignment */}
-                <div className="w-16" />
-              </div>
-              <div className="flex-1 overflow-y-auto">
-                <MatchDetailContent
-                  {...(detailProps as MatchDetailContentProps)}
-                />
-              </div>
-            </div>
+            <DesktopDetailPanel
+              selectedMatch={selectedMatch}
+              detailProps={detailProps}
+              onClose={handleCloseMatch}
+            />
           )}
         </div>
 
         {/* ── Match Detail Panel (Mobile Drawer) ── */}
-        {isMobile ? (
-          <Drawer
-            open={drawerOpen}
-            onOpenChange={(open) => {
-              if (!open) handleCloseMatch();
-            }}
-            shouldScaleBackground
-          >
-            <DrawerContent className="max-h-[92dvh]">
-              <DrawerHeader className="p-3 pb-0">
-                <DrawerTitle className="text-sm font-semibold text-gray-700">
-                  {selectedMatch
-                    ? `${selectedMatch.home} vs ${selectedMatch.away}`
-                    : "Maç Detayı"}
-                </DrawerTitle>
-                <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                  <DrawerDescription className="text-[10px] text-gray-400">
-                    {selectedMatch?.league}
-                  </DrawerDescription>
-                  <span className="text-gray-300">·</span>
-                  <MatchStatusBadge match={selectedMatch!} />
-                </div>
-              </DrawerHeader>
-              <div
-                className="overflow-y-auto"
-                style={{ maxHeight: "calc(92dvh - 80px)" }}
-              >
-                {selectedMatch && detailProps && (
-                  <MatchDetailContent
-                    {...(detailProps as MatchDetailContentProps)}
-                  />
-                )}
-              </div>
-            </DrawerContent>
-          </Drawer>
-        ) : null}
+        <MobileDrawerPanel
+          drawerOpen={drawerOpen}
+          selectedMatch={selectedMatch}
+          detailProps={detailProps}
+          onClose={handleCloseMatch}
+          isMobile={isMobile}
+        />
 
         {/* ── Sticky Footer Navigation Bar ──────────────────────── */}
         <BottomNavBar
@@ -1799,53 +1541,10 @@ export default function OptimusGolRadariPage() {
         />
 
         {/* Goal Notifications Portal */}
-        {goalNotifications.length > 0 &&
-          favoritesLoaded &&
-          createPortal(
-            <div
-              className="fixed top-16 right-3 z-100 flex flex-col gap-2 pointer-events-none"
-              style={{ maxWidth: "340px" }}
-            >
-              {goalNotifications.map((notif) => (
-                <div
-                  key={notif.id}
-                  className="pointer-events-auto animate-[slideInRight_0.4s_ease-out] bg-linear-to-r from-green-500 via-emerald-500 to-green-600 rounded-xl shadow-2xl border border-green-400 p-3 text-white"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="relative">
-                      <div className="text-lg">⚽</div>
-                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full animate-ping" />
-                    </div>
-                    <span className="font-black text-sm tracking-wide animate-pulse">
-                      GOL!
-                    </span>
-                    <span className="text-[10px] text-green-200 ml-auto">
-                      {notif.minute}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={`text-xs font-bold ${notif.scoringTeam === "home" ? "text-yellow-200" : ""}`}
-                    >
-                      {notif.home}
-                    </span>
-                    <span className="text-xl font-black mx-2">
-                      {notif.homeGoals} - {notif.awayGoals}
-                    </span>
-                    <span
-                      className={`text-xs font-bold ${notif.scoringTeam === "away" ? "text-yellow-200" : ""}`}
-                    >
-                      {notif.away}
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-green-200 mt-0.5">
-                    {notif.league}
-                  </div>
-                </div>
-              ))}
-            </div>,
-            document.body,
-          )}
+        <GoalNotificationToasts
+          goalNotifications={goalNotifications}
+          favoritesLoaded={favoritesLoaded}
+        />
       </div>
     </ErrorBoundary>
   );

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Search, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw } from 'lucide-react';
+import { authFetch } from '@/lib/adminAuth';
 
 interface NationalTeam {
   id: string; countryCode: string; countryName: string;
@@ -15,25 +16,25 @@ export default function NationalEloPage() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '50' });
-      if (search) params.set('search', search);
-      const resp = await fetch(`/api/admin/national-elo?${params}`);
-      const json = await resp.json();
-      setData(json);
-    } catch { /* */ }
-    setLoading(false);
-  }, [page, search]);
+	  const fetchData = useCallback(async () => {
+	    setLoading(true);
+	    try {
+	      const params = new URLSearchParams({ page: String(page), limit: '50' });
+	      if (search) params.set('search', search);
+	      const resp = await authFetch(`/api/admin/national-elo?${params}`);
+	      const json = await resp.json();
+	      setData(json);
+	    } catch { /* */ }
+	    setLoading(false);
+	  }, [page, search]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+	  useEffect(() => { fetchData(); }, [fetchData]);
 
-  const runImport = async () => {
-    setImporting(true);
-    try {
-      const resp = await fetch('/api/admin/national-elo', { method: 'POST' });
-      const json = await resp.json();
+	  const runImport = async () => {
+	    setImporting(true);
+	    try {
+	      const resp = await authFetch('/api/admin/national-elo', { method: 'POST' });
+	      const json = await resp.json();
       if (!json.ok) throw new Error(json.error);
       fetchData();
     } catch (e) { /* */ }

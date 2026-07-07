@@ -5,6 +5,7 @@ import {
   Settings2, ToggleLeft, SlidersHorizontal, BookOpen,
   Info, X, Check, RefreshCw, AlertTriangle,
 } from 'lucide-react';
+import { authFetch } from '@/lib/adminAuth';
 
 interface FeatureFlag {
   key: string; label: string; description: string;
@@ -134,28 +135,28 @@ export default function SettingsPage() {
   const [selected, setSelected] = useState<FeatureFlag | null>(null);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await fetch('/api/admin/settings');
-      const d = await r.json();
-      if (d.flags) setFlags(d.flags);
-      else setError('Beklenmeyen yanıt');
-    } catch (e: any) { setError(e.message); }
-    setLoading(false);
-  }, []);
+	  const load = useCallback(async () => {
+	    setLoading(true);
+	    try {
+	      const r = await authFetch('/api/admin/settings');
+	      const d = await r.json();
+	      if (d.flags) setFlags(d.flags);
+	      else setError('Beklenmeyen yanıt');
+	    } catch (e: any) { setError(e.message); }
+	    setLoading(false);
+	  }, []);
 
-  useEffect(() => { load(); }, [load]);
+	  useEffect(() => { load(); }, [load]);
 
-  const toggle = useCallback(async (key: string, newVal: string) => {
-    setSaving(key);
-    setMsg(null);
-    try {
-      const r = await fetch('/api/admin/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, value: newVal }),
-      });
+	  const toggle = useCallback(async (key: string, newVal: string) => {
+	    setSaving(key);
+	    setMsg(null);
+	    try {
+	      const r = await authFetch('/api/admin/settings', {
+	        method: 'PATCH',
+	        headers: { 'Content-Type': 'application/json' },
+	        body: JSON.stringify({ key, value: newVal }),
+	      });
       const d = await r.json();
       if (d.ok) {
         setMsg({ type: 'ok', text: `${key} → ${d.effectiveValue}` });

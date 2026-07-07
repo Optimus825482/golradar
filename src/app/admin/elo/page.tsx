@@ -44,7 +44,7 @@ export default function AdminEloPage() {
     try {
       const params = new URLSearchParams({ page: String(page), limit: '50', sortBy, sortDir });
       if (search) params.set('search', search);
-      const resp = await fetch(`/api/admin/elo?${params}`);
+      const resp = await authFetch(`/api/admin/elo?${params}`);
       const json = await resp.json();
       setData(json);
     } catch { /* */ }

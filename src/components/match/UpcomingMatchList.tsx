@@ -10,10 +10,11 @@ interface UpcomingMatchListProps {
   onSelectMatch: (match: Match) => void;
 }
 
-/** "2026-07-07" + "00:30" → remaining minutes. Negative if past. */
-function minutesUntil(date: string, time: string): number {
+/** "07.07.2026" + "00:30" → remaining minutes. Negative if past. */
+function minutesUntil(dateStr: string, time: string): number {
   try {
-    const matchTime = new Date(`${date}T${time}:00+03:00`);
+    const [d, m, y] = dateStr.split('.');
+    const matchTime = new Date(`${y}-${m}-${d}T${time}:00+03:00`);
     return Math.round((matchTime.getTime() - Date.now()) / 60_000);
   } catch {
     return Infinity;
@@ -31,6 +32,7 @@ function Countdown({ date, time }: { date: string; time: string }) {
     return () => clearInterval(id);
   }, [date, time]);
 
+  if (!isFinite(mins)) return null;
   if (mins <= 0) return <span className="text-[10px] text-emerald-600 font-semibold">BASLIYOR</span>;
   if (mins < 60) return <span className="text-[10px] text-amber-600 font-bold">{mins}dk</span>;
   const h = Math.floor(mins / 60);

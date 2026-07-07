@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { Match, MatchStats } from "./types";
 import type { UpcomingMatch } from "@/hooks/useUpcomingMatches";
 
@@ -7,6 +8,34 @@ interface UpcomingMatchListProps {
   upcomingMatches: UpcomingMatch[];
   matches: Match[];
   onSelectMatch: (match: Match) => void;
+}
+
+/** "2026-07-07" + "00:30" → remaining minutes. Negative if past. */
+function minutesUntil(date: string, time: string): number {
+  try {
+    const matchTime = new Date(`${date}T${time}:00+03:00`);
+    return Math.round((matchTime.getTime() - Date.now()) / 60_000);
+  } catch {
+    return Infinity;
+  }
+}
+
+function Countdown({ date, time }: { date: string; time: string }) {
+  const [mins, setMins] = useState(() => minutesUntil(date, time));
+
+  useEffect(() => {
+    setMins(minutesUntil(date, time));
+    const id = setInterval(() => {
+      setMins(minutesUntil(date, time));
+    }, 30_000); // every 30s
+    return () => clearInterval(id);
+  }, [date, time]);
+
+  if (mins <= 0) return <span className="text-[10px] text-emerald-600 font-semibold">BASLIYOR</span>;
+  if (mins < 60) return <span className="text-[10px] text-amber-600 font-bold">{mins}dk</span>;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return <span className="text-[10px] text-gray-500">{h}s {m}dk</span>;
 }
 
 export function UpcomingMatchList({
@@ -50,7 +79,6 @@ export function UpcomingMatchList({
                 onSelectMatch(liveMatch);
                 return;
               }
-              // Upcoming match icin minimal match objesi olustur
               onSelectMatch({
                 code: m.code,
                 bid: 0,
@@ -84,40 +112,27 @@ export function UpcomingMatchList({
               } as Match);
             }}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="text-center w-12 shrink-0">
-                  <div className="text-[11px] font-bold text-indigo-600">
-                    {m.time}
-                  </div>
-                  <div className="text-[9px] text-gray-400">
-                    {m.day?.slice(0, 3)}
-                  </div>
+            <div className="flex items-center gap-3">
+              {/* Time + countdown */}
+              <div className="text-center w-14 shrink-0">
+                <div className="text-[11px] font-bold text-indigo-600">
+                  {m.time}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-medium text-gray-800 truncate">
-                      {m.home}
-                    </span>
-                    {m.homeOdds && (
-                      <span className="text-[12px] font-mono font-bold text-gray-500 ml-2 w-8 text-right">
-                        {m.homeOdds.toFixed(2)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-medium text-gray-800 truncate">
-                      {m.away}
-                    </span>
-                    {m.awayOdds && (
-                      <span className="text-[12px] font-mono font-bold text-gray-500 ml-2 w-8 text-right">
-                        {m.awayOdds.toFixed(2)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[9px] text-gray-400 mt-0.5">
-                    {m.league}
-                  </div>
+                <div className="text-[8px] text-gray-400 uppercase">
+                  {m.day?.slice(0, 3)}
+                </div>
+                <Countdown date={m.date} time={m.time} />
+              </div>
+              {/* Teams + league */}
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-medium text-gray-800 truncate">
+                  {m.home}
+                </div>
+                <div className="text-[13px] font-medium text-gray-800 truncate">
+                  {m.away}
+                </div>
+                <div className="text-[9px] text-gray-400 mt-0.5 truncate">
+                  {m.league}
                 </div>
               </div>
             </div>

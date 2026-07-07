@@ -103,7 +103,7 @@ export default function SystemStatusPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {!writer && !loading ? (
+          {!writer || loading ? (
             <p className="text-sm text-amber-600">API bağlantısı kurulamadı</p>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
